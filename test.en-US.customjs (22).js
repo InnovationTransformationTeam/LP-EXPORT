@@ -7495,6 +7495,8 @@
 
   // Attach change tracking to editable cells in a row
   function attachCellChangeTracking(tr) {
+    if (!tr) return; // Defensive check
+
     // Track contenteditable cells
     tr.querySelectorAll('.ce, .ce-num').forEach(cell => {
       cell.addEventListener('input', () => handleCellChange(tr, cell));
@@ -7855,33 +7857,40 @@
 
   // Initialize enhanced table features
   function initEnhancedOrderTable() {
-    // Attach event listeners to toolbar buttons
-    const saveAllBtn = d.getElementById('saveAllChangesBtn');
-    const discardBtn = d.getElementById('discardChangesBtn');
-    const fullscreenBtn = d.getElementById('fullscreenTableBtn');
+    try {
+      // Attach event listeners to toolbar buttons
+      const saveAllBtn = d.getElementById('saveAllChangesBtn');
+      const discardBtn = d.getElementById('discardChangesBtn');
+      const fullscreenBtn = d.getElementById('fullscreenTableBtn');
 
-    if (saveAllBtn) {
-      saveAllBtn.addEventListener('click', saveAllChanges);
+      if (saveAllBtn) {
+        saveAllBtn.addEventListener('click', saveAllChanges);
+      }
+
+      if (discardBtn) {
+        discardBtn.addEventListener('click', discardAllChanges);
+      }
+
+      if (fullscreenBtn) {
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+      }
+
+      // Setup unsaved changes warning
+      setupUnsavedChangesWarning();
+
+      // Setup global keyboard shortcuts
+      setupGlobalKeyboardShortcuts();
+
+      // Attach change tracking to existing rows (if any exist)
+      const existingRows = QA("#itemsTableBody tr.lp-data-row");
+      if (existingRows && existingRows.length > 0) {
+        existingRows.forEach(attachCellChangeTracking);
+      }
+
+      console.log("✅ Enhanced Order Table initialized - Excel-like editing enabled");
+    } catch (err) {
+      console.warn("⚠️ Enhanced Order Table init error (non-critical):", err);
     }
-
-    if (discardBtn) {
-      discardBtn.addEventListener('click', discardAllChanges);
-    }
-
-    if (fullscreenBtn) {
-      fullscreenBtn.addEventListener('click', toggleFullscreen);
-    }
-
-    // Setup unsaved changes warning
-    setupUnsavedChangesWarning();
-
-    // Setup global keyboard shortcuts
-    setupGlobalKeyboardShortcuts();
-
-    // Attach change tracking to existing rows
-    QA("#itemsTableBody tr.lp-data-row").forEach(attachCellChangeTracking);
-
-    console.log("✅ Enhanced Order Table initialized - Excel-like editing enabled");
   }
 
   // Initialize on DOM ready
