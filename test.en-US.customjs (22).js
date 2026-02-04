@@ -5986,8 +5986,20 @@
 
     const lpIndex = buildLpRowIndex();
 
-    const items = DCL_CONTAINER_ITEMS_STATE
-      .filter(ci => ci.quantity > 0)
+    // Calculate already-used capacity from existing assignments
+    DCL_CONTAINER_ITEMS_STATE
+      .filter(ci => ci.containerGuid) // Items already assigned
+      .forEach(ci => {
+        const container = containers.find(c => c.dataverseId === ci.containerGuid);
+        if (container) {
+          const weight = computeContainerItemGrossWeight(ci, lpIndex);
+          container.usedKg += weight;
+        }
+      });
+
+    // Only get UNASSIGNED items (items without a container)
+    const unassignedItems = DCL_CONTAINER_ITEMS_STATE
+      .filter(ci => ci.quantity > 0 && !ci.containerGuid) // ✅ Only unassigned items
       .map(ci => {
         const weight = computeContainerItemGrossWeight(ci, lpIndex);
         return {
@@ -5996,12 +6008,13 @@
         };
       });
 
-    if (!items.length) {
-      showValidation("warning", "No positive quantities to allocate.");
+    if (!unassignedItems.length) {
+      showValidation("info", "All items are already assigned to containers.");
       return;
     }
 
-    items.forEach(({ ci, grossKg }) => {
+    // Allocate only the unassigned items
+    unassignedItems.forEach(({ ci, grossKg }) => {
       containers.sort((a, b) => {
         const aRem = a.capacityKg - a.usedKg;
         const bRem = b.capacityKg - b.usedKg;
@@ -6015,13 +6028,9 @@
       ci.containerGuid = tgt.dataverseId || null;
     });
 
+    // Only patch the items that were newly assigned
     Promise.all(
-      DCL_CONTAINER_ITEMS_STATE.map(ci => {
-        if (!ci.containerGuid) {
-          return patchContainerItem(ci.id, {
-            "cr650_dcl_number@odata.bind": null
-          });
-        }
+      unassignedItems.map(({ ci }) => {
         return patchContainerItem(ci.id, {
           "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${ci.containerGuid})`
         });
@@ -6049,9 +6058,13 @@
         const statusContent = Q("#statusContent");
         if (section && statusContent) {
           section.style.display = "block";
-          statusContent.textContent =
-            `Allocated ${items.length} container-item lines into ${DCL_CONTAINERS_STATE.length} containers.`;
+          const alreadyAssigned = DCL_CONTAINER_ITEMS_STATE.length - unassignedItems.length;
+          statusContent.textContent = alreadyAssigned > 0
+            ? `Auto-assigned ${unassignedItems.length} unassigned item(s). ${alreadyAssigned} item(s) kept their existing assignment.`
+            : `Allocated ${unassignedItems.length} item(s) into ${DCL_CONTAINERS_STATE.length} container(s).`;
         }
+
+        showValidation("success", `Auto-assigned ${unassignedItems.length} unassigned item(s) to containers.`);
       })
 
 
