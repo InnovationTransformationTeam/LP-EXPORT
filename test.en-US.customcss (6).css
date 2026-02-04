@@ -11376,27 +11376,18 @@
 }
 
 /* =====================================================
-   EXCEL-LIKE EDITABLE CELLS - Subtle & Professional
+   EXCEL-LIKE EDITABLE CELLS - Clean & Minimal
    ===================================================== */
 
-/* Always editable cells */
+/* Always editable cells - No visual effects on hover/focus */
 .items-table td.ce,
 .items-table td.ce-num {
   cursor: text;
-  transition: background-color 0.1s ease;
-  position: relative;
-}
-
-.items-table td.ce:hover,
-.items-table td.ce-num:hover {
-  background-color: #f0f7ff !important;
 }
 
 .items-table td.ce:focus,
 .items-table td.ce-num:focus {
-  background-color: #fff !important;
-  outline: 2px solid var(--primary-green);
-  outline-offset: -2px;
+  outline: none;
 }
 
 /* Modified cell - Very subtle indicator */
@@ -11424,17 +11415,7 @@
   border-left: none;
 }
 
-/* New row styling */
-.items-table tr.row-new {
-  border-left: 3px solid var(--primary-green);
-}
-
-/* Save success - No animation, just brief highlight */
-.items-table tr.save-success td {
-  background-color: #f0fff4 !important;
-}
-
-/* Loading Qty input */
+/* Loading Qty input - Clean, no effects */
 .items-table .loading-qty {
   border: 1px solid #d1d5db;
   border-radius: 4px;
@@ -11442,53 +11423,29 @@
   width: 85px;
   text-align: center;
   font-weight: 500;
-  transition: border-color 0.15s ease;
   background: #fff;
 }
 
-.items-table .loading-qty:hover {
-  border-color: #adb5bd;
-}
-
 .items-table .loading-qty:focus {
-  border-color: var(--primary-green);
   outline: none;
-  box-shadow: 0 0 0 2px rgba(50, 99, 55, 0.1);
+  border-color: #adb5bd;
 }
 
 .items-table .loading-qty.modified {
   border-color: #d4a93c;
 }
 
-/* Release status select */
+/* Release status select - Clean, no effects */
 .items-table .release-status-select {
   padding: 4px 8px;
   border-radius: 4px;
   border: 1px solid #d1d5db;
   cursor: pointer;
-  transition: border-color 0.15s ease;
   background: #fff;
 }
 
-.items-table .release-status-select:hover {
-  border-color: #adb5bd;
-}
-
 .items-table .release-status-select:focus {
-  border-color: var(--primary-green);
   outline: none;
-}
-
-/* =====================================================
-   KEYBOARD NAVIGATION - Minimal indicators
-   ===================================================== */
-.items-table tr.keyboard-focused td:first-child {
-  box-shadow: inset 3px 0 0 var(--primary-green);
-}
-
-.items-table td.cell-focused {
-  outline: 2px solid var(--primary-green);
-  outline-offset: -2px;
 }
 
 /* =====================================================

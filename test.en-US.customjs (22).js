@@ -7551,13 +7551,7 @@
 
   // Handle cell focus
   function handleCellFocus(tr, cell) {
-    // Remove focus from other cells
-    d.querySelectorAll('.cell-focused').forEach(c => c.classList.remove('cell-focused'));
-    cell.classList.add('cell-focused');
-
-    // Highlight current row
-    d.querySelectorAll('.keyboard-focused').forEach(r => r.classList.remove('keyboard-focused'));
-    tr.classList.add('keyboard-focused');
+    // No visual effects - keep it clean
   }
 
   // Handle keyboard navigation
