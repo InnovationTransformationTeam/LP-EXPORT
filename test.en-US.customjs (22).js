@@ -5624,63 +5624,73 @@
       overlay.className = 'split-overlay';
 
       overlay.innerHTML = `
-        <div class="split-box" style="max-width:500px;">
+        <div class="split-box" style="max-width:520px;">
           <h4>Split Item</h4>
-          <div class="subtitle">Divide this quantity into separate line items</div>
-          
+          <div class="subtitle">Divide this quantity into separate line items for container assignment</div>
+
           <div class="split-current">
-            Total quantity: <strong>${total} units</strong>
+            <span class="split-current-label">Total Loading Quantity:</span>
+            <span class="split-current-value">${total} units</span>
           </div>
-          
-          <!-- Tab Selection -->
-          <div class="split-tabs" style="display:flex;gap:8px;margin:16px 0;">
-            <button class="split-tab active" data-mode="simple" style="flex:1;padding:8px;border:2px solid #006633;background:#006633;color:white;border-radius:6px;cursor:pointer;">
-              Split into 2 Items
+
+          <!-- Tab Selection - 3 Options -->
+          <div class="split-tabs-container">
+            <button class="split-tab active" data-mode="simple">
+              <i class="fas fa-divide"></i>
+              <span>Split into 2</span>
             </button>
-            <button class="split-tab" data-mode="multiple" style="flex:1;padding:8px;border:2px solid #ddd;background:white;color:#333;border-radius:6px;cursor:pointer;">
-              Split into N Items
+            <button class="split-tab" data-mode="multiple">
+              <i class="fas fa-th"></i>
+              <span>By # of Containers</span>
+            </button>
+            <button class="split-tab" data-mode="byQuantity">
+              <i class="fas fa-boxes"></i>
+              <span>By Qty per Container</span>
             </button>
           </div>
-          
+
           <!-- Mode 1: Simple 2-way split -->
           <div class="split-mode" id="simpleSplitMode">
             <div class="split-input-group">
-              <label>Enter quantity for first line item:</label>
+              <label>Quantity for first container:</label>
               <input type="number" id="splitQty" value="${Math.floor(total / 2)}" min="1" max="${max}" step="1">
               <div class="split-validation"></div>
             </div>
-            
+
             <div class="split-preview">
               <div class="split-preview-row">
-                <span class="split-preview-label">Line Item 1:</span>
+                <span class="split-preview-label">Container 1:</span>
                 <span class="split-preview-value" id="previewFirst">${Math.floor(total / 2)} units</span>
               </div>
               <div class="split-preview-row">
-                <span class="split-preview-label">Line Item 2:</span>
+                <span class="split-preview-label">Container 2:</span>
                 <span class="split-preview-value" id="previewSecond">${total - Math.floor(total / 2)} units</span>
               </div>
             </div>
           </div>
-          
-          <!-- Mode 2: Multiple line items split -->
+
+          <!-- Mode 2: Split by Number of Containers (Equal Distribution) -->
           <div class="split-mode" id="multipleSplitMode" style="display:none;">
             <div class="split-input-group">
-              <label>Number of Line Items:</label>
-              <input type="number" id="numRecordsInput" min="2" max="50" value="3" 
-                    style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+              <label>Number of Containers:</label>
+              <input type="number" id="numRecordsInput" min="2" max="50" value="3">
+              <div class="split-help">Quantity will be distributed equally across containers</div>
             </div>
-            
-            <div class="split-info-box" style="background:#f0f8ff;border-left:3px solid #0066cc;padding:12px;margin-top:12px;border-radius:4px;">
-              <div style="font-size:0.85rem;color:#004080;">
-                <i class="fas fa-info-circle"></i>
-                <strong>How it works:</strong> This creates separate line items in your loading plan with evenly distributed quantities. 
-                After splitting, assign each line item to a container in the Assignment Table.
-              </div>
-            </div>
-            
+
             <div id="multipleSplitPreview"></div>
           </div>
-          
+
+          <!-- Mode 3: Split by Quantity per Container (NEW) -->
+          <div class="split-mode" id="byQuantityMode" style="display:none;">
+            <div class="split-input-group">
+              <label>Quantity per Container:</label>
+              <input type="number" id="qtyPerContainerInput" min="1" max="${total}" value="${Math.min(250, Math.ceil(total / 4))}">
+              <div class="split-help">System will create as many containers as needed</div>
+            </div>
+
+            <div id="byQuantityPreview"></div>
+          </div>
+
           <div class="split-btns">
             <button class="cancel">Cancel</button>
             <button class="ok" disabled>Confirm Split</button>
@@ -5693,39 +5703,39 @@
       const tabs = overlay.querySelectorAll('.split-tab');
       const simpleModeDiv = overlay.querySelector('#simpleSplitMode');
       const multipleModeDiv = overlay.querySelector('#multipleSplitMode');
+      const byQuantityModeDiv = overlay.querySelector('#byQuantityMode');
       const okBtn = overlay.querySelector('.ok');
 
       let currentMode = 'simple';
 
-      // Tab switching
+      // Tab switching - handles 3 modes
       tabs.forEach(tab => {
         tab.addEventListener('click', () => {
-          tabs.forEach(t => {
-            t.classList.remove('active');
-            t.style.background = 'white';
-            t.style.color = '#333';
-            t.style.borderColor = '#ddd';
-          });
+          tabs.forEach(t => t.classList.remove('active'));
           tab.classList.add('active');
-          tab.style.background = '#006633';
-          tab.style.color = 'white';
-          tab.style.borderColor = '#006633';
 
           currentMode = tab.dataset.mode;
 
+          // Hide all modes first
+          simpleModeDiv.style.display = 'none';
+          multipleModeDiv.style.display = 'none';
+          byQuantityModeDiv.style.display = 'none';
+
+          // Show selected mode and validate
           if (currentMode === 'simple') {
             simpleModeDiv.style.display = 'block';
-            multipleModeDiv.style.display = 'none';
             validateSimpleSplit();
-          } else {
-            simpleModeDiv.style.display = 'none';
+          } else if (currentMode === 'multiple') {
             multipleModeDiv.style.display = 'block';
             updateMultipleSplitPreview();
+          } else if (currentMode === 'byQuantity') {
+            byQuantityModeDiv.style.display = 'block';
+            updateByQuantityPreview();
           }
         });
       });
 
-      // Simple split validation
+      // ========== Mode 1: Simple 2-way split ==========
       const input = overlay.querySelector('#splitQty');
       const validation = overlay.querySelector('.split-validation');
       const preview = overlay.querySelector('.split-preview');
@@ -5767,7 +5777,7 @@
         previewSecond.textContent = remaining + ' units';
         preview.classList.add('show');
         input.className = 'valid';
-        validation.textContent = 'Valid quantity';
+        validation.textContent = 'Valid';
         validation.className = 'split-validation success';
         okBtn.disabled = false;
         return true;
@@ -5775,7 +5785,7 @@
 
       input.addEventListener('input', validateSimpleSplit);
 
-      // Multiple line items split
+      // ========== Mode 2: Split by Number of Containers (Equal) ==========
       const numInput = overlay.querySelector('#numRecordsInput');
       const multiplePreview = overlay.querySelector('#multipleSplitPreview');
 
@@ -5783,35 +5793,29 @@
         const numRecords = parseInt(numInput.value);
 
         if (!numRecords || numRecords < 2) {
-          multiplePreview.innerHTML = '';
+          multiplePreview.innerHTML = '<div class="split-preview-error">Enter at least 2 containers</div>';
           okBtn.disabled = true;
           return;
         }
 
-        // ✅ SAFETY VALIDATION #1: Prevent more line items than total quantity
         if (numRecords > total) {
-          multiplePreview.innerHTML = `
-            <div style="color:#b91c1c;font-size:0.9rem;padding:8px;">
-              Number of line items cannot exceed total quantity (${total})
-            </div>
-          `;
+          multiplePreview.innerHTML = '<div class="split-preview-error">Cannot exceed total quantity (' + total + ')</div>';
           okBtn.disabled = true;
           return;
         }
 
-        // Calculate even distribution
         const distribution = splitEvenly(total, numRecords);
 
         multiplePreview.innerHTML = `
-          <div style="background:#d1e7dd;border:2px solid #006633;border-radius:8px;padding:12px;margin-top:12px;">
-            <div style="color:#006633;font-weight:600;margin-bottom:8px;">
-              ✓ Distribution Preview
+          <div class="split-preview-success">
+            <div class="split-preview-header">
+              <i class="fas fa-check-circle"></i> Distribution Preview
             </div>
-            <div style="max-height:200px;overflow-y:auto;">
+            <div class="split-preview-list">
               ${distribution.map((qty, idx) => `
-                <div style="display:flex;justify-content:space-between;padding:6px 8px;background:white;border-radius:4px;margin-bottom:4px;">
-                  <span>Line Item ${idx + 1}:</span>
-                  <span><strong>${qty}</strong> units</span>
+                <div class="split-preview-item">
+                  <span>Container ${idx + 1}</span>
+                  <span class="split-preview-qty">${qty} units</span>
                 </div>
               `).join('')}
             </div>
@@ -5821,7 +5825,54 @@
         okBtn.disabled = false;
       }
 
-      // Helper: Split evenly
+      numInput.addEventListener('input', updateMultipleSplitPreview);
+
+      // ========== Mode 3: Split by Quantity per Container (NEW) ==========
+      const qtyPerInput = overlay.querySelector('#qtyPerContainerInput');
+      const byQuantityPreview = overlay.querySelector('#byQuantityPreview');
+
+      function updateByQuantityPreview() {
+        const qtyPer = parseInt(qtyPerInput.value);
+
+        if (!qtyPer || qtyPer <= 0) {
+          byQuantityPreview.innerHTML = '<div class="split-preview-error">Enter a valid quantity</div>';
+          okBtn.disabled = true;
+          return;
+        }
+
+        if (qtyPer > total) {
+          byQuantityPreview.innerHTML = '<div class="split-preview-error">Cannot exceed total quantity (' + total + ')</div>';
+          okBtn.disabled = true;
+          return;
+        }
+
+        // Calculate distribution by fixed quantity
+        const distribution = splitByFixedQuantity(total, qtyPer);
+
+        byQuantityPreview.innerHTML = `
+          <div class="split-preview-success">
+            <div class="split-preview-header">
+              <i class="fas fa-check-circle"></i> Distribution Preview (${distribution.length} containers)
+            </div>
+            <div class="split-preview-list">
+              ${distribution.map((qty, idx) => `
+                <div class="split-preview-item ${qty < qtyPer ? 'remainder' : ''}">
+                  <span>Container ${idx + 1}${qty < qtyPer ? ' (remainder)' : ''}</span>
+                  <span class="split-preview-qty">${qty} units</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+
+        okBtn.disabled = false;
+      }
+
+      qtyPerInput.addEventListener('input', updateByQuantityPreview);
+
+      // ========== Helper Functions ==========
+
+      // Split evenly into N parts (remainder goes to last)
       function splitEvenly(total, n) {
         const base = Math.floor(total / n);
         const remainder = total % n;
@@ -5830,26 +5881,54 @@
         );
       }
 
-      numInput.addEventListener('input', updateMultipleSplitPreview);
+      // Split by fixed quantity per container
+      function splitByFixedQuantity(total, qtyPer) {
+        const distribution = [];
+        let remaining = total;
 
-      // Confirm button
+        while (remaining > 0) {
+          if (remaining >= qtyPer) {
+            distribution.push(qtyPer);
+            remaining -= qtyPer;
+          } else {
+            distribution.push(remaining);
+            remaining = 0;
+          }
+        }
+
+        return distribution;
+      }
+
+      // ========== Confirm Button ==========
       okBtn.addEventListener('click', () => {
         if (currentMode === 'simple') {
-          const val = input.value;
+          const val = parseInt(input.value);
           document.body.removeChild(overlay);
           resolve({ mode: 'simple', value: val });
-        } else {
+
+        } else if (currentMode === 'multiple') {
           const numRecords = parseInt(numInput.value);
           const distribution = splitEvenly(total, numRecords);
 
-          // ✅ SAFETY VALIDATION #2: Final check before persistence
           if (distribution.some(q => q <= 0)) {
-            alert("Invalid split: one or more line items would have zero quantity");
+            alert("Invalid: one or more containers would have zero quantity");
             return;
           }
 
           document.body.removeChild(overlay);
           resolve({ mode: 'multiple', distribution: distribution });
+
+        } else if (currentMode === 'byQuantity') {
+          const qtyPer = parseInt(qtyPerInput.value);
+          const distribution = splitByFixedQuantity(total, qtyPer);
+
+          if (distribution.some(q => q <= 0)) {
+            alert("Invalid: one or more containers would have zero quantity");
+            return;
+          }
+
+          document.body.removeChild(overlay);
+          resolve({ mode: 'multiple', distribution: distribution }); // Same format as mode 2
         }
       });
 
