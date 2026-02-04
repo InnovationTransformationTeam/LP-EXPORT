@@ -1,0 +1,1695 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * CUSTOMER MANAGEMENT SYSTEM - POWER PAGES OPTIMIZED
+ * JavaScript Module - BUG FIXES Applied
+ * ═══════════════════════════════════════════════════════════════════════
+ * 
+ * FIXES IN THIS VERSION:
+ * ✅ Added complete Sales Representative list
+ * ✅ Country dropdown with "Other" option + text input
+ * ✅ Payment Terms dropdown with "Other" option + text input
+ * ✅ COB dropdown with "Other" option + text input
+ * ✅ Improved Address section UI/UX
+ * ✅ Enhanced validation for all required fields
+ * ✅ Better error handling and user feedback
+ * 
+ * Version: 4.0.0 - Bug Fix Release
+ * Last Updated: December 18, 2024
+ * ═══════════════════════════════════════════════════════════════════════
+ */
+
+(function () {
+    'use strict';
+
+
+    function safeAjax(options) {
+        return new Promise((resolve, reject) => {
+            if (!(window.shell && shell.getTokenDeferred)) {
+                reject("Anti-forgery token not available");
+                return;
+            }
+
+            shell.getTokenDeferred().done(function (token) {
+                $.ajax({
+                    ...options,
+                    headers: {
+                        ...(options.headers || {}),
+                        "__RequestVerificationToken": token
+                    },
+                    success: resolve,
+                    error: reject
+                });
+            });
+        });
+    }
+    window.safeAjax = safeAjax;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONFIGURATION
+    // ═══════════════════════════════════════════════════════════════════════
+    const CONFIG = {
+        entityName: 'cr650_updated_dcl_customers',
+        entitySetName: 'cr650_updated_dcl_customers',
+        apiPath: '/_api',
+        pageSize: 10,
+        debugMode: true
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // APPLICATION STATE
+    // ═══════════════════════════════════════════════════════════════════════
+    const state = {
+        customers: [],
+        filteredCustomers: [],
+        currentPage: 1,
+        totalPages: 1,
+        isLoading: false,
+        editingCustomerId: null,
+        currentStep: 1,
+        totalSteps: 3
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // COUNTRY SUGGESTIONS (Smart Hints)
+    // ═══════════════════════════════════════════════════════════════════════
+    const countrySuggestions = {
+        'Yemen': {
+            ports: ['Aden', 'Hodeidah'],
+            paymentTerms: '100% Cash in advance'
+        },
+        'Lebanon': {
+            ports: ['Beirut'],
+            paymentTerms: 'Net 150 Days from Shipment Date'
+        },
+        'Iraq': {
+            ports: ['Umm Qasr', 'Basra'],
+            paymentTerms: 'Net due in 120 Days'
+        },
+        'Jordan': {
+            ports: ['Aqaba', 'Amman'],
+            paymentTerms: 'Net 60 Days from Shipment Date'
+        },
+        'Turkey': {
+            ports: ['Mersin Port', 'Istanbul'],
+            paymentTerms: 'LC'
+        },
+        'United Arab Emirates': {
+            ports: ['Jebel Ali', 'Dubai'],
+            paymentTerms: 'Net due in 90 Days'
+        },
+        'Syrian Arab Republic': {
+            ports: ['Latakia', 'Tartus'],
+            paymentTerms: 'Immediate'
+        }
+    };
+
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // COUNTRY → ISO-2 STANDARD MAP (CANONICAL)
+    // ═══════════════════════════════════════════════════════════════════════
+    const countryToISO2 = {
+        'Yemen': 'YE',
+        'Lebanon': 'LB',
+        'Iraq': 'IQ',
+        'Jordan': 'JO',
+        'Turkey': 'TR',
+        'United Arab Emirates': 'AE',
+        'Syrian Arab Republic': 'SY',
+        'Kuwait': 'KW',
+        'Oman': 'OM',
+        'Pakistan': 'PK',
+        'Somalia': 'SO',
+        'South Africa': 'ZA',
+        'Sri Lanka': 'LK',
+        'Afghanistan': 'AF',
+        'Ivory Coast': 'CI',
+        'United States': 'US',
+        'Bolivia': 'BO'
+    };
+
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // HELPER FUNCTIONS
+    // ═══════════════════════════════════════════════════════════════════════
+    function getElement(selector) {
+        return document.querySelector(selector);
+    }
+
+    function log(message, data = '') {
+        if (CONFIG.debugMode) {
+            console.log(`[Customer Management] ${message}`, data);
+        }
+    }
+
+    function showLoader(show) {
+        const loader = getElement('#topLoader');
+        if (loader) {
+            if (show) {
+                loader.classList.remove('hidden');
+                state.isLoading = true;
+            } else {
+                loader.classList.add('hidden');
+                state.isLoading = false;
+            }
+        }
+    }
+
+    function showToast(message, type = 'success') {
+        const toast = getElement('#toast');
+        const icon = getElement('#toastIcon');
+        const messageSpan = getElement('#toastMessage');
+
+        if (toast && icon && messageSpan) {
+            toast.className = `toast-cm ${type}`;
+            icon.className = type === 'success' ? 'fas fa-check-circle' : 'fas fa-exclamation-circle';
+            messageSpan.textContent = message;
+
+            toast.classList.remove('hidden');
+
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 4000);
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function validateCountryCodeSoft() {
+        const input = getElement('#country1');
+        if (!input || !input.dataset.suggested) return;
+
+        if (
+            input.value.trim().toUpperCase() !==
+            input.dataset.suggested.toUpperCase()
+        ) {
+            showToast(
+                `⚠️ Suggested country code is "${input.dataset.suggested}", but you used "${input.value}".`,
+                'warning'
+            );
+        }
+    }
+
+
+    function getCountryFlag(country) {
+        const flags = {
+            'Yemen': '🇾🇪',
+            'Lebanon': '🇱🇧',
+            'Iraq': '🇮🇶',
+            'Jordan': '🇯🇴',
+            'Turkey': '🇹🇷',
+            'United Arab Emirates': '🇦🇪',
+            'Syrian Arab Republic': '🇸🇾'
+        };
+        return flags[country] || '🌍';
+    }
+
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // NEW: "OTHER" OPTION HANDLING
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Handle Country dropdown change - show/hide custom input for "Other"
+     */
+    function handleCountryChange(e) {
+        const country = e.target.value;
+        const suggestion = countrySuggestions[country];
+        const customInput = getElement('#countryCustom');
+        const countryCodeInput = getElement('#country1');
+
+        // Show/hide custom input for "Other" option
+        if (customInput) {
+            if (country === 'Other') {
+                customInput.style.display = 'block';
+                customInput.required = true;
+            } else {
+                customInput.style.display = 'none';
+                customInput.required = false;
+                customInput.value = '';
+            }
+        }
+
+        if (countryToISO2[country]) {
+            countryCodeInput.value = countryToISO2[country];
+
+            // 🔓 SMART MODE: suggest, don’t force
+            countryCodeInput.disabled = false;
+            countryCodeInput.dataset.suggested = countryToISO2[country];
+        } else {
+            countryCodeInput.value = '';
+            countryCodeInput.disabled = false;
+            delete countryCodeInput.dataset.suggested;
+        }
+
+
+        // Update hints
+        const portHint = getElement('#portSuggestion');
+        const paymentHint = getElement('#paymentSuggestion');
+
+        if (suggestion && country !== 'Other') {
+            if (portHint) portHint.textContent = `💡 Popular ports: ${suggestion.ports.join(', ')}`;
+            if (paymentHint) paymentHint.textContent = `💡 Common: ${suggestion.paymentTerms}`;
+        } else {
+            if (portHint) portHint.textContent = '';
+            if (paymentHint) paymentHint.textContent = '';
+        }
+    }
+
+    /**
+     * Handle Payment Terms dropdown change - show/hide custom input for "Other"
+     */
+    function handlePaymentTermsChange(e) {
+        const value = e.target.value;
+        const customInput = getElement('#paymentTermsCustom');
+
+        if (customInput) {
+            if (value === 'Other') {
+                customInput.style.display = 'block';
+                customInput.required = true;
+            } else {
+                customInput.style.display = 'none';
+                customInput.required = false;
+                customInput.value = '';
+            }
+        }
+    }
+
+    /**
+     * Handle COB dropdown change - show/hide custom input for "Other"
+     */
+    function handleCOBChange(e) {
+        const value = e.target.value;
+        const customInput = getElement('#cobCustom');
+
+        if (customInput) {
+            if (value === 'Other') {
+                customInput.style.display = 'block';
+                customInput.required = true;
+            } else {
+                customInput.style.display = 'none';
+                customInput.required = false;
+                customInput.value = '';
+            }
+        }
+    }
+
+    /**
+     * Handle Sales Rep dropdown change - show/hide custom input for "Other"
+     */
+    function handleSalesRepChange(e) {
+        const value = e.target.value;
+        const customInput = getElement('#salesRepCustom');
+
+        if (customInput) {
+            if (value === 'Other') {
+                customInput.style.display = 'block';
+                customInput.required = true;
+            } else {
+                customInput.style.display = 'none';
+                customInput.required = false;
+                customInput.value = '';
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // POWER PAGES: FORCE HIDE MODAL ON LOAD
+    // ═══════════════════════════════════════════════════════════════════════
+    function forceHideModal() {
+        const modal = getElement('#customerModal');
+        if (modal) {
+            modal.classList.remove('active');
+            modal.style.display = 'none';
+            log('Modal force hidden on page load');
+        }
+
+        document.documentElement.style.overflow = 'auto';
+        document.body.style.overflow = 'auto';
+
+        // Reset Notify Party 2 visibility on close
+        const notifyParty2Container = getElement('#notifyParty2Container');
+        const addNotifyPartyBtn = getElement('#addNotifyPartyBtn');
+        if (notifyParty2Container) notifyParty2Container.style.display = 'none';
+        if (addNotifyPartyBtn) addNotifyPartyBtn.style.display = 'block';
+
+        state.editingCustomerId = null;
+        state.currentStep = 1;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INITIALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+    function initialize() {
+        log('Application initializing...');
+
+        try {
+            forceHideModal(); // CRITICAL: Hide modal immediately
+            initializeEventListeners();
+            loadCustomers();
+            log('Application initialized successfully');
+        } catch (error) {
+            console.error('Initialization error:', error);
+            showToast('Failed to initialize application', 'error');
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // EVENT LISTENERS - POWER PAGES OPTIMIZED
+    // ═══════════════════════════════════════════════════════════════════════
+    function initializeEventListeners() {
+        // Search and filter
+        const searchInput = getElement('#searchInput');
+        const countryFilter = getElement('#countryFilter');
+
+        if (searchInput) {
+            searchInput.addEventListener('input', debounce(handleSearch, 300));
+        }
+        if (countryFilter) {
+            countryFilter.addEventListener('change', handleFilter);
+        }
+
+        // Action buttons
+        const btnAddCustomer = getElement('#btnAddCustomer');
+        const btnExportExcel = getElement('#btnExportExcel');
+
+        if (btnAddCustomer) {
+            btnAddCustomer.addEventListener('click', openAddCustomerModal);
+        }
+        if (btnExportExcel) {
+            btnExportExcel.addEventListener('click', exportToExcel);
+        }
+
+        // Modal controls
+        const btnCloseModal = getElement('#btnCloseModal');
+        const btnCancel = getElement('#btnCancel');
+        const modalOverlay = getElement('.modal-overlay-cm');
+
+        if (btnCloseModal) {
+            btnCloseModal.addEventListener('click', closeModal);
+        }
+        if (btnCancel) {
+            btnCancel.addEventListener('click', closeModal);
+        }
+        if (modalOverlay) {
+            modalOverlay.addEventListener('click', closeModal);
+        }
+
+        // Wizard navigation
+        const btnNextStep = getElement('#btnNextStep');
+        const btnPrevStep = getElement('#btnPrevStep');
+        const btnSaveCustomer = getElement('#btnSaveCustomer');
+
+        if (btnNextStep) {
+            btnNextStep.addEventListener('click', nextStep);
+        }
+        if (btnPrevStep) {
+            btnPrevStep.addEventListener('click', prevStep);
+        }
+        if (btnSaveCustomer) {
+            btnSaveCustomer.addEventListener('click', saveCustomer);
+        }
+
+        // Pagination
+        const btnPrevPage = getElement('#btnPrevPage');
+        const btnNextPage = getElement('#btnNextPage');
+
+        if (btnPrevPage) {
+            btnPrevPage.addEventListener('click', () => changePage(-1));
+        }
+        if (btnNextPage) {
+            btnNextPage.addEventListener('click', () => changePage(1));
+        }
+
+        // Form interactions
+        const btnCheckCode = getElement('#btnCheckCode');
+        const country = getElement('#country');
+        const paymentTerms = getElement('#paymentTerms');
+        const cob = getElement('#cob');
+
+
+        if (btnCheckCode) {
+            btnCheckCode.addEventListener('click', checkCustomerCode);
+        }
+
+        // NEW: Event listeners for "Other" option handling
+        if (country) {
+            country.addEventListener('change', handleCountryChange);
+        }
+        if (paymentTerms) {
+            paymentTerms.addEventListener('change', handlePaymentTermsChange);
+        }
+        if (cob) {
+            cob.addEventListener('change', handleCOBChange);
+        }
+
+        const salesRep = getElement('#salesRep');
+        if (salesRep) {
+            salesRep.addEventListener('change', handleSalesRepChange);
+        }
+
+        // POWER PAGES: Event delegation for edit buttons
+        document.addEventListener('click', function (e) {
+            const editBtn = e.target.closest('.btn-edit-cm');
+            if (editBtn) {
+                e.preventDefault();
+                const customerId = editBtn.getAttribute('data-customer-id');
+                if (customerId) {
+                    log('Edit button clicked for customer:', customerId);
+                    handleEditCustomer(customerId);
+                }
+            }
+        });
+
+        // Notify Party 2 Controls
+        const btnAddNotifyParty2 = getElement('#btnAddNotifyParty2');
+        const btnRemoveNotifyParty2 = getElement('#btnRemoveNotifyParty2');
+        
+        if (btnAddNotifyParty2) {
+            btnAddNotifyParty2.addEventListener('click', showNotifyParty2);
+        }
+        if (btnRemoveNotifyParty2) {
+            btnRemoveNotifyParty2.addEventListener('click', hideNotifyParty2);
+        }
+
+        // POWER PAGES: Event delegation for delete buttons
+        document.addEventListener('click', function (e) {
+            const deleteBtn = e.target.closest('.btn-delete-cm');
+            if (deleteBtn) {
+                e.preventDefault();
+                const customerId = deleteBtn.getAttribute('data-customer-id');
+                if (customerId) {
+                    log('Delete button clicked for customer:', customerId);
+                    handleDeleteCustomer(customerId);
+                }
+            }
+        });
+
+        log('Event listeners initialized (Power Pages mode)');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // WIZARD STEP MANAGEMENT
+    // ═══════════════════════════════════════════════════════════════════════
+    function nextStep() {
+        if (!validateCurrentStep()) {
+            return;
+        }
+
+        if (state.currentStep < state.totalSteps) {
+            state.currentStep++;
+            updateWizardUI();
+        }
+    }
+
+    function prevStep() {
+        if (state.currentStep > 1) {
+            state.currentStep--;
+            updateWizardUI();
+        }
+    }
+
+    function updateWizardUI() {
+        // Progress indicators (top steps)
+        document.querySelectorAll('.step-cm').forEach((step, index) => {
+            const stepNumber = index + 1;
+            step.classList.remove('active-cm', 'completed-cm');
+
+            if (stepNumber < state.currentStep) {
+                step.classList.add('completed-cm');
+            } else if (stepNumber === state.currentStep) {
+                step.classList.add('active-cm');
+            }
+        });
+
+        // 🔥 CRITICAL FIX: Force-hide all steps (inline)
+        document.querySelectorAll('.form-step-cm').forEach(step => {
+            step.classList.remove('active-cm');
+            step.style.display = 'none'; // ← override Power Pages inline styles
+        });
+
+        // 🔥 Force-show active step
+        const activeStep = document.querySelector(
+            `.form-step-cm[data-step="${state.currentStep}"]`
+        );
+        if (activeStep) {
+            activeStep.classList.add('active-cm');
+            activeStep.style.display = 'block'; // ← THIS FIXES IT
+        }
+
+        // Buttons
+        const btnPrev = getElement('#btnPrevStep');
+        const btnNext = getElement('#btnNextStep');
+        const btnSave = getElement('#btnSaveCustomer');
+
+        if (btnPrev) {
+            btnPrev.style.display =
+                state.currentStep === 1 ? 'none' : 'inline-flex';
+        }
+
+        if (state.currentStep === state.totalSteps) {
+            if (btnNext) btnNext.style.display = 'none';
+            if (btnSave) btnSave.style.display = 'inline-flex';
+        } else {
+            if (btnNext) btnNext.style.display = 'inline-flex';
+            if (btnSave) btnSave.style.display = 'none';
+        }
+
+        // 🔽 UX FIX: reset scroll so user actually sees the new step
+        const modalBody = document.querySelector('.modal-body-cm');
+        if (modalBody) {
+            modalBody.scrollTop = 0;
+        }
+    }
+
+
+    /**
+     * ENHANCED: Validate current step with better error messages
+     */
+    function validateCurrentStep() {
+        const currentStepEl = document.querySelector(`.form-step-cm[data-step="${state.currentStep}"]`);
+        if (!currentStepEl) return true;
+
+        const requiredInputs = currentStepEl.querySelectorAll('[required]');
+        let isValid = true;
+        let firstInvalidField = null;
+
+        requiredInputs.forEach(input => {
+            // Skip hidden custom inputs if their parent dropdown isn't set to "Other"
+            if (input.id === 'countryCustom' && getElement('#country').value !== 'Other') {
+                return;
+            }
+            if (input.id === 'paymentTermsCustom' && getElement('#paymentTerms').value !== 'Other') {
+                return;
+            }
+            if (input.id === 'cobCustom' && getElement('#cob').value !== 'Other') {
+                return;
+            }
+            if (input.id === 'salesRepCustom' && getElement('#salesRep').value !== 'Other') {
+                return;
+            }
+
+            if (!input.value || !input.value.trim()) {
+                if (!firstInvalidField) {
+                    firstInvalidField = input;
+                }
+                isValid = false;
+            }
+        });
+
+        if (!isValid && firstInvalidField) {
+            firstInvalidField.focus();
+
+            // Get field label for better error message
+            const label = currentStepEl.querySelector(`label[for="${firstInvalidField.id}"]`) ||
+                firstInvalidField.closest('.form-group-cm')?.querySelector('label');
+            const fieldName = label ? label.textContent.replace('*', '').trim() : 'this field';
+
+            showToast(`Please fill in "${fieldName}" before proceeding`, 'error');
+        }
+
+        return isValid;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DATA OPERATIONS - API Calls
+    // ═══════════════════════════════════════════════════════════════════════
+    async function loadCustomers() {
+        try {
+            showLoader(true);
+
+            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$select=cr650_updated_dcl_customerid,cr650_customercodes,cr650_customername,cr650_country,cr650_paymentterms,cr650_salesrepresentativename,cr650_destinationport,cr650_consignee,cr650_shipto,cr650_billto,cr650_notifyparty1,cr650_notifyparty2,cr650_organizationid,cr650_cob,cr650_country_1,modifiedon&$orderby=createdon desc`;
+
+            const response = await fetch(url, {
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'OData-MaxVersion': '4.0',
+                    'OData-Version': '4.0'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            state.customers = data.value || [];
+            state.filteredCustomers = [...state.customers];
+
+            updateStatistics();
+            renderCustomerTable();
+
+            showToast(`Loaded ${state.customers.length} customers successfully`, 'success');
+        } catch (error) {
+            console.error('Error loading customers:', error);
+            showToast('Failed to load customers', 'error');
+            state.customers = [];
+            state.filteredCustomers = [];
+            renderCustomerTable();
+        } finally {
+            showLoader(false);
+        }
+    }
+
+    /**
+     * ENHANCED: Save customer with "Other" option handling
+     */
+    async function saveCustomer() {
+        try {
+            const form = getElement('#customerForm');
+            if (!form || !form.checkValidity()) {
+                if (form) form.reportValidity();
+                return;
+            }
+
+            showLoader(true);
+
+            // Get country value (use custom if "Other" selected)
+            let countryValue = getElement('#country').value;
+            if (countryValue === 'Other') {
+                const customCountry = getElement('#countryCustom');
+                countryValue = customCountry ? customCountry.value.trim() : '';
+            }
+
+            // Get payment terms value (use custom if "Other" selected)
+            let paymentTermsValue = getElement('#paymentTerms').value;
+            if (paymentTermsValue === 'Other') {
+                const customPaymentTerms = getElement('#paymentTermsCustom');
+                paymentTermsValue = customPaymentTerms ? customPaymentTerms.value.trim() : '';
+            }
+
+            // Get COB value (use custom if "Other" selected)
+            let cobValue = getElement('#cob').value;
+            if (cobValue === 'Other') {
+                const customCOB = getElement('#cobCustom');
+                cobValue = customCOB ? customCOB.value.trim() : '';
+            }
+
+            // Get Sales Rep value (use custom if "Other" selected)
+            let salesRepValue = getElement('#salesRep').value;
+            if (salesRepValue === 'Other') {
+                const customSalesRep = getElement('#salesRepCustom');
+                salesRepValue = customSalesRep ? customSalesRep.value.trim() : '';
+            }
+
+            const customerData = {
+                'cr650_customercodes': getElement('#customerCode').value.trim().toUpperCase(),
+                'cr650_customername': getElement('#customerName').value.trim(),
+                'cr650_country': countryValue,
+                'cr650_salesrepresentativename': salesRepValue,
+                'cr650_destinationport': getElement('#destinationPort').value.trim(),
+                'cr650_consignee': getElement('#consignee').value.trim(),
+                'cr650_shipto': getElement('#shipTo').value.trim(),
+                'cr650_billto': getElement('#billTo').value.trim(),
+                'cr650_paymentterms': paymentTermsValue,
+                'cr650_cob': cobValue,
+                'cr650_organizationid': getElement('#organizationId').value.trim(),
+                'cr650_country_1': getElement('#country1').value.trim(),
+                'cr650_notifyparty1': getElement('#notifyParty1')?.value.trim() || null,
+                'cr650_notifyparty2': getElement('#notifyParty2')?.value.trim() || null
+            };
+
+            let url = `${CONFIG.apiPath}/${CONFIG.entitySetName}`;
+            let method = 'POST';
+
+            if (state.editingCustomerId) {
+                url += `(${state.editingCustomerId})`;
+                method = 'PATCH';
+            }
+
+
+            await safeAjax({
+                type: method,
+                url: url,
+                contentType: "application/json",
+                data: JSON.stringify(customerData)
+            });
+
+            validateCountryCodeSoft();
+
+
+            showToast(
+                state.editingCustomerId
+                    ? 'Customer updated successfully!'
+                    : 'Customer created successfully!',
+                'success'
+            );
+
+            closeModal();
+            await loadCustomers();
+
+        } catch (error) {
+            console.error('Error saving customer:', error);
+            showToast(
+                error?.responseText || error?.statusText || 'Failed to save customer',
+                'error'
+            );
+        }
+        finally {
+            showLoader(false);
+        }
+
+    }
+
+    async function checkDuplicateCode(code) {
+        try {
+            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$filter=cr650_customercodes eq '${code}'&$select=cr650_updated_dcl_customerid`;
+
+            const response = await fetch(url, {
+                headers: {
+                    'Accept': 'application/json',
+                    'OData-MaxVersion': '4.0',
+                    'OData-Version': '4.0'
+                }
+            });
+
+            if (!response.ok) return false;
+
+            const data = await response.json();
+            return data.value && data.value.length > 0;
+        } catch (error) {
+            console.error('Error checking duplicate:', error);
+            return false;
+        }
+    }
+
+    async function getCustomerById(id) {
+        try {
+            const response = await fetch(`${CONFIG.apiPath}/${CONFIG.entitySetName}(${id})`, {
+                headers: {
+                    'Accept': 'application/json',
+                    'OData-MaxVersion': '4.0',
+                    'OData-Version': '4.0'
+                }
+            });
+
+            if (!response.ok) return null;
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error fetching customer:', error);
+            return null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CUSTOMER CODE VALIDATION
+    // ═══════════════════════════════════════════════════════════════════════
+    async function checkCustomerCode() {
+        const codeInput = getElement('#customerCode');
+        const validationDiv = getElement('#codeValidation');
+
+        if (!codeInput || !validationDiv) return;
+
+        const code = codeInput.value.trim().toUpperCase();
+
+        const codePattern = /^TL\d{5}$/;
+        if (!codePattern.test(code)) {
+            validationDiv.className = 'validation-message-cm error';
+            validationDiv.innerHTML = '<i class="fas fa-times-circle"></i> Invalid format. Must be TL followed by 5 digits (e.g., TL20142)';
+            return;
+        }
+
+        showLoader(true);
+        try {
+            const isDuplicate = await checkDuplicateCode(code);
+
+            if (isDuplicate && !state.editingCustomerId) {
+                validationDiv.className = 'validation-message-cm error';
+                validationDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Customer code already exists!';
+            } else {
+                validationDiv.className = 'validation-message-cm success';
+                validationDiv.style.display = 'flex';
+
+                validationDiv.innerHTML = '<i class="fas fa-check-circle"></i> Customer code is valid and available';
+            }
+        } catch (error) {
+            validationDiv.className = 'validation-message-cm error';
+            validationDiv.style.display = 'flex';
+            validationDiv.innerHTML = '<i class="fas fa-times-circle"></i> Error checking code availability';
+        } finally {
+            showLoader(false);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // UI RENDERING - POWER PAGES OPTIMIZED
+    // ═══════════════════════════════════════════════════════════════════════
+    function renderCustomerTable() {
+        const tbody = getElement('#customerTableBody');
+        if (!tbody) return;
+
+        if (state.filteredCustomers.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="text-align: center; padding: 3rem; color: var(--text-tertiary);">
+                        <i class="fas fa-inbox" style="font-size: 3rem; margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
+                        <h3 style="margin-bottom: 0.5rem;">No customers found</h3>
+                        <p>Try adjusting your search or filters</p>
+                    </td>
+                </tr>
+            `;
+            updatePagination();
+            return;
+        }
+
+        state.totalPages = Math.ceil(state.filteredCustomers.length / CONFIG.pageSize);
+        const startIndex = (state.currentPage - 1) * CONFIG.pageSize;
+        const endIndex = startIndex + CONFIG.pageSize;
+        const pageCustomers = state.filteredCustomers.slice(startIndex, endIndex);
+
+        // POWER PAGES: Using data attributes instead of inline onclick
+        tbody.innerHTML = pageCustomers.map(customer => `
+            <tr>
+                <td><strong class="customer-code-cm">${escapeHtml(customer.cr650_customercodes || 'N/A')}</strong></td>
+                <td>${escapeHtml(customer.cr650_customername || 'N/A')}</td>
+                <td><span class="country-badge-cm">${getCountryFlag(customer.cr650_country)} ${escapeHtml(customer.cr650_country || 'N/A')}</span></td>
+                <td><span class="payment-terms-cm">${escapeHtml(customer.cr650_paymentterms || 'N/A')}</span></td>
+                <td>${escapeHtml(customer.cr650_salesrepresentativename || 'N/A')}</td>
+                <td class="text-center">
+                    <button class="btn-edit-cm" data-customer-id="${customer.cr650_updated_dcl_customerid}" type="button">
+                        <i class="fas fa-edit"></i>
+                        Edit
+                    </button>
+                    <button class="btn-delete-cm" data-customer-id="${customer.cr650_updated_dcl_customerid}" type="button">
+                        <i class="fas fa-trash-alt"></i>
+                        Delete
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+
+        updatePagination();
+    }
+
+    function updatePagination() {
+        const prevBtn = getElement('#btnPrevPage');
+        const nextBtn = getElement('#btnNextPage');
+        const pageInfo = getElement('#pageInfo');
+
+        if (prevBtn) prevBtn.disabled = state.currentPage === 1;
+        if (nextBtn) nextBtn.disabled = state.currentPage >= state.totalPages;
+        if (pageInfo) pageInfo.textContent = `Page ${state.currentPage} of ${state.totalPages || 1}`;
+    }
+
+    function updateStatistics() {
+        const totalEl = getElement('#totalCustomers');
+        if (totalEl) totalEl.textContent = state.customers.length;
+
+        const uniqueCountries = new Set(state.customers.map(c => c.cr650_country).filter(Boolean));
+        const countriesEl = getElement('#totalCountries');
+        if (countriesEl) countriesEl.textContent = uniqueCountries.size;
+
+        const today = new Date().toDateString();
+        const updatedToday = state.customers.filter(c => {
+            if (!c.modifiedon) return false;
+            return new Date(c.modifiedon).toDateString() === today;
+        }).length;
+
+        const updatesEl = getElement('#recentUpdates');
+        if (updatesEl) updatesEl.textContent = updatedToday;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MODAL OPERATIONS - POWER PAGES OPTIMIZED
+    // ═══════════════════════════════════════════════════════════════════════
+    function openAddCustomerModal() {
+        state.editingCustomerId = null;
+        state.currentStep = 1;
+
+        const modalTitle = getElement('#modalTitle span');
+        if (modalTitle) modalTitle.textContent = 'Add New Customer';
+
+        const form = getElement('#customerForm');
+        if (form) form.reset();
+
+        const countryEl = getElement('#country');
+        if (countryEl && countryEl.value) {
+            handleCountryChange({ target: countryEl });
+        }
+
+        const countryCodeInput = getElement('#country1');
+        if (countryCodeInput) {
+            countryCodeInput.value = '';
+            countryCodeInput.disabled = false;
+            delete countryCodeInput.dataset.suggested;
+        }
+
+
+        const codeInput = getElement('#customerCode');
+        if (codeInput) codeInput.disabled = false;
+
+        const codeValidation = getElement('#codeValidation');
+        if (codeValidation) {
+            codeValidation.className = 'validation-message-cm';
+            codeValidation.style.display = 'none';
+            codeValidation.innerHTML = '';
+        }
+
+        // Hide all custom "Other" inputs
+        ['#countryCustom', '#paymentTermsCustom', '#cobCustom', '#salesRepCustom'].forEach(selector => {
+            const el = getElement(selector);
+            if (el) {
+                el.style.display = 'none';
+                el.required = false;
+                el.value = '';
+            }
+        });
+
+        // Reset Notify Party 2 visibility
+        const notifyParty2Container = getElement('#notifyParty2Container');
+        const addNotifyPartyBtn = getElement('#addNotifyPartyBtn');
+        if (notifyParty2Container) notifyParty2Container.style.display = 'none';
+        if (addNotifyPartyBtn) addNotifyPartyBtn.style.display = 'block';
+
+        updateWizardUI();
+        const modal = getElement('#customerModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('active');
+            document.documentElement.style.overflow = 'hidden';
+            document.body.style.overflow = 'hidden';
+            log('Modal opened: Add mode');
+        }
+    }
+
+    /**
+     * ENHANCED: Handle editing with "Other" option support
+     */
+    async function handleEditCustomer(customerId) {
+        log('handleEditCustomer called with ID:', customerId);
+        state.editingCustomerId = customerId;
+        state.currentStep = 1;
+
+        const modalTitle = getElement('#modalTitle span');
+        if (modalTitle) modalTitle.textContent = 'Edit Customer';
+
+        showLoader(true);
+        try {
+            const customer = await getCustomerById(customerId);
+
+            if (customer) {
+                // Basic fields
+                const fields = {
+                    '#customerCode': customer.cr650_customercodes || '',
+                    '#customerName': customer.cr650_customername || '',
+                    '#destinationPort': customer.cr650_destinationport || '',
+                    '#consignee': customer.cr650_consignee || '',
+                    '#shipTo': customer.cr650_shipto || '',
+                    '#billTo': customer.cr650_billto || '',
+                    '#organizationId': customer.cr650_organizationid || '',
+                    '#country1': customer.cr650_country_1 || '',
+                    '#notifyParty1': customer.cr650_notifyparty1 || '',
+                    '#notifyParty2': customer.cr650_notifyparty2 || ''
+
+                };
+
+                // 🔁 SMART COUNTRY CODE HANDLING (EDIT MODE)
+                const countryCodeInput = getElement('#country1');
+
+                // Always allow editing in Edit mode
+                countryCodeInput.disabled = false;
+
+                // If ISO-2 exists, store it as a suggestion (for soft validation)
+                if (customer.cr650_country_1 && customer.cr650_country_1.length === 2) {
+                    countryCodeInput.dataset.suggested = customer.cr650_country_1.toUpperCase();
+                } else {
+                    delete countryCodeInput.dataset.suggested;
+                }
+
+                // Show Notify Party 2 if it has data
+                if (customer.cr650_notifyparty2) {
+                    showNotifyParty2();
+                }
+
+                Object.keys(fields).forEach(selector => {
+                    const el = getElement(selector);
+                    if (el) el.value = fields[selector];
+                });
+
+                // Handle Country (check if it's in the dropdown or custom)
+                const countryEl = getElement('#country');
+                const countryCustomEl = getElement('#countryCustom');
+                const countryValue = customer.cr650_country || '';
+
+                // Check if country exists in dropdown options
+                const countryOptions = Array.from(countryEl.options).map(opt => opt.value);
+                if (countryOptions.includes(countryValue)) {
+                    countryEl.value = countryValue;
+                    handleCountryChange({ target: countryEl });
+                    if (countryCustomEl) {
+                        countryCustomEl.style.display = 'none';
+                        countryCustomEl.required = false;
+                    }
+                } else if (countryValue) {
+                    // Custom country
+                    countryEl.value = 'Other';
+                    if (countryCustomEl) {
+                        countryCustomEl.value = countryValue;
+                        countryCustomEl.style.display = 'block';
+                        countryCustomEl.required = true;
+                    }
+                }
+
+                // Handle Payment Terms
+                const paymentTermsEl = getElement('#paymentTerms');
+                const paymentTermsCustomEl = getElement('#paymentTermsCustom');
+                const paymentTermsValue = customer.cr650_paymentterms || '';
+
+                const paymentOptions = Array.from(paymentTermsEl.options).map(opt => opt.value);
+                if (paymentOptions.includes(paymentTermsValue)) {
+                    paymentTermsEl.value = paymentTermsValue;
+                    if (paymentTermsCustomEl) {
+                        paymentTermsCustomEl.style.display = 'none';
+                        paymentTermsCustomEl.required = false;
+                    }
+                } else if (paymentTermsValue) {
+                    paymentTermsEl.value = 'Other';
+                    if (paymentTermsCustomEl) {
+                        paymentTermsCustomEl.value = paymentTermsValue;
+                        paymentTermsCustomEl.style.display = 'block';
+                        paymentTermsCustomEl.required = true;
+                    }
+                }
+
+                // Handle COB
+                const cobEl = getElement('#cob');
+                const cobCustomEl = getElement('#cobCustom');
+                const cobValue = customer.cr650_cob || '';
+
+                const cobOptions = Array.from(cobEl.options).map(opt => opt.value);
+                if (cobOptions.includes(cobValue)) {
+                    cobEl.value = cobValue;
+                    if (cobCustomEl) {
+                        cobCustomEl.style.display = 'none';
+                        cobCustomEl.required = false;
+                    }
+                } else if (cobValue) {
+                    cobEl.value = 'Other';
+                    if (cobCustomEl) {
+                        cobCustomEl.value = cobValue;
+                        cobCustomEl.style.display = 'block';
+                        cobCustomEl.required = true;
+                    }
+                }
+
+                // Handle Sales Rep (check if it's in the dropdown or custom)
+                const salesRepEl = getElement('#salesRep');
+                const salesRepCustomEl = getElement('#salesRepCustom');
+                const salesRepValue = customer.cr650_salesrepresentativename || '';
+
+                // Check if sales rep exists in dropdown options
+                const salesRepOptions = Array.from(salesRepEl.options).map(opt => opt.value);
+                if (salesRepOptions.includes(salesRepValue)) {
+                    salesRepEl.value = salesRepValue;
+                    if (salesRepCustomEl) {
+                        salesRepCustomEl.style.display = 'none';
+                        salesRepCustomEl.required = false;
+                    }
+                } else if (salesRepValue) {
+                    // Custom sales rep
+                    salesRepEl.value = 'Other';
+                    if (salesRepCustomEl) {
+                        salesRepCustomEl.value = salesRepValue;
+                        salesRepCustomEl.style.display = 'block';
+                        salesRepCustomEl.required = true;
+                    }
+                }
+
+                const codeInput = getElement('#customerCode');
+                if (codeInput) codeInput.disabled = true;
+
+                updateWizardUI();
+
+                const modal = getElement('#customerModal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                    modal.classList.add('active');
+                    document.documentElement.style.overflow = 'hidden';
+                    document.body.style.overflow = 'hidden';
+                    log('Modal opened: Edit mode');
+                }
+            }
+        } catch (error) {
+            showToast('Failed to load customer details', 'error');
+        } finally {
+            showLoader(false);
+        }
+    }
+
+
+    /**
+     * Handle deleting a customer with confirmation
+     */
+    async function handleDeleteCustomer(customerId) {
+        log('handleDeleteCustomer called with ID:', customerId);
+
+        // Find customer name for confirmation message
+        const customer = state.customers.find(c => c.cr650_updated_dcl_customerid === customerId);
+        const customerName = customer ? customer.cr650_customername : 'this customer';
+        const customerCode = customer ? customer.cr650_customercodes : '';
+
+        // Confirm deletion
+        if (!confirm(`Are you sure you want to delete "${customerName}" (${customerCode})?\n\nThis action cannot be undone.`)) {
+            return;
+        }
+
+        showLoader(true);
+        try {
+            // Delete via Web API with anti-forgery token
+            await safeAjax({
+                type: 'DELETE',
+                url: `${CONFIG.apiPath}/${CONFIG.entitySetName}(${customerId})`
+            });
+
+            showToast('Customer deleted successfully!', 'success');
+            await loadCustomers();
+
+        } catch (error) {
+            console.error('Error deleting customer:', error);
+            showToast(
+                error?.responseText || error?.statusText || 'Failed to delete customer',
+                'error'
+            );
+        } finally {
+            showLoader(false);
+        }
+    }
+    function closeModal() {
+        const modal = getElement('#customerModal');
+        if (modal) {
+            modal.classList.remove('active');
+            modal.style.display = 'none';
+            log('Modal closed');
+        }
+
+        const countryCodeInput = getElement('#country1');
+        if (countryCodeInput) {
+            delete countryCodeInput.dataset.suggested;
+        }
+
+
+        document.documentElement.style.overflow = 'auto';
+        document.body.style.overflow = 'auto';
+        state.editingCustomerId = null;
+        state.currentStep = 1;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SEARCH & FILTER
+    // ═══════════════════════════════════════════════════════════════════════
+    function handleSearch(e) {
+        const searchTerm = e.target.value.toLowerCase().trim();
+        const countryFilterEl = getElement('#countryFilter');
+        const countryValue = countryFilterEl ? countryFilterEl.value : '';
+
+        state.filteredCustomers = state.customers.filter(customer => {
+            const matchesSearch = !searchTerm ||
+                (customer.cr650_customercodes || '').toLowerCase().includes(searchTerm) ||
+                (customer.cr650_customername || '').toLowerCase().includes(searchTerm) ||
+                (customer.cr650_country || '').toLowerCase().includes(searchTerm);
+
+            const matchesCountry = !countryValue || customer.cr650_country === countryValue;
+
+            return matchesSearch && matchesCountry;
+        });
+
+        state.currentPage = 1;
+        renderCustomerTable();
+    }
+
+    function handleFilter(e) {
+        const searchInput = getElement('#searchInput');
+        if (searchInput) {
+            handleSearch({ target: searchInput });
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PAGINATION
+    // ═══════════════════════════════════════════════════════════════════════
+    function changePage(direction) {
+        const newPage = state.currentPage + direction;
+        if (newPage >= 1 && newPage <= state.totalPages) {
+            state.currentPage = newPage;
+            renderCustomerTable();
+
+            const tableCard = document.querySelector('.table-card-cm');
+            if (tableCard) {
+                tableCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // NOTIFY PARTY CONTROLS
+    // ═══════════════════════════════════════════════════════════════════════
+    function showNotifyParty2() {
+        const container = getElement('#notifyParty2Container');
+        const btnContainer = getElement('#addNotifyPartyBtn');
+        
+        if (container) {
+            container.style.display = 'block';
+        }
+        if (btnContainer) {
+            btnContainer.style.display = 'none';
+        }
+    }
+
+    function hideNotifyParty2() {
+        const container = getElement('#notifyParty2Container');
+        const btnContainer = getElement('#addNotifyPartyBtn');
+        const notifyParty2Field = getElement('#notifyParty2');
+        
+        if (container) {
+            container.style.display = 'none';
+        }
+        if (btnContainer) {
+            btnContainer.style.display = 'block';
+        }
+        if (notifyParty2Field) {
+            notifyParty2Field.value = ''; // Clear the field when removing
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // EXPORT TO EXCEL
+    // ═══════════════════════════════════════════════════════════════════════
+    function exportToExcel() {
+        try {
+            // Check if ExcelJS is available
+            if (typeof ExcelJS === 'undefined') {
+                showToast('Excel library not loaded. Please refresh the page.', 'error');
+                return;
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // CREATE WORKBOOK & WORKSHEET
+            // ═══════════════════════════════════════════════════════════════
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Customer Database', {
+                properties: { tabColor: { argb: 'FF006633' } }
+            });
+
+            // ═══════════════════════════════════════════════════════════════
+            // PREMIUM COLOR PALETTE
+            // ═══════════════════════════════════════════════════════════════
+            const colors = {
+                headerPrimary: 'FF004d26',      // Dark green
+                headerAccent: 'FFF7A900',       // Yellow
+                headerText: 'FFFFFFFF',         // White
+                
+                titleBg: 'FFF0F9F4',           // Light green
+                titleText: 'FF004d26',         // Dark green
+                
+                primaryGreen: 'FF006633',
+                primaryGreenLight: 'FF00803f',
+                
+                white: 'FFFFFFFF',
+                gray50: 'FFF9FAFB',
+                gray100: 'FFF3F4F6',
+                gray700: 'FF374151',
+                gray800: 'FF1F2937',
+                
+                borderDark: 'FF006633',
+                borderLight: 'FFD1D5DB',
+                borderMedium: 'FF9CA3AF'
+            };
+
+            // ═══════════════════════════════════════════════════════════════
+            // SET COLUMN WIDTHS
+            // ═══════════════════════════════════════════════════════════════
+            worksheet.columns = [
+                { width: 16 },  // Customer Code
+                { width: 38 },  // Customer Name
+                { width: 22 },  // Payment Terms
+                { width: 14 },  // Country Code
+                { width: 18 },  // Country
+                { width: 40 },  // Consignee
+                { width: 40 },  // Ship-To
+                { width: 40 },  // Bill-To
+                { width: 40 },  // Notify Party 1 ✅
+                { width: 40 },  // Notify Party 2 ✅
+                { width: 20 },  // Organization ID
+                { width: 18 },  // COB
+                { width: 22 },  // Destination Port
+                { width: 28 }   // Sales Representative
+            ];
+
+            // ═══════════════════════════════════════════════════════════════
+            // ROW 1: TOP SPACING
+            // ═══════════════════════════════════════════════════════════════
+            worksheet.addRow([]);
+            worksheet.getRow(1).height = 10;
+
+            // ═══════════════════════════════════════════════════════════════
+            // ROW 2: MAIN TITLE
+            // ═══════════════════════════════════════════════════════════════
+            const titleRow = worksheet.addRow(['CUSTOMER MANAGEMENT SYSTEM']);
+            titleRow.height = 40;
+            worksheet.mergeCells('A2:M2');
+            
+            const titleCell = worksheet.getCell('A2');
+            titleCell.font = {
+                name: 'Segoe UI',
+                size: 20,
+                bold: true,
+                color: { argb: colors.titleText }
+            };
+            titleCell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: colors.titleBg }
+            };
+            titleCell.alignment = {
+                vertical: 'middle',
+                horizontal: 'center'
+            };
+            titleCell.border = {
+                top: { style: 'medium', color: { argb: colors.borderDark } },
+                left: { style: 'medium', color: { argb: colors.borderDark } },
+                right: { style: 'medium', color: { argb: colors.borderDark } }
+            };
+
+            // ═══════════════════════════════════════════════════════════════
+            // ROW 3: SUBTITLE
+            // ═══════════════════════════════════════════════════════════════
+            const subtitleRow = worksheet.addRow(['Complete Customer Database Export']);
+            subtitleRow.height = 25;
+            worksheet.mergeCells('A3:M3');
+            
+            const subtitleCell = worksheet.getCell('A3');
+            subtitleCell.font = {
+                name: 'Segoe UI',
+                size: 14,
+                italic: true,
+                color: { argb: colors.gray700 }
+            };
+            subtitleCell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: colors.titleBg }
+            };
+            subtitleCell.alignment = {
+                vertical: 'middle',
+                horizontal: 'center'
+            };
+            subtitleCell.border = {
+                left: { style: 'medium', color: { argb: colors.borderDark } },
+                right: { style: 'medium', color: { argb: colors.borderDark } }
+            };
+
+            // ═══════════════════════════════════════════════════════════════
+            // ROW 4: TIMESTAMP & INFO
+            // ═══════════════════════════════════════════════════════════════
+            const timestamp = new Date().toLocaleString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            const infoText = `Exported: ${timestamp} • Total Records: ${state.filteredCustomers.length}`;
+            
+            const infoRow = worksheet.addRow([infoText]);
+            infoRow.height = 20;
+            worksheet.mergeCells('A4:M4');
+            
+            const infoCell = worksheet.getCell('A4');
+            infoCell.font = {
+                name: 'Segoe UI',
+                size: 10,
+                italic: true,
+                color: { argb: colors.gray700 }
+            };
+            infoCell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: colors.titleBg }
+            };
+            infoCell.alignment = {
+                vertical: 'middle',
+                horizontal: 'center'
+            };
+            infoCell.border = {
+                bottom: { style: 'medium', color: { argb: colors.borderDark } },
+                left: { style: 'medium', color: { argb: colors.borderDark } },
+                right: { style: 'medium', color: { argb: colors.borderDark } }
+            };
+
+            // ═══════════════════════════════════════════════════════════════
+            // ROWS 5-6: SPACING
+            // ═══════════════════════════════════════════════════════════════
+            worksheet.addRow([]);
+            worksheet.getRow(5).height = 8;
+            worksheet.addRow([]);
+            worksheet.getRow(6).height = 8;
+
+            // ═══════════════════════════════════════════════════════════════
+            // ROW 7: COLUMN HEADERS
+            // ═══════════════════════════════════════════════════════════════
+            const headers = [
+                'CUSTOMER CODE',
+                'CUSTOMER NAME',
+                'PAYMENT TERMS',
+                'COUNTRY CODE',
+                'COUNTRY',
+                'CONSIGNEE',
+                'SHIP-TO ADDRESS',
+                'BILL-TO ADDRESS',
+                'NOTIFY PARTY 1',    
+                'NOTIFY PARTY 2',     
+                'ORGANIZATION ID',
+                'COB',
+                'DESTINATION PORT',
+                'SALES REPRESENTATIVE'
+            ];
+            const headerRow = worksheet.addRow(headers);
+            headerRow.height = 40;
+            
+            headerRow.eachCell((cell) => {
+                cell.font = {
+                    name: 'Segoe UI',
+                    size: 11,
+                    bold: true,
+                    color: { argb: colors.headerText }
+                };
+                cell.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: colors.headerPrimary }
+                };
+                cell.alignment = {
+                    vertical: 'middle',
+                    horizontal: 'center',
+                    wrapText: true
+                };
+                cell.border = {
+                    top: { style: 'medium', color: { argb: colors.borderDark } },
+                    bottom: { style: 'medium', color: { argb: colors.headerAccent } },
+                    left: { style: 'thin', color: { argb: colors.primaryGreenLight } },
+                    right: { style: 'thin', color: { argb: colors.primaryGreenLight } }
+                };
+            });
+
+            // ═══════════════════════════════════════════════════════════════
+            // DATA ROWS
+            // ═══════════════════════════════════════════════════════════════
+            state.filteredCustomers.forEach((customer, index) => {
+                const rowData = [
+                    customer.cr650_customercodes || '',
+                    customer.cr650_customername || '',
+                    customer.cr650_paymentterms || '',
+                    customer.cr650_country || '',
+                    customer.cr650_country_full || customer.cr650_country || '',
+                    customer.cr650_consignee || '',
+                    customer.cr650_shipto || '',
+                    customer.cr650_billto || '',
+                    customer.cr650_notifyparty1 || '',    // ✅ ADD THIS
+                    customer.cr650_notifyparty2 || '',    // ✅ ADD THIS
+                    customer.cr650_organizationid || '',
+                    customer.cr650_cob || '',
+                    customer.cr650_destinationport || '',
+                    customer.cr650_salesrepresentativename || ''
+                ];
+                
+                const dataRow = worksheet.addRow(rowData);
+                dataRow.height = 85;
+                
+                const isAlternating = index % 2 === 1;
+                const bgColor = isAlternating ? colors.gray50 : colors.white;
+                
+                dataRow.eachCell((cell, colNumber) => {
+                    // Customer Code styling (bold green)
+                    if (colNumber === 1) {
+                        cell.font = {
+                            name: 'Segoe UI',
+                            size: 10,
+                            bold: true,
+                            color: { argb: colors.primaryGreen }
+                        };
+                    } else {
+                        cell.font = {
+                            name: 'Segoe UI',
+                            size: 10,
+                            color: { argb: colors.gray800 }
+                        };
+                    }
+                    
+                    cell.fill = {
+                        type: 'pattern',
+                        pattern: 'solid',
+                        fgColor: { argb: bgColor }
+                    };
+                    
+                    cell.alignment = {
+                        vertical: 'top',
+                        horizontal: 'left',
+                        wrapText: true
+                    };
+                    
+                    cell.border = {
+                        left: { style: 'thin', color: { argb: colors.borderLight } },
+                        right: { style: 'thin', color: { argb: colors.borderLight } },
+                        bottom: { style: 'hair', color: { argb: colors.borderLight } }
+                    };
+                });
+            });
+
+            // ═══════════════════════════════════════════════════════════════
+            // FOOTER ROWS
+            // ═══════════════════════════════════════════════════════════════
+            worksheet.addRow([]);
+            worksheet.addRow([]);
+            
+            // Copyright row
+            const copyrightRow = worksheet.addRow(['© 2026 Customer Management System • Technolube International']);
+            copyrightRow.height = 25;
+            const copyrightRowNum = copyrightRow.number;
+            worksheet.mergeCells(`A${copyrightRowNum}:M${copyrightRowNum}`);
+            
+            const copyrightCell = worksheet.getCell(`A${copyrightRowNum}`);
+            copyrightCell.font = {
+                name: 'Segoe UI',
+                size: 9,
+                bold: true,
+                color: { argb: colors.gray700 }
+            };
+            copyrightCell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: colors.gray100 }
+            };
+            copyrightCell.alignment = {
+                vertical: 'middle',
+                horizontal: 'center'
+            };
+            copyrightCell.border = {
+                top: { style: 'thin', color: { argb: colors.borderMedium } }
+            };
+            
+            // Confidential row
+            const confidentialRow = worksheet.addRow(['Confidential Business Information - For Internal Use Only']);
+            confidentialRow.height = 20;
+            const confidentialRowNum = confidentialRow.number;
+            worksheet.mergeCells(`A${confidentialRowNum}:M${confidentialRowNum}`);
+            
+            const confidentialCell = worksheet.getCell(`A${confidentialRowNum}`);
+            confidentialCell.font = {
+                name: 'Segoe UI',
+                size: 8,
+                italic: true,
+                color: { argb: colors.gray700 }
+            };
+            confidentialCell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: colors.gray100 }
+            };
+            confidentialCell.alignment = {
+                vertical: 'middle',
+                horizontal: 'center'
+            };
+            confidentialCell.border = {
+                bottom: { style: 'medium', color: { argb: colors.borderDark } },
+                left: { style: 'medium', color: { argb: colors.borderDark } },
+                right: { style: 'medium', color: { argb: colors.borderDark } }
+            };
+
+            // ═══════════════════════════════════════════════════════════════
+            // FREEZE PANES
+            // ═══════════════════════════════════════════════════════════════
+            worksheet.views = [
+                { state: 'frozen', xSplit: 0, ySplit: 7 }
+            ];
+
+            // ═══════════════════════════════════════════════════════════════
+            // WORKBOOK PROPERTIES
+            // ═══════════════════════════════════════════════════════════════
+            workbook.creator = 'Customer Management System';
+            workbook.lastModifiedBy = 'Technolube';
+            workbook.created = new Date();
+            workbook.modified = new Date();
+
+            // ═══════════════════════════════════════════════════════════════
+            // GENERATE FILENAME
+            // ═══════════════════════════════════════════════════════════════
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0];
+            const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+            const filename = `CustomerDatabase_${dateStr}_${timeStr}.xlsx`;
+
+            // ═══════════════════════════════════════════════════════════════
+            // EXPORT FILE
+            // ═══════════════════════════════════════════════════════════════
+            workbook.xlsx.writeBuffer().then(function(buffer) {
+                const blob = new Blob([buffer], { 
+                    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+                });
+                const url = window.URL.createObjectURL(blob);
+                const anchor = document.createElement('a');
+                anchor.href = url;
+                anchor.download = filename;
+                anchor.click();
+                window.URL.revokeObjectURL(url);
+                
+                showToast(`✓ Exported ${state.filteredCustomers.length} customers successfully!`, 'success');
+            });
+
+        } catch (error) {
+            console.error('Excel export error:', error);
+            showToast('Failed to export Excel file: ' + error.message, 'error');
+        }
+    }
+    // ═══════════════════════════════════════════════════════════════════════
+    // AUTO-INITIALIZE ON DOM READY
+    // ═══════════════════════════════════════════════════════════════════════
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        initialize();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // APPLICATION READY INDICATOR
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log('%c✅ Customer Management System v4.0 (Bug Fixes Applied) Ready!', 'color: #006633; font-size: 14px; font-weight: bold;');
+
+})();
