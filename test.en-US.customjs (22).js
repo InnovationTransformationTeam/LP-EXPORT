@@ -1263,32 +1263,41 @@
     const tr = d.createElement("tr");
     tr.classList.add("lp-data-row");
 
+    // Store original values for change tracking
+    tr.dataset.originalValues = JSON.stringify({
+      orderNo: item.orderNo || '',
+      itemCode: item.itemCode || '',
+      description: item.description || '',
+      releaseStatus: item.releaseStatus || 'N',
+      packaging: item.packaging || '',
+      uom: item.uom || 0,
+      pack: item.pack || '',
+      orderQty: item.OrderQuantity || 0,
+      loadingQty: item.LoadingQuantity || 0
+    });
+
     tr.innerHTML = `
     <td class="sn">${index + 1}</td>
 
-    <td class="controls">
-      <button class="btn btn-outline btn-sm lp-edit" type="button">Edit</button>
-    </td>
-
-    <td class="order-no ce">${escapeHtml(item.orderNo)}</td>
-    <td class="item-code ce">${escapeHtml(item.itemCode)}</td>
-    <td class="description ce">${escapeHtml(item.description)}</td>
+    <td class="order-no ce" contenteditable="true" tabindex="0">${escapeHtml(item.orderNo)}</td>
+    <td class="item-code ce" contenteditable="true" tabindex="0">${escapeHtml(item.itemCode)}</td>
+    <td class="description ce" contenteditable="true" tabindex="0">${escapeHtml(item.description)}</td>
     <td class="release-status-cell">
-      <select class="release-status-select" disabled>
+      <select class="release-status-select">
         <option value="Y" ${item.releaseStatus === "Y" ? "selected" : ""}>Y</option>
         <option value="N" ${item.releaseStatus === "N" ? "selected" : ""}>N</option>
       </select>
     </td>
-    <td class="packaging ce">${escapeHtml(item.packaging)}</td>
+    <td class="packaging ce" contenteditable="true" tabindex="0">${escapeHtml(item.packaging)}</td>
 
-    <td class="uom ce-num">${fmt2(item.uom)}</td>
-    <td class="pack ce">${escapeHtml(item.pack)}</td>
+    <td class="uom ce-num" contenteditable="true" tabindex="0">${fmt2(item.uom)}</td>
+    <td class="pack ce" contenteditable="true" tabindex="0">${escapeHtml(item.pack)}</td>
 
-    <td class="order-qty ce-num">${fmt2(item.OrderQuantity)}</td>
+    <td class="order-qty ce-num" contenteditable="true" tabindex="0">${fmt2(item.OrderQuantity)}</td>
 
     <td class="loading-qty-cell">
       <input type="number" class="loading-qty" min="0" value="${fmt2(item.LoadingQuantity)}"
-             style="width:100px" disabled>
+             style="width:100px">
     </td>
 
     <td class="pending-qty ce-num">${fmt2(item.PendingQuantity)}</td>
@@ -1302,6 +1311,10 @@
       <button class="btn btn-danger btn-sm row-remove" type="button">Remove</button>
     </td>
   `;
+
+    // Attach change tracking to editable cells
+    attachCellChangeTracking(tr);
+
     return tr;
   }
 
@@ -1876,16 +1889,10 @@
       const tr = e.target.closest("tr.lp-data-row");
       if (!tr) return;
 
-      if (e.target.classList.contains("lp-edit")) {
-        beginRowEdit(tr);
+      // Note: Edit/Save/Cancel buttons removed - using Excel-like inline editing now
+      // All cells are always editable, Save All button handles persistence
 
-      } else if (e.target.classList.contains("row-save")) {
-        await saveRowEdits(tr);
-
-      } else if (e.target.classList.contains("row-cancel")) {
-        cancelRowEdits(tr);
-
-      } else if (e.target.classList.contains("row-remove")) {
+      if (e.target.classList.contains("row-remove")) {
         try {
           const serverId = tr.dataset.serverId;
           const containerItemId = tr.dataset.containerItemId; // Only exists for splits
@@ -7477,5 +7484,416 @@
 
   // Expose to window
   window.checkUnreleasedOrders = checkUnreleasedOrders;
+
+  /* =====================================================
+     ENHANCED ORDER TABLE - EXCEL-LIKE EDITING SYSTEM
+     ===================================================== */
+
+  // Track modified rows
+  let MODIFIED_ROWS = new Set();
+  let ORIGINAL_ROW_DATA = new Map();
+
+  // Attach change tracking to editable cells in a row
+  function attachCellChangeTracking(tr) {
+    // Track contenteditable cells
+    tr.querySelectorAll('.ce, .ce-num').forEach(cell => {
+      cell.addEventListener('input', () => handleCellChange(tr, cell));
+      cell.addEventListener('blur', () => handleCellBlur(tr, cell));
+      cell.addEventListener('keydown', handleCellKeydown);
+      cell.addEventListener('focus', () => handleCellFocus(tr, cell));
+    });
+
+    // Track loading qty input
+    const loadingQtyInput = tr.querySelector('.loading-qty');
+    if (loadingQtyInput) {
+      loadingQtyInput.addEventListener('input', () => handleCellChange(tr, loadingQtyInput));
+      loadingQtyInput.addEventListener('blur', () => {
+        recalcRow(tr);
+        recomputeTotals();
+      });
+    }
+
+    // Track release status select
+    const releaseSelect = tr.querySelector('.release-status-select');
+    if (releaseSelect) {
+      releaseSelect.addEventListener('change', () => handleCellChange(tr, releaseSelect));
+    }
+  }
+
+  // Handle cell change - mark row as modified
+  function handleCellChange(tr, cell) {
+    const serverId = tr.dataset.serverId;
+    const rowKey = serverId || tr.dataset.tempId || generateTempId(tr);
+
+    // Mark cell as modified
+    cell.classList.add('cell-modified');
+
+    // Mark row as modified
+    tr.classList.add('row-modified');
+    MODIFIED_ROWS.add(rowKey);
+
+    // Update the modified indicator
+    updateModifiedIndicator();
+  }
+
+  // Handle cell blur - recalculate
+  function handleCellBlur(tr, cell) {
+    // Recalculate derived values
+    if (cell.classList.contains('packaging') ||
+        cell.classList.contains('order-qty') ||
+        cell.classList.contains('description')) {
+      recalcRow(tr);
+    }
+    recomputeTotals();
+  }
+
+  // Handle cell focus
+  function handleCellFocus(tr, cell) {
+    // Remove focus from other cells
+    d.querySelectorAll('.cell-focused').forEach(c => c.classList.remove('cell-focused'));
+    cell.classList.add('cell-focused');
+
+    // Highlight current row
+    d.querySelectorAll('.keyboard-focused').forEach(r => r.classList.remove('keyboard-focused'));
+    tr.classList.add('keyboard-focused');
+  }
+
+  // Handle keyboard navigation
+  function handleCellKeydown(e) {
+    const cell = e.target;
+    const tr = cell.closest('tr');
+    const cells = Array.from(tr.querySelectorAll('.ce, .ce-num, .loading-qty'));
+    const currentIndex = cells.indexOf(cell);
+
+    switch(e.key) {
+      case 'Tab':
+        // Let default Tab behavior work
+        break;
+      case 'Enter':
+        e.preventDefault();
+        e.stopPropagation();
+        cell.blur();
+        // Move to next row, same column
+        const nextRow = tr.nextElementSibling;
+        if (nextRow && nextRow.classList.contains('lp-data-row')) {
+          const cellClass = cell.className.split(' ').find(c => c.startsWith('order-') || c.startsWith('item-') || c.startsWith('description') || c.startsWith('packaging') || c.startsWith('uom') || c.startsWith('pack') || c.startsWith('loading') || c.startsWith('total') || c.startsWith('net') || c.startsWith('gross') || c.startsWith('pending'));
+          const nextCell = nextRow.querySelector('.' + cellClass) || nextRow.querySelector('.ce, .loading-qty');
+          if (nextCell) nextCell.focus();
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        cell.blur();
+        break;
+      case 'ArrowDown':
+        if (e.altKey) {
+          e.preventDefault();
+          const nextRow = tr.nextElementSibling;
+          if (nextRow && nextRow.classList.contains('lp-data-row')) {
+            const cellSelector = '.' + Array.from(cell.classList).find(c => ['order-no', 'item-code', 'description', 'packaging', 'uom', 'pack', 'order-qty', 'loading-qty'].includes(c));
+            const nextCell = nextRow.querySelector(cellSelector) || nextRow.querySelector('.ce');
+            if (nextCell) nextCell.focus();
+          }
+        }
+        break;
+      case 'ArrowUp':
+        if (e.altKey) {
+          e.preventDefault();
+          const prevRow = tr.previousElementSibling;
+          if (prevRow && prevRow.classList.contains('lp-data-row')) {
+            const cellSelector = '.' + Array.from(cell.classList).find(c => ['order-no', 'item-code', 'description', 'packaging', 'uom', 'pack', 'order-qty', 'loading-qty'].includes(c));
+            const prevCell = prevRow.querySelector(cellSelector) || prevRow.querySelector('.ce');
+            if (prevCell) prevCell.focus();
+          }
+        }
+        break;
+    }
+  }
+
+  // Generate temporary ID for new rows
+  function generateTempId(tr) {
+    const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    tr.dataset.tempId = tempId;
+    return tempId;
+  }
+
+  // Update modified indicator in toolbar
+  function updateModifiedIndicator() {
+    const indicator = d.getElementById('modifiedIndicator');
+    const countSpan = d.getElementById('modifiedCount');
+    const saveBtn = d.getElementById('saveAllChangesBtn');
+    const discardBtn = d.getElementById('discardChangesBtn');
+
+    const count = MODIFIED_ROWS.size;
+
+    if (count > 0) {
+      indicator.style.display = 'inline-flex';
+      countSpan.textContent = count;
+      saveBtn.style.display = 'inline-flex';
+      discardBtn.style.display = 'inline-flex';
+    } else {
+      indicator.style.display = 'none';
+      saveBtn.style.display = 'none';
+      discardBtn.style.display = 'none';
+    }
+  }
+
+  // Save All Changes
+  async function saveAllChanges() {
+    if (MODIFIED_ROWS.size === 0) {
+      showValidation("info", "No changes to save.");
+      return;
+    }
+
+    setLoading(true, `Saving ${MODIFIED_ROWS.size} rows...`);
+
+    try {
+      const rows = QA("#itemsTableBody tr.lp-data-row.row-modified");
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const tr of rows) {
+        try {
+          const serverId = tr.dataset.serverId;
+
+          if (serverId && isGuid(serverId)) {
+            await updateServerRowFromTr(tr, CURRENT_DCL_ID);
+          } else {
+            await createServerRowFromTr(tr, CURRENT_DCL_ID);
+          }
+
+          // Mark as saved
+          tr.classList.remove('row-modified');
+          tr.classList.add('save-success');
+          tr.querySelectorAll('.cell-modified').forEach(c => c.classList.remove('cell-modified'));
+
+          // Update original values
+          tr.dataset.originalValues = JSON.stringify(getRowCurrentValues(tr));
+
+          successCount++;
+
+          // Remove save-success class after animation
+          setTimeout(() => tr.classList.remove('save-success'), 1000);
+
+        } catch (err) {
+          console.error("Failed to save row:", err);
+          errorCount++;
+        }
+      }
+
+      // Clear modified tracking
+      MODIFIED_ROWS.clear();
+      updateModifiedIndicator();
+
+      // Refresh related data
+      await ensureContainerItemsForCurrentDcl();
+      rebuildAssignmentTable();
+      renderContainerSummaries();
+      refreshAIAnalysis();
+
+      if (errorCount === 0) {
+        showValidation("success", `Successfully saved ${successCount} rows.`);
+      } else {
+        showValidation("warning", `Saved ${successCount} rows. ${errorCount} failed.`);
+      }
+
+    } catch (err) {
+      console.error("Save all failed:", err);
+      showValidation("error", "Failed to save changes: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Get current values from a row
+  function getRowCurrentValues(tr) {
+    return {
+      orderNo: (tr.querySelector('.order-no')?.textContent || '').trim(),
+      itemCode: (tr.querySelector('.item-code')?.textContent || '').trim(),
+      description: (tr.querySelector('.description')?.textContent || '').trim(),
+      releaseStatus: tr.querySelector('.release-status-select')?.value || 'N',
+      packaging: (tr.querySelector('.packaging')?.textContent || '').trim(),
+      uom: asNum(tr.querySelector('.uom')?.textContent),
+      pack: (tr.querySelector('.pack')?.textContent || '').trim(),
+      orderQty: asNum(tr.querySelector('.order-qty')?.textContent),
+      loadingQty: asNum(tr.querySelector('.loading-qty')?.value)
+    };
+  }
+
+  // Discard All Changes
+  function discardAllChanges() {
+    if (MODIFIED_ROWS.size === 0) {
+      showValidation("info", "No changes to discard.");
+      return;
+    }
+
+    const count = MODIFIED_ROWS.size;
+
+    if (!confirm(`Discard changes to ${count} rows? This cannot be undone.`)) {
+      return;
+    }
+
+    const rows = QA("#itemsTableBody tr.lp-data-row.row-modified");
+
+    rows.forEach(tr => {
+      const originalValues = JSON.parse(tr.dataset.originalValues || '{}');
+
+      // Restore original values
+      const orderNoCell = tr.querySelector('.order-no');
+      const itemCodeCell = tr.querySelector('.item-code');
+      const descCell = tr.querySelector('.description');
+      const releaseSelect = tr.querySelector('.release-status-select');
+      const packagingCell = tr.querySelector('.packaging');
+      const uomCell = tr.querySelector('.uom');
+      const packCell = tr.querySelector('.pack');
+      const orderQtyCell = tr.querySelector('.order-qty');
+      const loadingQtyInput = tr.querySelector('.loading-qty');
+
+      if (orderNoCell) orderNoCell.textContent = originalValues.orderNo || '';
+      if (itemCodeCell) itemCodeCell.textContent = originalValues.itemCode || '';
+      if (descCell) descCell.textContent = originalValues.description || '';
+      if (releaseSelect) releaseSelect.value = originalValues.releaseStatus || 'N';
+      if (packagingCell) packagingCell.textContent = originalValues.packaging || '';
+      if (uomCell) uomCell.textContent = fmt2(originalValues.uom || 0);
+      if (packCell) packCell.textContent = originalValues.pack || '';
+      if (orderQtyCell) orderQtyCell.textContent = fmt2(originalValues.orderQty || 0);
+      if (loadingQtyInput) loadingQtyInput.value = fmt2(originalValues.loadingQty || 0);
+
+      // Remove modified styling
+      tr.classList.remove('row-modified');
+      tr.querySelectorAll('.cell-modified').forEach(c => c.classList.remove('cell-modified'));
+
+      // Recalculate
+      recalcRow(tr);
+    });
+
+    // Clear tracking
+    MODIFIED_ROWS.clear();
+    updateModifiedIndicator();
+    recomputeTotals();
+
+    showValidation("info", `Discarded changes to ${count} rows.`);
+  }
+
+  // Toggle Fullscreen Mode
+  function toggleFullscreen() {
+    const section = d.getElementById('orderItemsSection');
+    const btn = d.getElementById('fullscreenTableBtn');
+    const icon = btn.querySelector('i');
+
+    section.classList.toggle('fullscreen-mode');
+
+    if (section.classList.contains('fullscreen-mode')) {
+      icon.classList.remove('fa-expand');
+      icon.classList.add('fa-compress');
+      btn.title = 'Exit Fullscreen';
+
+      // Add keyboard hint
+      let hint = d.querySelector('.keyboard-hint');
+      if (!hint) {
+        hint = d.createElement('div');
+        hint.className = 'keyboard-hint';
+        hint.innerHTML = '<kbd>Tab</kbd> Navigate | <kbd>Enter</kbd> Next Row | <kbd>Esc</kbd> Exit Cell | <kbd>Ctrl+S</kbd> Save All';
+        section.appendChild(hint);
+      }
+      hint.style.display = 'block';
+
+      // Trap ESC to exit fullscreen
+      d.addEventListener('keydown', exitFullscreenOnEsc);
+    } else {
+      icon.classList.remove('fa-compress');
+      icon.classList.add('fa-expand');
+      btn.title = 'Toggle Fullscreen';
+
+      const hint = d.querySelector('.keyboard-hint');
+      if (hint) hint.style.display = 'none';
+
+      d.removeEventListener('keydown', exitFullscreenOnEsc);
+    }
+  }
+
+  function exitFullscreenOnEsc(e) {
+    if (e.key === 'Escape' && d.getElementById('orderItemsSection').classList.contains('fullscreen-mode')) {
+      // Only exit fullscreen if not editing a cell
+      if (d.activeElement.tagName !== 'TD' && !d.activeElement.classList.contains('ce')) {
+        toggleFullscreen();
+      }
+    }
+  }
+
+  // Warn before leaving with unsaved changes
+  function setupUnsavedChangesWarning() {
+    w.addEventListener('beforeunload', (e) => {
+      if (MODIFIED_ROWS.size > 0) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    });
+  }
+
+  // Global keyboard shortcuts
+  function setupGlobalKeyboardShortcuts() {
+    d.addEventListener('keydown', (e) => {
+      // Ctrl+S to save all
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        if (MODIFIED_ROWS.size > 0) {
+          e.preventDefault();
+          saveAllChanges();
+        }
+      }
+
+      // Ctrl+Z to discard (with confirmation)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) {
+        if (MODIFIED_ROWS.size > 0) {
+          e.preventDefault();
+          discardAllChanges();
+        }
+      }
+    });
+  }
+
+  // Initialize enhanced table features
+  function initEnhancedOrderTable() {
+    // Attach event listeners to toolbar buttons
+    const saveAllBtn = d.getElementById('saveAllChangesBtn');
+    const discardBtn = d.getElementById('discardChangesBtn');
+    const fullscreenBtn = d.getElementById('fullscreenTableBtn');
+
+    if (saveAllBtn) {
+      saveAllBtn.addEventListener('click', saveAllChanges);
+    }
+
+    if (discardBtn) {
+      discardBtn.addEventListener('click', discardAllChanges);
+    }
+
+    if (fullscreenBtn) {
+      fullscreenBtn.addEventListener('click', toggleFullscreen);
+    }
+
+    // Setup unsaved changes warning
+    setupUnsavedChangesWarning();
+
+    // Setup global keyboard shortcuts
+    setupGlobalKeyboardShortcuts();
+
+    // Attach change tracking to existing rows
+    QA("#itemsTableBody tr.lp-data-row").forEach(attachCellChangeTracking);
+
+    console.log("✅ Enhanced Order Table initialized - Excel-like editing enabled");
+  }
+
+  // Initialize on DOM ready
+  d.addEventListener("DOMContentLoaded", () => {
+    // Wait a bit for the table to be populated
+    setTimeout(initEnhancedOrderTable, 500);
+  });
+
+  // Expose functions globally
+  w.saveAllChanges = saveAllChanges;
+  w.discardAllChanges = discardAllChanges;
+  w.toggleFullscreen = toggleFullscreen;
+  w.attachCellChangeTracking = attachCellChangeTracking;
 
 })(window, document);  

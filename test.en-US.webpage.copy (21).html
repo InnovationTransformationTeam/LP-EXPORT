@@ -56,17 +56,36 @@
       </div>
 
       <!-- Order Items -->
-      <div class="items-section">
+      <div class="items-section" id="orderItemsSection">
         <h3 class="section-title">Order Items</h3>
 
-        <div class="items-header">
-          <button type="button" id="addItemBtn" class="btn btn-primary">
-            <i class="fas fa-plus"></i> Add Item
-          </button>
-          <button type="button" id="importFromOracleBtn" class="btn btn-outline">
-            <i class="fas fa-file-import"></i> Import from Oracle
-          </button>
-
+        <!-- Enhanced Toolbar -->
+        <div class="items-toolbar">
+          <div class="toolbar-left">
+            <button type="button" id="addItemBtn" class="btn btn-primary">
+              <i class="fas fa-plus"></i> Add Item
+            </button>
+            <button type="button" id="importFromOracleBtn" class="btn btn-outline">
+              <i class="fas fa-file-import"></i> Import from Oracle
+            </button>
+          </div>
+          <div class="toolbar-center">
+            <div id="modifiedIndicator" class="modified-indicator" style="display:none;">
+              <i class="fas fa-circle"></i>
+              <span id="modifiedCount">0</span> modified rows
+            </div>
+          </div>
+          <div class="toolbar-right">
+            <button type="button" id="saveAllChangesBtn" class="btn btn-success" style="display:none;">
+              <i class="fas fa-save"></i> Save All Changes
+            </button>
+            <button type="button" id="discardChangesBtn" class="btn btn-outline-danger" style="display:none;">
+              <i class="fas fa-undo"></i> Discard
+            </button>
+            <button type="button" id="fullscreenTableBtn" class="btn btn-outline" title="Toggle Fullscreen">
+              <i class="fas fa-expand"></i>
+            </button>
+          </div>
         </div>
 
         <div class="items-table-container" id="itemsTableContainer">
@@ -74,7 +93,6 @@
             <thead>
               <tr>
                 <th align="center">S/N</th>
-                <th align="center">Edit</th>
                 <th align="center">Order #</th>
                 <th align="center">Item Code</th>
                 <th align="center">Item Description</th>
