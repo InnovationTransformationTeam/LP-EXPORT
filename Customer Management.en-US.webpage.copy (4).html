@@ -275,6 +275,29 @@
             <div class="form-group-cm" style="display: flex; flex-direction: column;"><label style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Organization ID</label><input type="text" id="organizationId" name="cr650_organizationid" placeholder="Optional - e.g., Technolube (UAE)" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit;" /><small class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; margin-top: 0.5rem;">Internal organization identifier</small></div>
             <div class="form-group-cm" style="display: flex; flex-direction: column;"><label style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Country Code</label><input type="text" id="country1" name="cr650_country_1" placeholder="2-3 letter code (e.g., YE, LB, USA)" maxlength="3" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit; text-transform: uppercase;" /><small class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; margin-top: 0.5rem;">ISO 3166-1 alpha-2 country code</small></div>
           </div>
+
+          <!-- Loading Plan Comments Section -->
+          <div class="address-section-divider-cm" style="margin: var(--space-xl) 0; border-top: 2px dashed #e0e0e0; position: relative;">
+            <span style="position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: white; padding: 0 1rem; color: var(--text-tertiary); font-size: 0.875rem; font-weight: 600;">LOADING PLAN SETTINGS</span>
+          </div>
+
+          <div class="form-row-cm" style="display: grid; grid-template-columns: 1fr; margin-bottom: var(--space-lg);">
+            <div class="form-group-cm" style="display: flex; flex-direction: column;">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                <input type="checkbox" id="hasLpComments" style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--primary);" />
+                <label for="hasLpComments" style="font-weight: 600; font-size: 0.9375rem; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                  <i class="fas fa-comment-alt" style="color: var(--primary);"></i>
+                  Has Loading Plan Comments
+                </label>
+              </div>
+              <small class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); margin-bottom: 12px;">
+                Enable this to add default comments that will auto-populate in the Loading Plan page for this customer
+              </small>
+              <div id="lpCommentsContainer" style="display: none;">
+                <textarea id="lpComments" name="cr650_loadingplancomments" rows="4" placeholder="Enter default loading plan comments for this customer (e.g., special handling instructions, stacking requirements, labeling notes...)" class="form-control-cm" style="padding: 0.875rem 1rem; font-size: 0.9375rem; color: var(--text-primary); resize: vertical; min-height: 100px; background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; width: 100%;"></textarea>
+              </div>
+            </div>
+          </div>
         </div>
       </form>
     </div>

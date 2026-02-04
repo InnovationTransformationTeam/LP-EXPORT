@@ -7053,16 +7053,17 @@
         }, 1000); // Save 1 second after user stops typing
       }
 
-      // Load existing LP comments
+      // Load existing LP comments (with auto-fetch from customer if empty)
       async function loadLpComments() {
         if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
           return;
         }
 
         try {
+          // Fetch existing LP comments AND customer name from DCL Master
           const data = await safeAjax({
             type: "GET",
-            url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})?$select=cr650_additionalco_lp`,
+            url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})?$select=cr650_additionalco_lp,cr650_customername`,
             headers: {
               Accept: "application/json;odata.metadata=minimal"
             },
@@ -7071,9 +7072,46 @@
           });
 
           if (data && data.cr650_additionalco_lp) {
+            // DCL already has LP comments - use them
             lpCommentsField.value = data.cr650_additionalco_lp;
             updateLpCommentsCharCount();
             console.log("✅ Loaded existing LP comments");
+          } else if (data && data.cr650_customername) {
+            // No LP comments yet - try to fetch from customer's default comments
+            const customerName = data.cr650_customername.trim();
+            console.log("🔍 No LP comments found, checking customer defaults for:", customerName);
+
+            try {
+              // Look up customer by name in Customer Management entity
+              const customerUrl = `/_api/cr650_updated_dcl_customers?$filter=cr650_customername eq '${encodeURIComponent(customerName)}'&$select=cr650_loadingplancomments&$top=1`;
+
+              const customerData = await safeAjax({
+                type: "GET",
+                url: customerUrl,
+                headers: {
+                  Accept: "application/json;odata.metadata=minimal"
+                },
+                dataType: "json",
+                _withLoader: false
+              });
+
+              if (customerData && customerData.value && customerData.value.length > 0) {
+                const customer = customerData.value[0];
+                if (customer.cr650_loadingplancomments && customer.cr650_loadingplancomments.trim()) {
+                  // Auto-populate with customer's default LP comments
+                  lpCommentsField.value = customer.cr650_loadingplancomments;
+                  updateLpCommentsCharCount();
+                  console.log("✅ Auto-populated LP comments from customer defaults");
+
+                  // Auto-save the populated comments to DCL Master
+                  autoSaveLpComments();
+                }
+              } else {
+                console.log("ℹ️ Customer has no default LP comments configured");
+              }
+            } catch (customerErr) {
+              console.warn("⚠️ Could not fetch customer LP comments:", customerErr);
+            }
           }
         } catch (err) {
           console.warn("⚠️ Could not load LP comments:", err);

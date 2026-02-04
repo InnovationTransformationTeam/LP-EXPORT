@@ -327,6 +327,24 @@
         }
     }
 
+    /**
+     * Handle LP Comments checkbox change - show/hide comments textarea
+     */
+    function handleLpCommentsToggle(e) {
+        const isChecked = e.target.checked;
+        const commentsContainer = getElement('#lpCommentsContainer');
+        const commentsTextarea = getElement('#lpComments');
+
+        if (commentsContainer) {
+            commentsContainer.style.display = isChecked ? 'block' : 'none';
+        }
+
+        // Clear comments if unchecked
+        if (!isChecked && commentsTextarea) {
+            commentsTextarea.value = '';
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // POWER PAGES: FORCE HIDE MODAL ON LOAD
     // ═══════════════════════════════════════════════════════════════════════
@@ -460,6 +478,12 @@
         const salesRep = getElement('#salesRep');
         if (salesRep) {
             salesRep.addEventListener('change', handleSalesRepChange);
+        }
+
+        // LP Comments checkbox toggle
+        const hasLpComments = getElement('#hasLpComments');
+        if (hasLpComments) {
+            hasLpComments.addEventListener('change', handleLpCommentsToggle);
         }
 
         // POWER PAGES: Event delegation for edit buttons
@@ -632,7 +656,7 @@
         try {
             showLoader(true);
 
-            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$select=cr650_updated_dcl_customerid,cr650_customercodes,cr650_customername,cr650_country,cr650_paymentterms,cr650_salesrepresentativename,cr650_destinationport,cr650_consignee,cr650_shipto,cr650_billto,cr650_notifyparty1,cr650_notifyparty2,cr650_organizationid,cr650_cob,cr650_country_1,modifiedon&$orderby=createdon desc`;
+            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$select=cr650_updated_dcl_customerid,cr650_customercodes,cr650_customername,cr650_country,cr650_paymentterms,cr650_salesrepresentativename,cr650_destinationport,cr650_consignee,cr650_shipto,cr650_billto,cr650_notifyparty1,cr650_notifyparty2,cr650_organizationid,cr650_cob,cr650_country_1,cr650_loadingplancomments,modifiedon&$orderby=createdon desc`;
 
             const response = await fetch(url, {
                 headers: {
@@ -708,6 +732,12 @@
                 salesRepValue = customSalesRep ? customSalesRep.value.trim() : '';
             }
 
+            // Get LP Comments value (only if checkbox is checked)
+            const hasLpCommentsChecked = getElement('#hasLpComments')?.checked;
+            const lpCommentsValue = hasLpCommentsChecked
+                ? (getElement('#lpComments')?.value.trim() || null)
+                : null;
+
             const customerData = {
                 'cr650_customercodes': getElement('#customerCode').value.trim().toUpperCase(),
                 'cr650_customername': getElement('#customerName').value.trim(),
@@ -722,7 +752,8 @@
                 'cr650_organizationid': getElement('#organizationId').value.trim(),
                 'cr650_country_1': getElement('#country1').value.trim(),
                 'cr650_notifyparty1': getElement('#notifyParty1')?.value.trim() || null,
-                'cr650_notifyparty2': getElement('#notifyParty2')?.value.trim() || null
+                'cr650_notifyparty2': getElement('#notifyParty2')?.value.trim() || null,
+                'cr650_loadingplancomments': lpCommentsValue
             };
 
             let url = `${CONFIG.apiPath}/${CONFIG.entitySetName}`;
@@ -978,6 +1009,14 @@
         if (notifyParty2Container) notifyParty2Container.style.display = 'none';
         if (addNotifyPartyBtn) addNotifyPartyBtn.style.display = 'block';
 
+        // Reset LP Comments checkbox and container
+        const hasLpCommentsCheckbox = getElement('#hasLpComments');
+        const lpCommentsContainer = getElement('#lpCommentsContainer');
+        const lpCommentsTextarea = getElement('#lpComments');
+        if (hasLpCommentsCheckbox) hasLpCommentsCheckbox.checked = false;
+        if (lpCommentsContainer) lpCommentsContainer.style.display = 'none';
+        if (lpCommentsTextarea) lpCommentsTextarea.value = '';
+
         updateWizardUI();
         const modal = getElement('#customerModal');
         if (modal) {
@@ -1016,9 +1055,21 @@
                     '#organizationId': customer.cr650_organizationid || '',
                     '#country1': customer.cr650_country_1 || '',
                     '#notifyParty1': customer.cr650_notifyparty1 || '',
-                    '#notifyParty2': customer.cr650_notifyparty2 || ''
-
+                    '#notifyParty2': customer.cr650_notifyparty2 || '',
+                    '#lpComments': customer.cr650_loadingplancomments || ''
                 };
+
+                // Handle LP Comments checkbox and textarea
+                const hasLpCommentsCheckbox = getElement('#hasLpComments');
+                const lpCommentsContainer = getElement('#lpCommentsContainer');
+                const hasLpComments = customer.cr650_loadingplancomments && customer.cr650_loadingplancomments.trim() !== '';
+
+                if (hasLpCommentsCheckbox) {
+                    hasLpCommentsCheckbox.checked = hasLpComments;
+                }
+                if (lpCommentsContainer) {
+                    lpCommentsContainer.style.display = hasLpComments ? 'block' : 'none';
+                }
 
                 // 🔁 SMART COUNTRY CODE HANDLING (EDIT MODE)
                 const countryCodeInput = getElement('#country1');
