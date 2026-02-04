@@ -7664,18 +7664,14 @@
             await createServerRowFromTr(tr, CURRENT_DCL_ID);
           }
 
-          // Mark as saved
+          // Mark as saved - clean up classes
           tr.classList.remove('row-modified');
-          tr.classList.add('save-success');
           tr.querySelectorAll('.cell-modified').forEach(c => c.classList.remove('cell-modified'));
 
           // Update original values
           tr.dataset.originalValues = JSON.stringify(getRowCurrentValues(tr));
 
           successCount++;
-
-          // Remove save-success class after animation
-          setTimeout(() => tr.classList.remove('save-success'), 1000);
 
         } catch (err) {
           console.error("Failed to save row:", err);
