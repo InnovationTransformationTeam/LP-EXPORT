@@ -7083,7 +7083,9 @@
 
             try {
               // Look up customer by name in Customer Management entity
-              const customerUrl = `/_api/cr650_updated_dcl_customers?$filter=cr650_customername eq '${encodeURIComponent(customerName)}'&$select=cr650_loadingplancomments&$top=1`;
+              // Escape single quotes for OData filter (replace ' with '')
+              const escapedName = customerName.replace(/'/g, "''");
+              const customerUrl = `/_api/cr650_updated_dcl_customers?$filter=cr650_customername eq '${escapedName}'&$select=cr650_loadingplancomments&$top=1`;
 
               const customerData = await safeAjax({
                 type: "GET",
