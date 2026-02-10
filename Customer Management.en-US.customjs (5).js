@@ -1698,7 +1698,17 @@
 
         showLoader(true);
         try {
-            // Delete via Web API with anti-forgery token
+            // First, delete all related customer models to avoid referential integrity error
+            const relatedModels = await fetchCustomerModels(customerId);
+            if (relatedModels.length > 0) {
+                log(`Deleting ${relatedModels.length} related customer models first...`);
+                for (const model of relatedModels) {
+                    await deleteCustomerModel(model.id);
+                }
+                log('All related customer models deleted');
+            }
+
+            // Now delete the customer record
             await safeAjax({
                 type: 'DELETE',
                 url: `${CONFIG.apiPath}/${CONFIG.entitySetName}(${customerId})`
