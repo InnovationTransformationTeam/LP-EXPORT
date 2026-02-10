@@ -87,7 +87,7 @@
 </div>
 <!-- Add/Edit Customer Modal - FIXED FOR POWER PAGES -->
 <div id="customerModal" class="modal-cm" style="position: fixed; top: 0px; right: 0px; bottom: 0px; left: 0px; z-index: 999999; align-items: center; justify-content: center; pointer-events: auto; display: none;">
-  <div class="modal-overlay-cm" style="position: absolute; top: 0px; right: 0px; bottom: 0px; left: 0px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); z-index: 999998; pointer-events: none;"></div>
+  <div class="modal-overlay-cm" style="position: absolute; top: 0px; right: 0px; bottom: 0px; left: 0px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); z-index: 999998; pointer-events: auto;"></div>
   <div class="modal-dialog-cm" style="position: relative; width: 90%; max-width: 900px; max-height: 90vh; box-shadow: var(--shadow-xl); display: flex; flex-direction: column; overflow-x: hidden; overflow-y: hidden; z-index: 999999; pointer-events: auto;">
     <div class="modal-header-cm" style="display: flex; justify-content: space-between; align-items: center;">
       <h2 id="modalTitle" style="display: flex; align-items: center; font-size: 1.5rem; color: var(--text-primary);"><i class="fas fa-user-plus" style="color: var(--primary);"></i><span>Add New Customer</span></h2>
@@ -288,17 +288,6 @@
               </button>
             </div>
             <div class="form-group-cm full-width-cm" style="display: flex; flex-direction: column; grid-column-start: 1; grid-column-end: -1;"><textarea id="notifyParty2" name="cr650_notifyparty2" rows="3" placeholder="Enter second notify party contact details" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); resize: vertical; min-height: 100px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6;"> </textarea></div>
-          </div>
-          <!-- Notify Party 2 (Hidden by default) -->
-          <div class="address-card-cm" style="margin-bottom: var(--space-lg); display: none; animation: slideDown 0.3s ease-out;">
-            <div class="address-card-header-cm" style="display: flex; align-items: center; margin-bottom: var(--space-md); padding-bottom: var(--space-sm);">
-              <i class="fas fa-bell" style="font-size: 1.25rem; color: var(--primary);"></i><strong style="flex-grow: 1; flex-shrink: 1; flex-basis: 0%; font-size: 1.1rem; color: var(--text-primary); font-weight: 600;">Notify Party 2</strong
-              ><button type="button" onmouseover="this.style.background='#c33'; this.style.color='white';" onmouseout="this.style.background='#fee'; this.style.color='#c33';" class="btn-remove-field-cm" style="padding: 0.25rem 0.75rem; background: #fee; color: #c33; border: 1px solid #fcc; border-radius: 4px; font-size: 0.75rem; font-weight: 600; cursor: pointer; text-transform: uppercase; display: inline-flex; align-items: center; gap: 0.25rem;">
-                <i class="fas fa-times" style="font-size: 1.25rem; color: var(--primary);"></i>
-                Remove
-              </button>
-            </div>
-            <div class="form-group-cm full-width-cm" style="display: flex; flex-direction: column; grid-column-start: 1; grid-column-end: -1;"><textarea name="cr650_notifyparty2" rows="3" placeholder="Enter second notify party contact details" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); resize: vertical; min-height: 100px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6;"> </textarea></div>
           </div>
         </div>
         <!-- Step 3: Business Terms -->

@@ -532,7 +532,7 @@
     backdrop-filter: blur(4px);
     animation: fadeIn var(--transition-base);
     z-index: 999998;
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 @keyframes fadeIn {
@@ -1076,17 +1076,6 @@ textarea.form-control-cm {
 .custom-input-cm {
     animation: slideDown 0.3s ease-out;
     border-left: 3px solid var(--primary);
-}
-
-@keyframes slideDown {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

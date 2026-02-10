@@ -1171,9 +1171,14 @@
                 method = 'PATCH';
             }
 
-            // Remove null/undefined values - Power Pages doesn't accept explicit nulls in POST
+            // For POST (create): remove null/undefined/empty - Power Pages doesn't accept explicit nulls in POST
+            // For PATCH (update): keep empty strings so fields can be cleared, only remove null/undefined
             const cleanedData = Object.fromEntries(
-                Object.entries(customerData).filter(([_, v]) => v != null && v !== '')
+                Object.entries(customerData).filter(([_, v]) => {
+                    if (v == null) return false;
+                    if (!state.editingCustomerId && v === '') return false;
+                    return true;
+                })
             );
 
             log('Saving customer data:', cleanedData);
@@ -1196,7 +1201,8 @@
             // If new customer with pending models, find the customer ID and create models
             if (isNewCustomer && state.pendingCustomerModels.length > 0) {
                 // Query for the newly created customer by customer code
-                const findUrl = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$filter=cr650_customercodes eq '${customerCode}'&$select=cr650_updated_dcl_customerid&$top=1`;
+                const escapedCode = customerCode.replace(/'/g, "''");
+                const findUrl = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$filter=cr650_customercodes eq '${escapedCode}'&$select=cr650_updated_dcl_customerid&$top=1`;
                 const findResponse = await fetch(findUrl, {
                     headers: {
                         'Accept': 'application/json',
@@ -1253,7 +1259,8 @@
 
     async function checkDuplicateCode(code) {
         try {
-            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$filter=cr650_customercodes eq '${code}'&$select=cr650_updated_dcl_customerid`;
+            const escapedCode = code.replace(/'/g, "''");
+            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$filter=cr650_customercodes eq '${escapedCode}'&$select=cr650_updated_dcl_customerid`;
 
             const response = await fetch(url, {
                 headers: {
@@ -1263,13 +1270,16 @@
                 }
             });
 
-            if (!response.ok) return false;
+            if (!response.ok) return null;
 
             const data = await response.json();
-            return data.value && data.value.length > 0;
+            if (data.value && data.value.length > 0) {
+                return data.value[0].cr650_updated_dcl_customerid;
+            }
+            return null;
         } catch (error) {
             console.error('Error checking duplicate:', error);
-            return false;
+            return null;
         }
     }
 
@@ -1311,9 +1321,10 @@
 
         showLoader(true);
         try {
-            const isDuplicate = await checkDuplicateCode(code);
+            const duplicateId = await checkDuplicateCode(code);
 
-            if (isDuplicate && !state.editingCustomerId) {
+            // Duplicate exists and it's not the customer currently being edited
+            if (duplicateId && duplicateId !== state.editingCustomerId) {
                 validationDiv.className = 'validation-message-cm error';
                 validationDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Customer code already exists!';
             } else {
@@ -2029,8 +2040,8 @@
                     customer.cr650_customername || '',
                     customer.cr650_currency || '',
                     customer.cr650_paymentterms || '',
+                    customer.cr650_country_1 || '',
                     customer.cr650_country || '',
-                    customer.cr650_country_full || customer.cr650_country || '',
                     customer.cr650_notifyparty1 || '',
                     customer.cr650_notifyparty2 || '',
                     customer.cr650_organizationid || '',
