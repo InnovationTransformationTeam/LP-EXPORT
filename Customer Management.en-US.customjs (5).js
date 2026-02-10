@@ -1711,7 +1711,8 @@
             // Now delete the customer record
             await safeAjax({
                 type: 'DELETE',
-                url: `${CONFIG.apiPath}/${CONFIG.entitySetName}(${customerId})`
+                url: `${CONFIG.apiPath}/${CONFIG.entitySetName}(${customerId})`,
+                headers: { 'If-Match': '*' }
             });
 
             showToast('Customer deleted successfully!', 'success');
