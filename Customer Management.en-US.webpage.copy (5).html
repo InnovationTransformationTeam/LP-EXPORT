@@ -1,0 +1,389 @@
+<!-- Loading Bar -->
+<div id="topLoader" class="top-loader hidden" style="position: fixed; top: 0px; left: 0px; right: 0px; height: 3px; z-index: 99999; transform-origin: left center; animation-duration: 1s; animation-timing-function: ease-in-out; animation-delay: 0s; animation-iteration-count: infinite; animation-direction: normal; animation-fill-mode: none; animation-play-state: running; animation-name: loading; animation-timeline: auto; animation-range-start: normal; animation-range-end: normal; pointer-events: none; display: none;"></div>
+<!-- Main Container -->
+<div class="container-cm" style="max-width: 1400px; margin-top: 0px; margin-right: auto; margin-bottom: 0px; margin-left: auto; position: relative; z-index: 1;">
+  <!-- Page Header -->
+  <header class="page-header-cm" style="box-sizing: border-box; margin-bottom: var(--space-xl); box-shadow: var(--shadow-md);">
+    <div class="header-content-cm" style="box-sizing: border-box; display: flex; justify-content: space-between; align-items: center;">
+      <div class="header-left-cm" style="box-sizing: border-box; display: flex; align-items: center;">
+        <i class="fas fa-users header-icon-cm" style="box-sizing: border-box; font-size: 3rem; color: var(--primary); -webkit-text-fill-color: transparent; background-clip: text;"></i>
+        <div style="box-sizing: border-box;">
+          <h1 style="box-sizing: border-box; font-size: 2rem; font-weight: 700; color: var(--text-primary); margin-bottom: var(--space-xs);">Customer Management</h1>
+          <p style="box-sizing: border-box; font-size: 1rem; color: var(--text-secondary);">Manage customer records across all export markets</p>
+        </div>
+      </div>
+      <button id="btnAddCustomer" class="btn-cm btn-primary-cm" style="box-sizing: border-box; padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; font-size: 0.9375rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; color: white;"><i class="fas fa-plus-circle" style="box-sizing: border-box;"></i><span style="box-sizing: border-box;">Add New Customer</span></button>
+    </div>
+  </header>
+  <!-- Statistics Cards -->
+  <div class="stats-grid-cm" style="box-sizing: border-box; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-bottom: var(--space-xl);">
+    <div class="stat-card-cm" style="box-sizing: border-box; display: flex; align-items: center; box-shadow: var(--shadow-md);">
+      <div class="stat-icon-cm stat-icon-primary-cm" style="box-sizing: border-box; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: white;"><i class="fas fa-users" style="box-sizing: border-box;"></i></div>
+      <div class="stat-content-cm" style="box-sizing: border-box;">
+        <h3 id="totalCustomers" style="box-sizing: border-box; font-size: 2rem; font-weight: 700; color: var(--text-primary); line-height: 1;">0</h3>
+        <p style="box-sizing: border-box; font-size: 0.875rem; color: var(--text-secondary); margin-top: var(--space-xs);">Total Customers</p>
+      </div>
+    </div>
+    <div class="stat-card-cm" style="box-sizing: border-box; display: flex; align-items: center; box-shadow: var(--shadow-md);">
+      <div class="stat-icon-cm stat-icon-success-cm" style="box-sizing: border-box; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: white;"><i class="fas fa-globe" style="box-sizing: border-box;"></i></div>
+      <div class="stat-content-cm" style="box-sizing: border-box;">
+        <h3 id="totalCountries" style="box-sizing: border-box; font-size: 2rem; font-weight: 700; color: var(--text-primary); line-height: 1;">0</h3>
+        <p style="box-sizing: border-box; font-size: 0.875rem; color: var(--text-secondary); margin-top: var(--space-xs);">Countries Served</p>
+      </div>
+    </div>
+    <div class="stat-card-cm" style="box-sizing: border-box; display: flex; align-items: center; box-shadow: var(--shadow-md);">
+      <div class="stat-icon-cm stat-icon-warning-cm" style="box-sizing: border-box; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: white;"><i class="fas fa-clock" style="box-sizing: border-box;"></i></div>
+      <div class="stat-content-cm" style="box-sizing: border-box;">
+        <h3 id="recentUpdates" style="box-sizing: border-box; font-size: 2rem; font-weight: 700; color: var(--text-primary); line-height: 1;">0</h3>
+        <p style="box-sizing: border-box; font-size: 0.875rem; color: var(--text-secondary); margin-top: var(--space-xs);">Updated Today</p>
+      </div>
+    </div>
+  </div>
+  <!-- Search and Filter Bar -->
+  <div class="toolbar-cm" style="box-sizing: border-box; margin-bottom: var(--space-lg); display: flex; justify-content: space-between; align-items: center; box-shadow: var(--shadow-sm); flex-wrap: wrap;">
+    <div class="toolbar-left-cm" style="box-sizing: border-box; display: flex; flex-grow: 1; flex-shrink: 1; flex-basis: 0%; min-width: 300px;">
+      <div class="search-input-wrapper-cm" style="box-sizing: border-box; position: relative; flex-grow: 1; flex-shrink: 1; flex-basis: 0%; max-width: 400px;"><i class="fas fa-search" style="box-sizing: border-box; position: absolute; left: var(--space-md); top: 50%; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none;"></i><input type="text" id="searchInput" placeholder="Search by customer code, name, or country..." class="search-input-cm" style="box-sizing: border-box; width: 100%; padding-top: 0.75rem; padding-right: 1rem; padding-bottom: 0.75rem; padding-left: 2.75rem; font-size: 0.9375rem; color: var(--text-primary);" /></div>
+      <select id="countryFilter" class="filter-select-cm" style="box-sizing: border-box; padding-top: 0.75rem; padding-right: 1rem; padding-bottom: 0.75rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); cursor: pointer; min-width: 180px;">
+        <option value="" style="box-sizing: border-box;">All Countries</option>
+        <option value="Yemen" style="box-sizing: border-box;">Yemen</option>
+        <option value="Lebanon" style="box-sizing: border-box;">Lebanon</option>
+        <option value="Iraq" style="box-sizing: border-box;">Iraq</option>
+        <option value="Jordan" style="box-sizing: border-box;">Jordan</option>
+        <option value="Turkey" style="box-sizing: border-box;">Turkey</option>
+        <option value="United Arab Emirates" style="box-sizing: border-box;">United Arab Emirates</option>
+        <option value="Syrian Arab Republic" style="box-sizing: border-box;">Syrian Arab Republic</option>
+      </select>
+    </div>
+    <button id="btnExportExcel" class="btn-cm btn-secondary-cm" style="box-sizing: border-box; padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; font-size: 0.9375rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; color: var(--text-primary);"><i class="fas fa-file-excel" style="box-sizing: border-box;"></i><span style="box-sizing: border-box;">Export</span></button>
+  </div>
+  <!-- Customers Table -->
+  <div class="table-card-cm" style="box-sizing: border-box; box-shadow: var(--shadow-md); overflow-x: hidden; overflow-y: hidden;">
+    <div class="table-responsive-cm" style="box-sizing: border-box; overflow-x: auto;">
+      <table class="data-table-cm" style="box-sizing: border-box; width: 100%; border-collapse: collapse;">
+        <thead style="box-sizing: border-box;">
+          <tr style="box-sizing: border-box;">
+            <th align="left" style="box-sizing: border-box; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; text-align: left; font-weight: 700; font-size: 0.875rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px;">Customer Code</th>
+            <th align="left" style="box-sizing: border-box; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; text-align: left; font-weight: 700; font-size: 0.875rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px;">Customer Name</th>
+            <th align="left" style="box-sizing: border-box; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; text-align: left; font-weight: 700; font-size: 0.875rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px;">Country</th>
+            <th align="left" style="box-sizing: border-box; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; text-align: left; font-weight: 700; font-size: 0.875rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px;">Payment Terms</th>
+            <th align="left" style="box-sizing: border-box; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; text-align: left; font-weight: 700; font-size: 0.875rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px;">Sales Rep</th>
+            <th align="center" class="text-center" style="box-sizing: border-box; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; font-weight: 700; font-size: 0.875rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.5px; text-align: center;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="customerTableBody" style="box-sizing: border-box;">
+          <!-- Dynamic content -->
+        </tbody>
+      </table>
+    </div>
+    <!-- Pagination -->
+    <div class="pagination-cm" style="box-sizing: border-box; display: flex; justify-content: space-between; align-items: center;">
+      <button id="btnPrevPage" disabled="" class="btn-cm btn-pagination-cm" style="box-sizing: border-box; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; font-size: 0.9375rem; font-weight: 600; display: inline-flex; align-items: center; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; padding-top: 0.5rem; padding-right: 1rem; padding-bottom: 0.5rem; padding-left: 1rem; opacity: 0.5; cursor: not-allowed;"><i class="fas fa-chevron-left" style="box-sizing: border-box;"></i> Previous</button><span id="pageInfo" class="page-info-cm" style="box-sizing: border-box; font-size: 0.875rem; color: var(--text-secondary); font-weight: 500;">Page 1 of 1</span
+      ><button id="btnNextPage" disabled="" class="btn-cm btn-pagination-cm" style="box-sizing: border-box; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; font-size: 0.9375rem; font-weight: 600; display: inline-flex; align-items: center; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; padding-top: 0.5rem; padding-right: 1rem; padding-bottom: 0.5rem; padding-left: 1rem; opacity: 0.5; cursor: not-allowed;">
+        Next
+        <i class="fas fa-chevron-right" style="box-sizing: border-box;"></i>
+      </button>
+    </div>
+  </div>
+</div>
+<!-- Add/Edit Customer Modal - FIXED FOR POWER PAGES -->
+<div id="customerModal" class="modal-cm" style="position: fixed; top: 0px; right: 0px; bottom: 0px; left: 0px; z-index: 999999; align-items: center; justify-content: center; pointer-events: auto; display: none;">
+  <div class="modal-overlay-cm" style="position: absolute; top: 0px; right: 0px; bottom: 0px; left: 0px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); z-index: 999998; pointer-events: none;"></div>
+  <div class="modal-dialog-cm" style="position: relative; width: 90%; max-width: 900px; max-height: 90vh; box-shadow: var(--shadow-xl); display: flex; flex-direction: column; overflow-x: hidden; overflow-y: hidden; z-index: 999999; pointer-events: auto;">
+    <div class="modal-header-cm" style="display: flex; justify-content: space-between; align-items: center;">
+      <h2 id="modalTitle" style="display: flex; align-items: center; font-size: 1.5rem; color: var(--text-primary);"><i class="fas fa-user-plus" style="color: var(--primary);"></i><span>Add New Customer</span></h2>
+      <button id="btnCloseModal" type="button" class="modal-close-cm" style="width: 40px; height: 40px; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body-cm" style="overflow-y: auto; flex-grow: 1; flex-shrink: 1; flex-basis: 0%; max-height: calc(-200px + 90vh); scrollbar-width: thin; scrollbar-color: var(--primary) var(--gray-200);">
+      <!-- Progress Steps -->
+      <div class="progress-steps-cm" style="display: flex; align-items: center; justify-content: center; margin-bottom: var(--space-xl);">
+        <div data-step="1" class="step-cm active-cm" style="display: flex; flex-direction: column; align-items: center;">
+          <div class="step-number-cm" style="width: 50px; height: 50px; border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.25rem; color: white; box-shadow: rgba(0, 102, 51, 0.1) 0px 0px 0px 4px;">1</div>
+          <div class="step-label-cm" style="font-size: 0.875rem; font-weight: 600; color: var(--primary);">Basic Info</div>
+        </div>
+        <div class="step-divider-cm" style="width: 80px; height: 2px;"></div>
+        <div data-step="2" class="step-cm" style="display: flex; flex-direction: column; align-items: center;">
+          <div class="step-number-cm" style="width: 50px; height: 50px; border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; color: var(--text-tertiary); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.25rem;">2</div>
+          <div class="step-label-cm" style="font-size: 0.875rem; font-weight: 600; color: var(--text-tertiary);">Addresses</div>
+        </div>
+        <div class="step-divider-cm" style="width: 80px; height: 2px;"></div>
+        <div data-step="3" class="step-cm" style="display: flex; flex-direction: column; align-items: center;">
+          <div class="step-number-cm" style="width: 50px; height: 50px; border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; color: var(--text-tertiary); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.25rem;">3</div>
+          <div class="step-label-cm" style="font-size: 0.875rem; font-weight: 600; color: var(--text-tertiary);">Business Terms</div>
+        </div>
+      </div>
+      <!-- Form -->
+      <form id="customerForm" class="customer-form-cm" style="width: 100%;">
+        <!-- Step 1: Basic Information -->
+        <div data-step="1" class="form-step-cm active-cm" style="display: block;">
+          <h3 class="form-step-title-cm" style="display: flex; align-items: center; font-size: 1.25rem; color: var(--text-primary); margin-bottom: var(--space-xl); padding-bottom: var(--space-md);">
+            <i class="fas fa-info-circle" style="color: var(--primary);"></i>
+            Basic Information
+          </h3>
+          <div class="form-row-cm" style="display: grid; grid-template-columns: repeat(2, 1fr); margin-bottom: var(--space-lg);">
+            <div class="form-group-cm" style="display: flex; flex-direction: column;">
+              <label class="required-cm" style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Customer Code</label>
+              <div class="input-group-cm" style="display: flex;">
+                <input type="text" id="customerCode" name="cr650_customercodes" placeholder="TL20142" pattern="TL\d{5}" required="" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit; flex-grow: 1; flex-shrink: 1; flex-basis: 0%;" /><button type="button" id="btnCheckCode" class="btn-cm btn-check-cm" style="border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; font-size: 0.9375rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; padding-top: 0.5rem; padding-right: 1rem; padding-bottom: 0.5rem; padding-left: 1rem; color: var(--text-primary);">
+                  <i class="fas fa-check"></i>
+                  Verify
+                </button>
+              </div>
+              <div id="codeValidation" class="validation-message-cm" style="font-size: 0.875rem; font-weight: 600; display: none;"></div>
+            </div>
+            <div class="form-group-cm" style="display: flex; flex-direction: column;">
+              <label class="required-cm" style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Country</label
+              ><select id="country" name="cr650_country" required="" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit;">
+                <option value="">Select country...</option>
+                <option value="Yemen">Yemen</option>
+                <option value="Lebanon">Lebanon</option>
+                <option value="Iraq">Iraq</option>
+                <option value="Jordan">Jordan</option>
+                <option value="Turkey">Turkey</option>
+                <option value="United Arab Emirates">United Arab Emirates</option>
+                <option value="Syrian Arab Republic">Syrian Arab Republic</option>
+                <option value="Other" style="font-weight: 600; font-style: italic;">Other (Specify)</option></select
+              ><!-- NEW: Custom country input for "Other" --><input type="text" id="countryCustom" placeholder="Enter custom country name" class="form-control-cm custom-input-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit; animation-duration: 0.3s; animation-timing-function: ease-out; animation-delay: 0s; animation-iteration-count: 1; animation-direction: normal; animation-fill-mode: none; animation-play-state: running; animation-name: slideDown; animation-timeline: auto; animation-range-start: normal; animation-range-end: normal; display: none; margin-top: 0.5rem;" />
+            </div>
+          </div>
+          <div class="form-row-cm" style="display: grid; grid-template-columns: repeat(2, 1fr); margin-bottom: var(--space-lg);">
+            <div class="form-group-cm full-width-cm" style="display: flex; flex-direction: column; grid-column-start: 1; grid-column-end: -1;"><label class="required-cm" style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Customer Name</label><input type="text" id="customerName" name="cr650_customername" placeholder="Enter full company name" required="" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit;" /></div>
+          </div>
+          <div class="form-row-cm" style="display: grid; grid-template-columns: repeat(2, 1fr); margin-bottom: var(--space-lg);">
+            <div class="form-group-cm" style="display: flex; flex-direction: column;">
+              <label class="required-cm" style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Sales Representative</label
+              ><select id="salesRep" name="cr650_salesrepresentativename" required="" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; font-family: inherit; font-weight: 500; color: var(--text-primary);">
+                <option value="">Select sales rep...</option>
+                <!-- FIXED: Complete list of Sales Representatives -->
+                <option value="QUSAI KAMAL RAYYAN">QUSAI KAMAL RAYYAN</option>
+                <option value="MOHAMMAD ABDULAZIZ ALKHEREJI">MOHAMMAD ABDULAZIZ ALKHEREJI</option>
+                <option value="ADNAN SAEED ALKHEREIJI">ADNAN SAEED ALKHEREIJI</option>
+                <option value="NASSER ABDULLAH ALSHAMRANI">NASSER ABDULLAH ALSHAMRANI</option>
+                <option value="KHALED MOHAMMED ALOTAIBI">KHALED MOHAMMED ALOTAIBI</option>
+                <option value="AHMED HASSAN ALZAHRANI">AHMED HASSAN ALZAHRANI</option>
+                <option value="OMAR FAISAL ALSUBAIE">OMAR FAISAL ALSUBAIE</option>
+                <option value="SALEH IBRAHIM ALTURKI">SALEH IBRAHIM ALTURKI</option>
+                <option value="YOUSEF ABDULLAH ALQAHTANI">YOUSEF ABDULLAH ALQAHTANI</option>
+                <option value="FAHAD ABDULRAHMAN ALDOSSARY">FAHAD ABDULRAHMAN ALDOSSARY</option>
+                <option value="Other" style="font-weight: 600; font-style: italic;">Other (Specify)</option></select
+              ><!-- NEW: Custom sales rep input for "Other" --><input type="text" id="salesRepCustom" placeholder="Enter sales representative name" class="form-control-cm custom-input-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit; animation-duration: 0.3s; animation-timing-function: ease-out; animation-delay: 0s; animation-iteration-count: 1; animation-direction: normal; animation-fill-mode: none; animation-play-state: running; animation-name: slideDown; animation-timeline: auto; animation-range-start: normal; animation-range-end: normal; display: none; margin-top: 0.5rem;" /><small class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; margin-top: 0.5rem;">Choose the assigned sales representative for this customer</small>
+            </div>
+            <div class="form-group-cm" style="display: flex; flex-direction: column;"><label class="required-cm" style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Destination Port</label><input type="text" id="destinationPort" name="cr650_destinationport" placeholder="e.g., Aden, Beirut" required="" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit;" /><small id="portSuggestion" class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; margin-top: 0.5rem;"></small></div>
+          </div>
+          <div class="form-row-cm" style="display: grid; grid-template-columns: repeat(2, 1fr); margin-bottom: var(--space-lg);">
+            <div class="form-group-cm" style="display: flex; flex-direction: column;">
+              <label style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Default Currency</label>
+              <select id="currency" name="cr650_currency" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit;">
+                <option value="">Select currency...</option>
+                <option value="USD">USD - US Dollar</option>
+                <option value="EUR">EUR - Euro</option>
+                <option value="GBP">GBP - British Pound</option>
+                <option value="SAR">SAR - Saudi Riyal</option>
+                <option value="AED">AED - UAE Dirham</option>
+                <option value="KWD">KWD - Kuwaiti Dinar</option>
+                <option value="QAR">QAR - Qatari Riyal</option>
+                <option value="BHD">BHD - Bahraini Dinar</option>
+                <option value="OMR">OMR - Omani Rial</option>
+                <option value="JOD">JOD - Jordanian Dinar</option>
+                <option value="LBP">LBP - Lebanese Pound</option>
+                <option value="IQD">IQD - Iraqi Dinar</option>
+                <option value="YER">YER - Yemeni Rial</option>
+                <option value="SYP">SYP - Syrian Pound</option>
+                <option value="TRY">TRY - Turkish Lira</option>
+                <option value="EGP">EGP - Egyptian Pound</option>
+                <option value="PKR">PKR - Pakistani Rupee</option>
+                <option value="INR">INR - Indian Rupee</option>
+              </select>
+              <small class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; margin-top: 0.5rem;">Default currency for transactions with this customer</small>
+            </div>
+          </div>
+        </div>
+        <!-- Step 2: Customer Models - DYNAMIC UI -->
+        <div data-step="2" class="form-step-cm" style="display: none; padding-top: 0px; padding-right: 0px; padding-bottom: 0px; padding-left: 0px;">
+          <h3 class="form-step-title-cm" style="display: flex; align-items: center; font-size: 1.25rem; color: var(--text-primary); padding-bottom: var(--space-md); margin-bottom: var(--space-xl);">
+            <i class="fas fa-cubes" style="color: var(--primary);"></i>
+            Customer Models
+          </h3>
+
+          <!-- Customer Models List -->
+          <div id="customerModelsContainer" style="margin-bottom: var(--space-lg);">
+            <!-- Info message for new customers -->
+            <div id="customerModelsInfo" class="address-card-cm" style="margin-bottom: var(--space-lg); background: linear-gradient(135deg, #f0f9f4 0%, #e8f5ed 100%); border: 1px dashed var(--primary);">
+              <div style="display: flex; align-items: center; padding: 1rem;">
+                <i class="fas fa-info-circle" style="font-size: 1.5rem; color: var(--primary); margin-right: 1rem;"></i>
+                <div>
+                  <strong style="color: var(--text-primary); font-size: 1rem;">Customer Models</strong>
+                  <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.25rem;">
+                    Define custom address models for this customer (e.g., Consignee, Ship-To, Bill-To, or any custom type).
+                    You can add multiple models after saving the customer.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Models list will be dynamically populated here -->
+            <div id="customerModelsList" style="display: none;">
+              <!-- Dynamic content -->
+            </div>
+
+            <!-- Add New Model Button -->
+            <div id="addModelBtnContainer" class="add-field-container-cm" style="margin-bottom: var(--space-lg); text-align: center; display: none;">
+              <button type="button" id="btnAddCustomerModel" class="btn-cm btn-add-notify-cm" style="border: 2px dashed var(--primary); background: white; color: var(--primary); font-size: 0.9375rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.5rem; border-radius: 8px; transition: all 0.2s ease;">
+                <i class="fas fa-plus-circle"></i>
+                <span>Add Customer Model</span>
+              </button>
+            </div>
+
+            <!-- Add/Edit Model Form (hidden by default) -->
+            <div id="customerModelForm" class="address-card-cm" style="margin-bottom: var(--space-lg); display: none; animation: slideDown 0.3s ease-out; border: 2px solid var(--primary);">
+              <div class="address-card-header-cm" style="display: flex; align-items: center; margin-bottom: var(--space-md); padding-bottom: var(--space-sm); border-bottom: 1px solid #e0e0e0;">
+                <i class="fas fa-edit" style="font-size: 1.25rem; color: var(--primary);"></i>
+                <strong id="modelFormTitle" style="flex-grow: 1; font-size: 1.1rem; color: var(--text-primary); font-weight: 600;">Add New Model</strong>
+                <button type="button" id="btnCancelModelForm" class="btn-remove-notify-cm" style="padding: 0.25rem 0.75rem; background: #fee; color: #c33; border: 1px solid #fcc; border-radius: 4px; font-size: 0.75rem; font-weight: 600; cursor: pointer; text-transform: uppercase; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="fas fa-times"></i>
+                  Cancel
+                </button>
+              </div>
+              <input type="hidden" id="editingModelId" value="" />
+              <div class="form-group-cm" style="display: flex; flex-direction: column; margin-bottom: var(--space-md);">
+                <label style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.5rem;">Model Name <span style="color: #c33;">*</span></label>
+                <input type="text" id="modelName" placeholder="e.g., Consignee, Ship-To, Bill-To, Warehouse Address..." class="form-control-cm" style="padding: 0.875rem 1rem; font-size: 0.9375rem; color: var(--text-primary);" />
+                <small style="font-size: 0.75rem; color: var(--text-tertiary); margin-top: 0.25rem;">Enter a descriptive name for this address type</small>
+              </div>
+              <div class="form-group-cm" style="display: flex; flex-direction: column; margin-bottom: var(--space-md);">
+                <label style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.5rem;">Model Information</label>
+                <textarea id="modelInfo" rows="4" placeholder="Enter complete address information including:
+- Company/Contact name
+- P.O. Box or street address
+- City, Country
+- Phone number
+- Email address" class="form-control-cm" style="padding: 0.875rem 1rem; font-size: 0.9375rem; color: var(--text-primary); resize: vertical; min-height: 100px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6;"></textarea>
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                <button type="button" id="btnSaveModel" class="btn-cm btn-primary-cm" style="padding: 0.5rem 1.5rem; font-size: 0.875rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; color: white; border: none; border-radius: 6px;">
+                  <i class="fas fa-save"></i>
+                  Save Model
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Notify Party Section -->
+          <div class="address-section-divider-cm" style="margin-top: 2rem; margin-right: 0px; margin-bottom: 2rem; margin-left: 0px; margin: var(--space-xl) 0; border-top: 2px dashed #e0e0e0; position: relative;"><span style="position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: white; padding: 0 1rem; color: var(--text-tertiary); font-size: 0.875rem; font-weight: 600;">NOTIFY PARTIES</span></div>
+          <!-- Notify Party 1 -->
+          <div class="address-card-cm" style="margin-bottom: var(--space-lg);">
+            <div class="address-card-header-cm" style="display: flex; align-items: center; margin-bottom: var(--space-md); padding-bottom: var(--space-sm);"><i class="fas fa-bell" style="font-size: 1.25rem; color: var(--primary);"></i><strong style="flex-grow: 1; flex-shrink: 1; flex-basis: 0%; font-size: 1.1rem; color: var(--text-primary); font-weight: 600;">Notify Party 1</strong><span class="address-badge-cm optional-cm" style="display: inline-flex; align-items: center; padding-top: 0.25rem; padding-right: 0.75rem; padding-bottom: 0.25rem; padding-left: 0.75rem; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: white;">Optional</span></div>
+            <div class="form-group-cm full-width-cm" style="display: flex; flex-direction: column; grid-column-start: 1; grid-column-end: -1;"><textarea id="notifyParty1" name="cr650_notifyparty1" rows="3" placeholder="Enter notify party contact details (name, phone, email, address)" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); resize: vertical; min-height: 100px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6;"> </textarea></div>
+          </div>
+          <!-- Add Second Notify Party Button -->
+          <div id="addNotifyPartyBtn" class="add-field-container-cm" style="margin-bottom: var(--space-lg); text-align: center;">
+            <button type="button" id="btnAddNotifyParty2" class="btn-cm btn-add-notify-cm" style="border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; row-gap: 0.5rem; column-gap: 0.5rem; border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom-right-radius: 8px; border-bottom-left-radius: 8px; transition-behavior: normal; transition-duration: 0.2s; transition-timing-function: ease; transition-delay: 0s; transition-property: all; padding: 0.75rem 1.5rem; border: 2px dashed var(--primary); background: white; color: var(--primary); font-size: 0.9375rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; border-radius: 8px; transition: all 0.2s ease;"><i class="fas fa-plus-circle"></i><span>Add Second Notify Party</span></button>
+          </div>
+          <!-- Notify Party 2 (Hidden by default) -->
+          <div id="notifyParty2Container" class="address-card-cm" style="margin-bottom: var(--space-lg); display: none; animation: slideDown 0.3s ease-out;">
+            <div class="address-card-header-cm" style="display: flex; align-items: center; margin-bottom: var(--space-md); padding-bottom: var(--space-sm);">
+              <i class="fas fa-bell" style="font-size: 1.25rem; color: var(--primary);"></i><strong style="flex-grow: 1; flex-shrink: 1; flex-basis: 0%; font-size: 1.1rem; color: var(--text-primary); font-weight: 600;">Notify Party 2</strong
+              ><button type="button" id="btnRemoveNotifyParty2" class="btn-remove-notify-cm" style="padding-top: 0.25rem; padding-right: 0.75rem; padding-bottom: 0.25rem; padding-left: 0.75rem; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(255, 238, 238); border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: rgb(255, 204, 204); border-right-color: rgb(255, 204, 204); border-bottom-color: rgb(255, 204, 204); border-left-color: rgb(255, 204, 204); border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; border-top-left-radius: 4px; border-top-right-radius: 4px; border-bottom-right-radius: 4px; border-bottom-left-radius: 4px; row-gap: 0.25rem; column-gap: 0.25rem; transition-behavior: normal; transition-duration: 0.2s; transition-timing-function: ease; transition-delay: 0s; transition-property: all; padding: 0.25rem 0.75rem; background: #fee; color: #c33; border: 1px solid #fcc; border-radius: 4px; font-size: 0.75rem; font-weight: 600; cursor: pointer; text-transform: uppercase; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.2s ease;">
+                <i class="fas fa-times" style="font-size: 1.25rem; color: var(--primary);"></i>
+                Remove
+              </button>
+            </div>
+            <div class="form-group-cm full-width-cm" style="display: flex; flex-direction: column; grid-column-start: 1; grid-column-end: -1;"><textarea id="notifyParty2" name="cr650_notifyparty2" rows="3" placeholder="Enter second notify party contact details" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); resize: vertical; min-height: 100px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6;"> </textarea></div>
+          </div>
+          <!-- Notify Party 2 (Hidden by default) -->
+          <div class="address-card-cm" style="margin-bottom: var(--space-lg); display: none; animation: slideDown 0.3s ease-out;">
+            <div class="address-card-header-cm" style="display: flex; align-items: center; margin-bottom: var(--space-md); padding-bottom: var(--space-sm);">
+              <i class="fas fa-bell" style="font-size: 1.25rem; color: var(--primary);"></i><strong style="flex-grow: 1; flex-shrink: 1; flex-basis: 0%; font-size: 1.1rem; color: var(--text-primary); font-weight: 600;">Notify Party 2</strong
+              ><button type="button" onmouseover="this.style.background='#c33'; this.style.color='white';" onmouseout="this.style.background='#fee'; this.style.color='#c33';" class="btn-remove-field-cm" style="padding: 0.25rem 0.75rem; background: #fee; color: #c33; border: 1px solid #fcc; border-radius: 4px; font-size: 0.75rem; font-weight: 600; cursor: pointer; text-transform: uppercase; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="fas fa-times" style="font-size: 1.25rem; color: var(--primary);"></i>
+                Remove
+              </button>
+            </div>
+            <div class="form-group-cm full-width-cm" style="display: flex; flex-direction: column; grid-column-start: 1; grid-column-end: -1;"><textarea name="cr650_notifyparty2" rows="3" placeholder="Enter second notify party contact details" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); resize: vertical; min-height: 100px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6;"> </textarea></div>
+          </div>
+        </div>
+        <!-- Step 3: Business Terms -->
+        <div data-step="3" class="form-step-cm" style="display: none;">
+          <h3 class="form-step-title-cm" style="display: flex; align-items: center; font-size: 1.25rem; color: var(--text-primary); margin-bottom: var(--space-xl); padding-bottom: var(--space-md);">
+            <i class="fas fa-file-contract" style="color: var(--primary);"></i>
+            Business Terms
+          </h3>
+          <div class="form-row-cm" style="display: grid; grid-template-columns: repeat(2, 1fr); margin-bottom: var(--space-lg);">
+            <div class="form-group-cm" style="display: flex; flex-direction: column;">
+              <label class="required-cm" style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Payment Terms</label
+              ><select id="paymentTerms" name="cr650_paymentterms" required="" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit;">
+                <option value="">Select payment terms...</option>
+                <option value="100% Cash in advance">100% Cash in advance</option>
+                <option value="Immediate">Immediate</option>
+                <option value="Net 60 Days from Shipment Date">Net 60 Days</option>
+                <option value="Net 90 Days">Net 90 Days</option>
+                <option value="Net due in 90 Days">Net 90 Days from Invoice</option>
+                <option value="Net due in 120 Days">Net 120 Days</option>
+                <option value="Net 150 Days from Shipment Date">Net 150 Days</option>
+                <option value="LC">LC (Letter of Credit)</option>
+                <option value="Other" style="font-weight: 600; font-style: italic;">Other (Specify)</option></select
+              ><!-- NEW: Custom payment terms input for "Other" --><input type="text" id="paymentTermsCustom" placeholder="Enter custom payment terms" class="form-control-cm custom-input-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit; animation-duration: 0.3s; animation-timing-function: ease-out; animation-delay: 0s; animation-iteration-count: 1; animation-direction: normal; animation-fill-mode: none; animation-play-state: running; animation-name: slideDown; animation-timeline: auto; animation-range-start: normal; animation-range-end: normal; display: none; margin-top: 0.5rem;" /><small id="paymentSuggestion" class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; margin-top: 0.5rem;"></small>
+            </div>
+            <div class="form-group-cm" style="display: flex; flex-direction: column;">
+              <label class="required-cm" style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">COB (Chart of Business)</label
+              ><select id="cob" name="cr650_cob" required="" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit;">
+                <option value="">Select COB...</option>
+                <option value="Technolube Export">Technolube Export</option>
+                <option value="Petrolube Export">Petrolube Export</option>
+                <option value="Other" style="font-weight: 600; font-style: italic;">Other (Specify)</option></select
+              ><!-- NEW: Custom COB input for "Other" --><input type="text" id="cobCustom" placeholder="Enter custom COB" class="form-control-cm custom-input-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit; animation-duration: 0.3s; animation-timing-function: ease-out; animation-delay: 0s; animation-iteration-count: 1; animation-direction: normal; animation-fill-mode: none; animation-play-state: running; animation-name: slideDown; animation-timeline: auto; animation-range-start: normal; animation-range-end: normal; display: none; margin-top: 0.5rem;" />
+            </div>
+          </div>
+          <div class="form-row-cm" style="display: grid; grid-template-columns: repeat(2, 1fr); margin-bottom: var(--space-lg);">
+            <div class="form-group-cm" style="display: flex; flex-direction: column;"><label style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Organization ID</label><input type="text" id="organizationId" name="cr650_organizationid" placeholder="Optional - e.g., Technolube (UAE)" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit;" /><small class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; margin-top: 0.5rem;">Internal organization identifier</small></div>
+            <div class="form-group-cm" style="display: flex; flex-direction: column;"><label style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Country Code</label><input type="text" id="country1" name="cr650_country_1" placeholder="2-3 letter code (e.g., YE, LB, USA)" maxlength="3" class="form-control-cm" style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; font-size: 0.9375rem; color: var(--text-primary); font-family: inherit; text-transform: uppercase;" /><small class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; margin-top: 0.5rem;">ISO 3166-1 alpha-2 country code</small></div>
+          </div>
+
+          <!-- Loading Plan Comments Section -->
+          <div class="address-section-divider-cm" style="margin: var(--space-xl) 0; border-top: 2px dashed #e0e0e0; position: relative;">
+            <span style="position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: white; padding: 0 1rem; color: var(--text-tertiary); font-size: 0.875rem; font-weight: 600;">LOADING PLAN SETTINGS</span>
+          </div>
+
+          <div class="form-row-cm" style="display: grid; grid-template-columns: 1fr; margin-bottom: var(--space-lg);">
+            <div class="form-group-cm" style="display: flex; flex-direction: column;">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                <input type="checkbox" id="hasLpComments" style="width: 20px; height: 20px; cursor: pointer; accent-color: var(--primary);" />
+                <label for="hasLpComments" style="font-weight: 600; font-size: 0.9375rem; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                  <i class="fas fa-comment-alt" style="color: var(--primary);"></i>
+                  Has Loading Plan Comments
+                </label>
+              </div>
+              <small class="form-hint-cm" style="font-size: 0.875rem; color: var(--text-tertiary); margin-bottom: 12px;">
+                Enable this to add default comments that will auto-populate in the Loading Plan page for this customer
+              </small>
+              <div id="lpCommentsContainer" style="display: none;">
+                <textarea id="lpComments" name="cr650_loadingplancomments" rows="4" placeholder="Enter default loading plan comments for this customer (e.g., special handling instructions, stacking requirements, labeling notes...)" class="form-control-cm" style="padding: 0.875rem 1rem; font-size: 0.9375rem; color: var(--text-primary); resize: vertical; min-height: 100px; background: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; width: 100%;"></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer-cm" style="display: flex;">
+      <button type="button" id="btnPrevStep" class="btn-cm btn-secondary-cm" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; font-size: 0.9375rem; font-weight: 600; cursor: pointer; align-items: center; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; color: var(--text-primary); display: none;">
+        <i class="fas fa-arrow-left"></i>
+        Previous
+      </button>
+      <div style="flex: 1;"></div>
+      <button type="button" id="btnCancel" class="btn-cm btn-secondary-cm" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; font-size: 0.9375rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; color: var(--text-primary);">Cancel</button
+      ><button type="button" id="btnNextStep" class="btn-cm btn-primary-cm" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; font-size: 0.9375rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; color: white;">
+        Next Step
+        <i class="fas fa-arrow-right"></i></button
+      ><button type="button" id="btnSaveCustomer" class="btn-cm btn-success-cm" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; font-size: 0.9375rem; font-weight: 600; cursor: pointer; align-items: center; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; font-family: inherit; color: white; display: none;">
+        <i class="fas fa-check"></i>
+        Save Customer
+      </button>
+    </div>
+  </div>
+</div>
+<!-- Toast Notification -->
+<div id="toast" class="toast-cm hidden" style="position: fixed; bottom: var(--space-xl); right: var(--space-xl); box-shadow: var(--shadow-xl); align-items: center; font-weight: 600; z-index: 99999; min-width: 300px; pointer-events: auto; display: none;"><i id="toastIcon"></i><span id="toastMessage"></span></div>
+<div class="row sectionBlockLayout text-start" style="display: flex; flex-wrap: wrap; margin: 0px; min-height: auto; padding: 8px;">
+  <div class="container" style="padding: 0px; display: flex; flex-wrap: wrap;"><div class="col-lg-12 columnBlockLayout" style="flex-grow: 1; display: flex; flex-direction: column; min-width: 250px;"></div></div>
+</div>
+<!-- ExcelJS Library for FULL Color & Styling Support -->
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
