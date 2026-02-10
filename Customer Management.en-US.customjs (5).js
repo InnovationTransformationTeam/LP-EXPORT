@@ -1377,14 +1377,16 @@
                 <td><span class="payment-terms-cm">${escapeHtml(customer.cr650_paymentterms || 'N/A')}</span></td>
                 <td>${escapeHtml(customer.cr650_salesrepresentativename || 'N/A')}</td>
                 <td class="text-center">
-                    <button class="btn-edit-cm" data-customer-id="${customer.cr650_updated_dcl_customerid}" type="button">
-                        <i class="fas fa-edit"></i>
-                        Edit
-                    </button>
-                    <button class="btn-delete-cm" data-customer-id="${customer.cr650_updated_dcl_customerid}" type="button">
-                        <i class="fas fa-trash-alt"></i>
-                        Delete
-                    </button>
+                    <div class="btn-group-cm">
+                        <button class="btn-edit-cm" data-customer-id="${customer.cr650_updated_dcl_customerid}" type="button">
+                            <i class="fas fa-edit"></i>
+                            Edit
+                        </button>
+                        <button class="btn-delete-cm" data-customer-id="${customer.cr650_updated_dcl_customerid}" type="button">
+                            <i class="fas fa-trash-alt"></i>
+                            Delete
+                        </button>
+                    </div>
                 </td>
             </tr>
         `).join('');
