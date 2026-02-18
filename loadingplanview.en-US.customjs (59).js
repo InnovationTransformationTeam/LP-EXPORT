@@ -1505,12 +1505,17 @@
   function recomputeTotals() {
     const rows = QA("#itemsTableBody tr.lp-data-row");
 
+    // All summary totals are computed by directly summing every visible row
+    // so each value matches the corresponding column in the table.
+    let totalItems = rows.length;
+    let totalOrderQty = 0;
     let totalLoadingQty = 0;
     let totalNet = 0;
     let totalGross = 0;
 
-    // Group rows by order number + item code to avoid double-counting
-    // Order Qty and Total Items for split items (same item across multiple containers)
+    // Group rows by order number + item code for pending-qty calculation.
+    // Pending Qty is computed at the group level so split items (same item
+    // across multiple containers) share a single "remaining" value.
     const orderItemGroups = new Map();
 
     rows.forEach((r) => {
@@ -1521,39 +1526,23 @@
       const netWeight = asNum(r.querySelector(".net-weight")?.textContent);
       const grossWeight = asNum(r.querySelector(".gross-weight")?.textContent);
 
-      // Create a unique key for order + item combination
-      const key = `${orderNo}|${itemCode}`;
-
-      if (!orderItemGroups.has(key)) {
-        orderItemGroups.set(key, {
-          orderQty: orderQty, // Only count order qty once per unique order+item
-          totalLoadingQty: 0,
-          totalNet: 0,
-          totalGross: 0
-        });
-      }
-
-      const group = orderItemGroups.get(key);
-      group.totalLoadingQty += loadingQty;
-      group.totalNet += netWeight;
-      group.totalGross += grossWeight;
-
+      totalOrderQty += orderQty;
       totalLoadingQty += loadingQty;
       totalNet += netWeight;
       totalGross += grossWeight;
+
+      // Build group map for pending qty
+      const key = `${orderNo}|${itemCode}`;
+      if (!orderItemGroups.has(key)) {
+        orderItemGroups.set(key, {
+          orderQty: orderQty,
+          totalLoadingQty: 0
+        });
+      }
+      orderItemGroups.get(key).totalLoadingQty += loadingQty;
     });
 
-    // Total Items = unique order+item combinations (not visual row count)
-    // This avoids over-counting when a single item is split across multiple containers
-    let totalItems = orderItemGroups.size;
-
-    // Calculate total order qty (unique, not double-counting splits)
-    let totalOrderQty = 0;
-    orderItemGroups.forEach(group => {
-      totalOrderQty += group.orderQty;
-    });
-
-    // Now update pending qty for each row based on its group
+    // Update pending qty for each row based on its group
     rows.forEach((r) => {
       const orderNo = (r.querySelector(".order-no")?.textContent || "").trim();
       const itemCode = (r.querySelector(".item-code")?.textContent || "").trim();
@@ -1563,15 +1552,11 @@
       if (group) {
         const pendingQtyCell = r.querySelector(".pending-qty");
         if (pendingQtyCell) {
-          // Pending = Order Qty - Total Loading Qty for this order+item group
           const pendingQty = group.orderQty - group.totalLoadingQty;
           pendingQtyCell.textContent = fmt2(Math.max(0, pendingQty));
         }
       }
     });
-
-    // Calculate total pending qty
-    const totalPendingQty = Math.max(0, totalOrderQty - totalLoadingQty);
 
     setText("#totalItems", totalItems);
     setText("#totalOrderQty", fmt2(totalOrderQty));
