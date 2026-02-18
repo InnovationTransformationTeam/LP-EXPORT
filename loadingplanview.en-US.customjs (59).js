@@ -2144,6 +2144,120 @@
           } finally {
             setLoading(false);
           }
+
+        } else if (result.mode === 'multiple') {
+          // Multi-way split: result.distribution is an array of quantities
+          const distribution = result.distribution;
+
+          const confirmed = confirm(
+            `Confirm ${distribution.length}-Record Split\n\n` +
+            distribution.map((qty, idx) => `Record ${idx + 1}: ${qty} units`).join('\n') +
+            `\n\nTotal: ${distribution.reduce((a, b) => a + b, 0)} units\n\n` +
+            `This will create ${distribution.length} separate loading plan records.\n` +
+            `You can assign each record to a container afterward.\n\n` +
+            `Continue?`
+          );
+
+          if (!confirmed) return;
+
+          try {
+            setLoading(true, `Creating ${distribution.length} split records...`);
+
+            // Capture original values BEFORE modifying for proportional split
+            const origTotalLiters = asNum(tr.querySelector(".total-liters")?.textContent);
+            const origNetWeight = asNum(tr.querySelector(".net-weight")?.textContent);
+            const origGrossWeight = asNum(tr.querySelector(".gross-weight")?.textContent);
+            const origPalletWeight = asNum(tr.dataset.palletWeight);
+            const origNumPallets = asNum(tr.dataset.numberOfPallets);
+            const totalQty = distribution.reduce((a, b) => a + b, 0);
+
+            // STEP 1: UPDATE ORIGINAL LP & CONTAINER ITEM with first split qty
+            const firstQty = distribution[0];
+            const firstRatio = firstQty / totalQty;
+            const originalLoadingQtyInput = tr.querySelector('.loading-qty');
+            if (originalLoadingQtyInput) originalLoadingQtyInput.value = firstQty;
+
+            tr.dataset.palletWeight = String(fmt2(origPalletWeight * firstRatio));
+            tr.dataset.numberOfPallets = String(Math.round(origNumPallets * firstRatio));
+            const origTLCell = tr.querySelector(".total-liters");
+            const origNWCell = tr.querySelector(".net-weight");
+            const origGWCell = tr.querySelector(".gross-weight");
+            if (origTLCell) { origTLCell.textContent = fmt2(origTotalLiters * firstRatio); origTLCell.dataset.manualOverride = "true"; }
+            if (origNWCell) { origNWCell.textContent = fmt2(origNetWeight * firstRatio); origNWCell.dataset.manualOverride = "true"; }
+            if (origGWCell) { origGWCell.textContent = fmt2(origGrossWeight * firstRatio); origGWCell.dataset.manualOverride = "true"; }
+
+            await updateServerRowFromTr(tr, CURRENT_DCL_ID);
+            await patchContainerItem(ci.id, { cr650_quantity: firstQty, cr650_issplititem: true });
+            ci.quantity = firstQty;
+            ci.isSplitItem = true;
+
+            // STEP 2: CREATE N-1 NEW LP RECORDS
+            for (let i = 1; i < distribution.length; i++) {
+              const qty = distribution[i];
+              const ratio = qty / totalQty;
+
+              const newLpRow = tr.cloneNode(true);
+              delete newLpRow.dataset.serverId;
+              delete newLpRow.dataset.containerItemId;
+              delete newLpRow.dataset.ciId;
+
+              const newLoadInput = newLpRow.querySelector('.loading-qty');
+              if (newLoadInput) newLoadInput.value = qty;
+
+              newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * ratio));
+              newLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * ratio));
+              const newTLCell = newLpRow.querySelector(".total-liters"); if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
+              const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
+              const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
+              tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
+              await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
+
+              // Get new LP ID with retry
+              let newLpId = newLpRow.dataset.serverId;
+              let retryCount = 0;
+              while (!newLpId && retryCount < 5) {
+                await new Promise(resolve => setTimeout(resolve, 800));
+                const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
+                const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
+                const fetchUrl = `${DCL_LP_API}?$filter=_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and cr650_loadedquantity eq ${qty}&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
+                const fetchRes = await safeAjax({ type: "GET", url: fetchUrl, headers: { Accept: "application/json;odata.metadata=minimal" }, dataType: "json", _withLoader: false });
+                if (fetchRes?.value?.length > 0) { newLpId = fetchRes.value[0].cr650_dcl_loading_planid; newLpRow.dataset.serverId = newLpId; break; }
+                retryCount++;
+              }
+              if (!newLpId) throw new Error(`Failed to get LP ID for record ${i + 1}`);
+
+              await new Promise(resolve => setTimeout(resolve, 500));
+              await createContainerItemOnServer(newLpId, qty, null, true);
+            }
+
+            // STEP 3: REFRESH STATE & UI
+            await new Promise(resolve => setTimeout(resolve, 800));
+            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
+            DCL_CONTAINER_ITEMS_STATE = allContainerItems
+              .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
+              .map(mapContainerItemRowToState);
+
+            tbody._wired = false;
+            attachRowEvents(tbody);
+            rebuildAssignmentTable();
+            renderContainerCards();
+            renderContainerSummaries();
+            refreshAIAnalysis();
+            recalcAllRows();
+            recomputeTotals();
+
+            showValidation('success',
+              `Split complete! Created ${distribution.length} loading plan records:\n` +
+              distribution.map((q, i) => `  Record ${i + 1}: ${q} units`).join('\n') +
+              `\n\nAssign each record to a container using the Container dropdown.`
+            );
+
+          } catch (err) {
+            console.error('Split failed:', err);
+            showValidation('error', 'Failed to split records: ' + err.message);
+          } finally {
+            setLoading(false);
+          }
         }
       }
     });
