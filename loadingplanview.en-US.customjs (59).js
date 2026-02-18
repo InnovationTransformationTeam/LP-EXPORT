@@ -1505,17 +1505,13 @@
   function recomputeTotals() {
     const rows = QA("#itemsTableBody tr.lp-data-row");
 
-    // All summary totals are computed by directly summing every visible row
-    // so each value matches the corresponding column in the table.
-    let totalItems = rows.length;
-    let totalOrderQty = 0;
-    let totalLoadingQty = 0;
-    let totalNet = 0;
-    let totalGross = 0;
-
-    // Group rows by order number + item code for pending-qty calculation.
-    // Pending Qty is computed at the group level so split items (same item
-    // across multiple containers) share a single "remaining" value.
+    // Group rows by order number + item code.
+    // Split items (same item across multiple rows/containers) share a
+    // single order qty but each row carries its own loading qty & weights.
+    // When split rows still carry the FULL order-level values (not yet
+    // proportionally divided), the raw row sums would inflate the totals.
+    // We cap each group's loading qty at its order qty and scale
+    // net / gross weight proportionally so the summary stays accurate.
     const orderItemGroups = new Map();
 
     rows.forEach((r) => {
@@ -1526,20 +1522,46 @@
       const netWeight = asNum(r.querySelector(".net-weight")?.textContent);
       const grossWeight = asNum(r.querySelector(".gross-weight")?.textContent);
 
-      totalOrderQty += orderQty;
-      totalLoadingQty += loadingQty;
-      totalNet += netWeight;
-      totalGross += grossWeight;
-
-      // Build group map for pending qty
       const key = `${orderNo}|${itemCode}`;
+
       if (!orderItemGroups.has(key)) {
         orderItemGroups.set(key, {
           orderQty: orderQty,
-          totalLoadingQty: 0
+          rawLoadingQty: 0,
+          rawNet: 0,
+          rawGross: 0
         });
       }
-      orderItemGroups.get(key).totalLoadingQty += loadingQty;
+
+      const group = orderItemGroups.get(key);
+      group.rawLoadingQty += loadingQty;
+      group.rawNet += netWeight;
+      group.rawGross += grossWeight;
+    });
+
+    // Build summary totals from unique groups with per-group capping
+    let totalItems = orderItemGroups.size;
+    let totalOrderQty = 0;
+    let totalLoadingQty = 0;
+    let totalNet = 0;
+    let totalGross = 0;
+
+    orderItemGroups.forEach((group) => {
+      totalOrderQty += group.orderQty;
+
+      // Cap loading qty at order qty so duplicate split rows don't inflate
+      const cappedLoading = Math.min(group.rawLoadingQty, group.orderQty);
+      totalLoadingQty += cappedLoading;
+
+      // Scale net / gross proportionally when the raw sum was capped
+      if (group.rawLoadingQty > 0 && group.rawLoadingQty > group.orderQty) {
+        const scale = cappedLoading / group.rawLoadingQty;
+        totalNet += round2(group.rawNet * scale);
+        totalGross += round2(group.rawGross * scale);
+      } else {
+        totalNet += group.rawNet;
+        totalGross += group.rawGross;
+      }
     });
 
     // Update pending qty for each row based on its group
@@ -1552,7 +1574,8 @@
       if (group) {
         const pendingQtyCell = r.querySelector(".pending-qty");
         if (pendingQtyCell) {
-          const pendingQty = group.orderQty - group.totalLoadingQty;
+          const cappedLoading = Math.min(group.rawLoadingQty, group.orderQty);
+          const pendingQty = group.orderQty - cappedLoading;
           pendingQtyCell.textContent = fmt2(Math.max(0, pendingQty));
         }
       }
