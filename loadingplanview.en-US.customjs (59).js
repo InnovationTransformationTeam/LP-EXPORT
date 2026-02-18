@@ -195,7 +195,6 @@
         "#addContainerBtn, " +
         "#startAllocationBtn, " +
         "#autoAssignBtn, " +
-        "#resetAssignmentsBtn, " +
         "#addDiscountChargeBtn, " +
         "#saveDiscountsBtn, " +
         "#loadDiscountsBtn, " +
@@ -205,7 +204,6 @@
         ".row-remove, " +
         ".dc-remove, " +
         ".split-item, " +
-        ".add-dims-btn, " +
         ".assign-container, " +
         ".palletized-select, " +
         ".pallets-input"
@@ -221,8 +219,7 @@
         "#containerTypeSelect, " +
         "#containerQtyInput, " +
         "#containerMaxWeightInput, " +
-        ".assign-container, " +
-        ".ci-quantity"
+        ".assign-container"
       ).forEach(el => {
         el.disabled = true;
         el.style.cursor = "not-allowed";
@@ -2072,6 +2069,16 @@
 
           const remainingQty = originalQty - splitQty;
 
+          const confirmed = confirm(
+            `Confirm Split\n\n` +
+            `New Loading Plan Record: ${splitQty} units\n` +
+            `Remaining on Original: ${remainingQty} units\n\n` +
+            `This will create a new loading plan record.\n` +
+            `You can assign it to a container afterward.\n\n` +
+            `Continue?`
+          );
+          if (!confirmed) return;
+
           try {
             setLoading(true, "Splitting item...");
 
@@ -2098,6 +2105,13 @@
             ci.quantity = remainingQty;
             ci.isSplitItem = true;
 
+            // Mark original row as part of a split
+            tr.classList.add("split-origin-row");
+            const origItemCodeCell = tr.querySelector(".item-code");
+            if (origItemCodeCell && !origItemCodeCell.querySelector(".split-badge")) {
+              origItemCodeCell.insertAdjacentHTML("beforeend", ' <span class="split-badge">Split</span>');
+            }
+
             // Create new LP row
             const newLpRow = tr.cloneNode(true);
             delete newLpRow.dataset.serverId;
@@ -2110,6 +2124,15 @@
             const ntl = newLpRow.querySelector(".total-liters"); if (ntl) { ntl.textContent = fmt2(origTotalLiters * splitRatio); ntl.dataset.manualOverride = "true"; }
             const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(origNetWeight * splitRatio); nnw.dataset.manualOverride = "true"; }
             const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(origGrossWeight * splitRatio); ngw.dataset.manualOverride = "true"; }
+
+            // Style new row as split continuation
+            newLpRow.classList.add("split-continuation-row");
+            newLpRow.style.backgroundColor = "#fffbf0";
+            newLpRow.style.borderLeft = "3px solid #ffc107";
+            const newSnCell = newLpRow.querySelector(".sn");
+            if (newSnCell) {
+              newSnCell.innerHTML = `<span style="color:#999;margin-right:4px;">\u21b3</span>${escapeHtml(newSnCell.textContent)}`;
+            }
             tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
             await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
 
@@ -2199,6 +2222,13 @@
             ci.quantity = firstQty;
             ci.isSplitItem = true;
 
+            // Mark original row as part of a split
+            tr.classList.add("split-origin-row");
+            const origItemCodeCell = tr.querySelector(".item-code");
+            if (origItemCodeCell && !origItemCodeCell.querySelector(".split-badge")) {
+              origItemCodeCell.insertAdjacentHTML("beforeend", ' <span class="split-badge">Split</span>');
+            }
+
             // STEP 2: CREATE N-1 NEW LP RECORDS
             for (let i = 1; i < distribution.length; i++) {
               const qty = distribution[i];
@@ -2217,6 +2247,16 @@
               const newTLCell = newLpRow.querySelector(".total-liters"); if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
               const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
               const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
+
+              // Style as split continuation
+              newLpRow.classList.add("split-continuation-row");
+              newLpRow.style.backgroundColor = "#fffbf0";
+              newLpRow.style.borderLeft = "3px solid #ffc107";
+              const newSnCell = newLpRow.querySelector(".sn");
+              if (newSnCell) {
+                newSnCell.innerHTML = `<span style="color:#999;margin-right:4px;">\u21b3</span>${escapeHtml(newSnCell.textContent)}`;
+              }
+
               tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
               await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
 
@@ -2341,26 +2381,35 @@
         const newGuid = (e.target.value || "").trim() || null;
         const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
 
-        if (ci) {
-          try {
-            if (newGuid) {
-              await patchContainerItem(ciId, {
-                "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${newGuid})`
-              });
-            } else {
-              await patchContainerItem(ciId, {
-                "cr650_dcl_number@odata.bind": null
-              });
-            }
-            ci.containerGuid = newGuid;
-            await refreshContainerItemsState();
-            renderContainerCards();
-            renderContainerSummaries();
-            refreshAIAnalysis();
-          } catch (err) {
-            console.error("Failed to update container assignment", err);
-            showValidation("error", "Failed to update container assignment.");
+        if (!ci) {
+          // No container item exists yet — revert dropdown and warn
+          e.target.value = "";
+          showValidation("warning", "No container item found for this row. Run 'Start Allocation' first.");
+          return;
+        }
+
+        try {
+          if (newGuid) {
+            await patchContainerItem(ciId, {
+              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${newGuid})`
+            });
+          } else {
+            await patchContainerItem(ciId, {
+              "cr650_dcl_number@odata.bind": null
+            });
           }
+          ci.containerGuid = newGuid;
+
+          await refreshContainerItemsState();
+          recalcAllRows();
+          recomputeTotals();
+          rebuildAssignmentTable();
+          renderContainerCards();
+          renderContainerSummaries();
+          refreshAIAnalysis();
+        } catch (err) {
+          console.error("Failed to update container assignment", err);
+          showValidation("error", "Failed to update container assignment.");
         }
       }
 
@@ -3148,8 +3197,10 @@
 
       if (!lpRow) return;
 
-      // Find corresponding order item row by container item ID
-      const orderItemRow = Q(`#itemsTableBody tr[data-container-item-id="${ci.id}"]`);
+      // Find corresponding order item row by container item ID (try both attribute names)
+      const orderItemRow =
+        Q(`#itemsTableBody tr[data-ci-id="${ci.id}"]`) ||
+        Q(`#itemsTableBody tr[data-container-item-id="${ci.id}"]`);
       if (!orderItemRow) return;
 
       // Update quantity if changed
@@ -5258,7 +5309,14 @@
         tr.dataset.ciId = ci.id || "";
 
         if (ci.containerGuid) {
-          containerSelect.value = ci.containerGuid;
+          // Case-insensitive GUID match — Dataverse may return mixed case
+          const targetLower = ci.containerGuid.toLowerCase();
+          for (const opt of containerSelect.options) {
+            if (opt.value && opt.value.toLowerCase() === targetLower) {
+              containerSelect.value = opt.value;
+              break;
+            }
+          }
         }
       }
 
@@ -5722,10 +5780,7 @@
         rebuildAssignmentTable();
         renderContainerCards();        // ✅ THIS IS THE KEY LINE
         renderContainerSummaries();    // ❌ no params
-        refreshAIAnalysis();           // ❌ no params
-
-        const resetBtn = Q("#resetAssignmentsBtn");
-        if (resetBtn) resetBtn.style.display = "inline-flex";
+        refreshAIAnalysis();
 
         const section = Q("#allocationStatusSection");
         const statusContent = Q("#statusContent");
@@ -5770,9 +5825,6 @@
         renderContainerCards();       // ✅ REQUIRED
         renderContainerSummaries();
         refreshAIAnalysis();
-
-        const resetBtn = Q("#resetAssignmentsBtn");
-        if (resetBtn) resetBtn.style.display = "none";
       })
 
       .catch(err => {
@@ -6567,11 +6619,6 @@
     const allocateItemsBtn = Q("#allocateItemsBtn");
     if (allocateItemsBtn) {
       allocateItemsBtn.addEventListener("click", allocateItemsToContainers);
-    }
-
-    const resetAssignmentsBtn = Q("#resetAssignmentsBtn");
-    if (resetAssignmentsBtn) {
-      resetAssignmentsBtn.addEventListener("click", resetAllAssignments);
     }
 
     const optimizeBtn = Q("#optimizeBtn");
