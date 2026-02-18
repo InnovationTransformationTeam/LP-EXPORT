@@ -68,6 +68,16 @@
             <button type="button" id="importFromOracleBtn" class="btn btn-outline">
               <i class="fas fa-file-import"></i> Import from Oracle
             </button>
+            <span class="toolbar-divider"></span>
+            <button type="button" id="startAllocationBtn" class="btn btn-outline" title="Delete all assignments and re-create container items from scratch">
+              <i class="fas fa-play"></i> Start Allocation
+            </button>
+            <button type="button" id="autoAssignBtn" class="btn btn-outline" title="Auto-assign unassigned items to containers">
+              <i class="fas fa-magic"></i> Auto-Assign
+            </button>
+            <button type="button" id="updateAllocationBtn" class="btn btn-outline" title="Detect new LP rows and create container items for them">
+              <i class="fas fa-sync-alt"></i> Update Items
+            </button>
           </div>
           <div class="toolbar-center">
             <div id="modifiedIndicator" class="modified-indicator" style="display:none;">
@@ -106,6 +116,10 @@
                 <th align="center">Total L/Kgs</th>
                 <th align="center">Net Weight (Kgs)</th>
                 <th align="center">Gross Weight (Kgs)</th>
+                <th align="center">Palletized</th>
+                <th align="center"># Pallets</th>
+                <th align="center">Pallet Wt (Kgs)</th>
+                <th align="center">Container</th>
                 <th align="center">Actions</th>
               </tr>
             </thead>
@@ -207,158 +221,96 @@
         </div>
       </div>
 
-      <!-- STEP 2: Assign Items to Containers -->
-      <div class="wizard-step" id="step2Assignment">
-        <div class="step-header">
-          <div class="step-number">2</div>
-          <div class="step-info">
-            <h3 class="step-title">Assign Items to Containers</h3>
-            <p class="step-description">Manually assign each item or use auto-assignment</p>
+      <!-- FG Master Dimensions Modal (used when FG specs are incomplete) -->
+      <div id="fgDimensionsModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 500px;">
+          <div class="modal-header">
+            <h3>Complete FG Master Data</h3>
+            <button type="button" class="close-btn" onclick="closeFgDimensionsModal()">&times;</button>
           </div>
-        </div>
 
-
-        <!-- FG Master Dimensions Modal -->
-        <div id="fgDimensionsModal" class="modal" style="display:none;">
-          <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-              <h3>Complete FG Master Data</h3>
-              <button type="button" class="close-btn" onclick="closeFgDimensionsModal()">&times;</button>
+          <div class="modal-body">
+            <!-- Item Info -->
+            <div style="background:#f8f9fa;padding:12px;border-radius:4px;margin-bottom:16px;">
+              <div style="margin-bottom:8px;">
+                <strong>Product:</strong>
+                <div id="fgModalDescription" style="color:#666;font-size:14px;"></div>
+              </div>
+              <div>
+                <strong>Packaging:</strong>
+                <div id="fgModalPackaging" style="color:#666;font-size:14px;"></div>
+              </div>
             </div>
 
-            <div class="modal-body">
-              <!-- Item Info -->
-              <div style="background:#f8f9fa;padding:12px;border-radius:4px;margin-bottom:16px;">
-                <div style="margin-bottom:8px;">
-                  <strong>Product:</strong>
-                  <div id="fgModalDescription" style="color:#666;font-size:14px;"></div>
+            <!-- FG Match Info (shown only when updating existing FG) -->
+            <div id="fgModalMatchInfo"
+              style="display:none;background:#d1f2eb;padding:10px;border-radius:4px;margin-bottom:16px;">
+              <strong style="color:#0c5460;">Updating Existing FG Master:</strong>
+              <div id="fgModalMatchName" style="color:#155724;font-size:14px;margin-top:4px;"></div>
+            </div>
+
+            <form onsubmit="saveFgDimensions(event)">
+              <!-- Brand Field -->
+              <div style="margin-bottom: 16px;">
+                <label style="display:block;margin-bottom:4px;font-weight:500;">
+                  Brand <span style="color:red;">*</span>
+                </label>
+                <select id="fgBrand" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
+                  <option value="">Select brand...</option>
+                  <option value="PETROMIN">PETROMIN</option>
+                  <option value="PETRONAS">PETRONAS</option>
+                  <option value="ADNOC">ADNOC</option>
+                  <option value="NATIONAL">NATIONAL</option>
+                  <option value="VOYAGER">VOYAGER</option>
+                  <option value="CROWN">CROWN</option>
+                  <option value="DUCKHAMS">DUCKHAMS</option>
+                  <option value="SPEEDX">SPEEDX</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+
+              <!-- Dimensions -->
+              <div style="margin-bottom: 16px;">
+                <label style="display:block;margin-bottom:4px;font-weight:500;">
+                  Carton Dimensions (mm) <span style="color:red;">*</span>
+                </label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+                  <input type="number" id="fgLength" required placeholder="Length"
+                    style="padding:8px;border:1px solid #ddd;border-radius:4px;">
+                  <input type="number" id="fgWidth" required placeholder="Width"
+                    style="padding:8px;border:1px solid #ddd;border-radius:4px;">
+                  <input type="number" id="fgHeight" required placeholder="Height"
+                    style="padding:8px;border:1px solid #ddd;border-radius:4px;">
                 </div>
-                <div>
-                  <strong>Packaging:</strong>
-                  <div id="fgModalPackaging" style="color:#666;font-size:14px;"></div>
+                <div style="font-size:11px;color:#666;margin-top:4px;">
+                  Enter L × W × H in millimeters
                 </div>
               </div>
 
-              <!-- FG Match Info (shown only when updating existing FG) -->
-              <div id="fgModalMatchInfo"
-                style="display:none;background:#d1f2eb;padding:10px;border-radius:4px;margin-bottom:16px;">
-                <strong style="color:#0c5460;">Updating Existing FG Master:</strong>
-                <div id="fgModalMatchName" style="color:#155724;font-size:14px;margin-top:4px;"></div>
+              <!-- Hidden Weight Fields (auto-calculated) -->
+              <input type="hidden" id="fgGrossWeight">
+              <input type="hidden" id="fgNetWeight">
+
+              <!-- Info Message -->
+              <div style="background:#e7f3ff;padding:10px;border-radius:4px;margin-bottom:16px;">
+                <div style="font-size:12px;color:#004085;">
+                  <i class="fas fa-info-circle"></i>
+                  Weights are auto-calculated from Loading Plan data. Enter brand and carton dimensions only.
+                </div>
               </div>
 
-              <form onsubmit="saveFgDimensions(event)">
-                <!-- ✅ NEW: Brand Field -->
-                <div style="margin-bottom: 16px;">
-                  <label style="display:block;margin-bottom:4px;font-weight:500;">
-                    Brand <span style="color:red;">*</span>
-                  </label>
-                  <select id="fgBrand" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
-                    <option value="">Select brand...</option>
-                    <option value="PETROMIN">PETROMIN</option>
-                    <option value="PETRONAS">PETRONAS</option>
-                    <option value="ADNOC">ADNOC</option>
-                    <option value="NATIONAL">NATIONAL</option>
-                    <option value="VOYAGER">VOYAGER</option>
-                    <option value="CROWN">CROWN</option>
-                    <option value="DUCKHAMS">DUCKHAMS</option>
-                    <option value="SPEEDX">SPEEDX</option>
-                    <option value="OTHER">Other</option>
-                  </select>
-                </div>
-
-                <!-- Dimensions -->
-                <div style="margin-bottom: 16px;">
-                  <label style="display:block;margin-bottom:4px;font-weight:500;">
-                    Carton Dimensions (mm) <span style="color:red;">*</span>
-                  </label>
-                  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
-                    <input type="number" id="fgLength" required placeholder="Length"
-                      style="padding:8px;border:1px solid #ddd;border-radius:4px;">
-                    <input type="number" id="fgWidth" required placeholder="Width"
-                      style="padding:8px;border:1px solid #ddd;border-radius:4px;">
-                    <input type="number" id="fgHeight" required placeholder="Height"
-                      style="padding:8px;border:1px solid #ddd;border-radius:4px;">
-                  </div>
-                  <div style="font-size:11px;color:#666;margin-top:4px;">
-                    Enter L × W × H in millimeters
-                  </div>
-                </div>
-
-                <!-- Hidden Weight Fields (auto-calculated) -->
-                <input type="hidden" id="fgGrossWeight">
-                <input type="hidden" id="fgNetWeight">
-
-                <!-- Info Message -->
-                <div style="background:#e7f3ff;padding:10px;border-radius:4px;margin-bottom:16px;">
-                  <div style="font-size:12px;color:#004085;">
-                    <i class="fas fa-info-circle"></i>
-                    Weights are auto-calculated from Loading Plan data. Enter brand and carton dimensions only.
-                  </div>
-                </div>
-
-                <!-- Action Buttons -->
-                <div style="display:flex;gap:8px;justify-content:flex-end;">
-                  <button type="button" onclick="skipFgDimensions()"
-                    style="padding:10px 20px;background:#6c757d;color:white;border:none;border-radius:4px;cursor:pointer;">
-                    Skip (Use Estimate)
-                  </button>
-                  <button type="submit"
-                    style="padding:10px 20px;background:#28a745;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:500;">
-                    <i class="fas fa-save"></i> Save FG Master Data
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-
-
-        <div class="step-content">
-          <!-- Action Buttons -->
-          <div class="assignment-actions">
-            <!-- Start from scratch (DESTRUCTIVE) -->
-            <button type="button" id="startAllocationBtn" class="btn-wizard-primary">
-              <i class="fas fa-play"></i> Start Allocation
-            </button>
-
-            <!-- Auto-assign unassigned items to containers -->
-            <button type="button" id="autoAssignBtn" class="btn-wizard-primary">
-              <i class="fas fa-magic"></i> Auto-Assign Unassigned
-            </button>
-
-            <!-- ✅ UPDATE BUTTON - Add missing items (NON-DESTRUCTIVE) -->
-            <button type="button" id="updateAllocationBtn" class="btn-wizard-primary">
-              <i class="fas fa-sync-alt"></i> Update Items
-            </button>
-
-            <!-- Reset assignments (hidden by default) -->
-            <button type="button" id="resetAssignmentsBtn" class="btn-wizard-secondary" style="display: none;">
-              <i class="fas fa-undo"></i> Reset All Assignments
-            </button>
-          </div>
-
-          <!-- Assignment Table -->
-          <div class="assignment-table-container">
-            <table id="assignmentTable" class="assignment-table">
-              <thead>
-                <tr>
-                  <th>Order #</th>
-                  <th>Item Code</th>
-                  <th>Description</th>
-                  <th>Loading Qty</th>
-                  <th>Palletized</th>
-                  <th># Pallets</th>
-                  <th>Pallet Weight (kg)</th>
-                  <th>Gross Weight (kg)</th>
-                  <th>Volume (L)</th>
-                  <th>Assign To Container</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="assignmentTableBody">
-                <!-- Populated by JS -->
-              </tbody>
-            </table>
+              <!-- Action Buttons -->
+              <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button type="button" onclick="skipFgDimensions()"
+                  style="padding:10px 20px;background:#6c757d;color:white;border:none;border-radius:4px;cursor:pointer;">
+                  Skip (Use Estimate)
+                </button>
+                <button type="submit"
+                  style="padding:10px 20px;background:#28a745;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:500;">
+                  <i class="fas fa-save"></i> Save FG Master Data
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>

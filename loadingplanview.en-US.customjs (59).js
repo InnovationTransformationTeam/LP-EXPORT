@@ -191,6 +191,7 @@
         "#addItemBtn, " +
         "#importFromOracleBtn, " +
         "#updateAllBtn, " +
+        "#updateAllocationBtn, " +
         "#addContainerBtn, " +
         "#startAllocationBtn, " +
         "#autoAssignBtn, " +
@@ -204,7 +205,10 @@
         ".row-remove, " +
         ".dc-remove, " +
         ".split-item, " +
-        ".add-dims-btn"
+        ".add-dims-btn, " +
+        ".assign-container, " +
+        ".palletized-select, " +
+        ".pallets-input"
       );
 
       actionButtons.forEach(btn => {
@@ -226,8 +230,7 @@
 
       // 7. Make tables read-only visually
       const tables = document.querySelectorAll(
-        "#itemsTable, " +
-        "#assignmentTable, "
+        "#itemsTable"
       );
 
       tables.forEach(table => {
@@ -1284,6 +1287,17 @@
       loadingQty: item.LoadingQuantity || 0
     });
 
+    // Build container options for dropdown
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+    const containerOptions = containers.map(c =>
+      `<option value="${escapeHtml(c.dataverseId)}">${escapeHtml(c.id || c.type || "Container")}</option>`
+    ).join("");
+
+    const palletized = item.palletized || "No";
+    const numberOfPallets = item.numberOfPallets || 0;
+    const isPalletized = palletized === "Yes";
+    const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
     tr.innerHTML = `
     <td class="sn">${index + 1}</td>
 
@@ -1314,8 +1328,25 @@
     <td class="net-weight ce-num" contenteditable="true" tabindex="0">${fmt2(item.netWeight)}</td>
     <td class="gross-weight ce-num" contenteditable="true" tabindex="0">${fmt2(item.grossWeight)}</td>
 
+    <td class="palletized-cell">
+      <select class="palletized-select">
+        <option value="No" ${palletized === "No" ? "selected" : ""}>No</option>
+        <option value="Yes" ${palletized === "Yes" ? "selected" : ""}>Yes</option>
+      </select>
+    </td>
+    <td class="pallets-cell">
+      <input type="number" class="pallets-input" min="0" value="${fmt2(numberOfPallets)}" style="width:70px" />
+    </td>
+    <td class="pallet-weight ce-num">${fmt2(palletWeight)}</td>
+    <td class="container-cell">
+      <select class="assign-container">
+        <option value="">--</option>
+        ${containerOptions}
+      </select>
+    </td>
 
     <td class="row-actions">
+      <button class="btn btn-link btn-sm split-item" type="button" title="Split across containers">Split</button>
       <button class="btn btn-danger btn-sm row-remove" type="button">Remove</button>
     </td>
   `;
@@ -1392,6 +1423,12 @@
       const palletWeight = asNum(tr.dataset.palletWeight);
       const grossWeight = palletWeight + netWeight + loadingQty;
       grossWeightCell.textContent = fmt2(grossWeight);
+    }
+
+    // Sync pallet weight display cell (read-only computed value)
+    const palletWeightCell = tr.querySelector(".pallet-weight");
+    if (palletWeightCell) {
+      palletWeightCell.textContent = fmt2(asNum(tr.dataset.palletWeight));
     }
   }
 
@@ -1986,9 +2023,132 @@
           showValidation("error", "❌ Failed to delete: " + (err.responseJSON?.error?.message || err.message));
         }
       }
+
+      // === Split button click (unified table) ===
+      if (e.target.classList.contains("split-item")) {
+        const ciId = tr.dataset.ciId;
+        const serverId = tr.dataset.serverId;
+        const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
+
+        if (!ci) {
+          showValidation("warning", "No container item found for this row. Run 'Start Allocation' first.");
+          return;
+        }
+
+        const originalQty = ci.quantity || 0;
+
+        if (ci.isSplitItem) {
+          showValidation("info", "This item is already part of a split group and cannot be split further.");
+          return;
+        }
+        if (originalQty <= 1) {
+          showValidation("warning", "Cannot split: Quantity must be greater than 1.");
+          return;
+        }
+
+        const maxQty = originalQty - 1;
+        const result = await showSimpleSplitPrompt(originalQty, maxQty, tr);
+
+        if (result === null) return;
+
+        if (result.mode === 'simple') {
+          const splitQty = parseFloat(result.value);
+          if (isNaN(splitQty) || splitQty <= 0) {
+            showValidation("error", "Invalid input: Enter a number greater than 0");
+            return;
+          }
+          if (splitQty >= originalQty) {
+            showValidation("error", "Split quantity must be less than the original quantity");
+            return;
+          }
+
+          const remainingQty = originalQty - splitQty;
+
+          try {
+            setLoading(true, "Splitting item...");
+
+            // Update original
+            const origLoadInput = tr.querySelector('.loading-qty');
+            if (origLoadInput) origLoadInput.value = remainingQty;
+
+            const origTotalLiters = asNum(tr.querySelector(".total-liters")?.textContent);
+            const origNetWeight = asNum(tr.querySelector(".net-weight")?.textContent);
+            const origGrossWeight = asNum(tr.querySelector(".gross-weight")?.textContent);
+            const origPalletWeight = asNum(tr.dataset.palletWeight);
+            const origNumPallets = asNum(tr.dataset.numberOfPallets);
+            const ratio = remainingQty / originalQty;
+            const splitRatio = splitQty / originalQty;
+
+            tr.dataset.palletWeight = String(fmt2(origPalletWeight * ratio));
+            tr.dataset.numberOfPallets = String(Math.round(origNumPallets * ratio));
+            const tl = tr.querySelector(".total-liters"); if (tl) { tl.textContent = fmt2(origTotalLiters * ratio); tl.dataset.manualOverride = "true"; }
+            const nw = tr.querySelector(".net-weight"); if (nw) { nw.textContent = fmt2(origNetWeight * ratio); nw.dataset.manualOverride = "true"; }
+            const gw = tr.querySelector(".gross-weight"); if (gw) { gw.textContent = fmt2(origGrossWeight * ratio); gw.dataset.manualOverride = "true"; }
+
+            await updateServerRowFromTr(tr, CURRENT_DCL_ID);
+            await patchContainerItem(ci.id, { cr650_quantity: remainingQty, cr650_issplititem: true });
+            ci.quantity = remainingQty;
+            ci.isSplitItem = true;
+
+            // Create new LP row
+            const newLpRow = tr.cloneNode(true);
+            delete newLpRow.dataset.serverId;
+            delete newLpRow.dataset.containerItemId;
+            delete newLpRow.dataset.ciId;
+            const newLoadInput = newLpRow.querySelector('.loading-qty');
+            if (newLoadInput) newLoadInput.value = splitQty;
+            newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * splitRatio));
+            newLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * splitRatio));
+            const ntl = newLpRow.querySelector(".total-liters"); if (ntl) { ntl.textContent = fmt2(origTotalLiters * splitRatio); ntl.dataset.manualOverride = "true"; }
+            const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(origNetWeight * splitRatio); nnw.dataset.manualOverride = "true"; }
+            const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(origGrossWeight * splitRatio); ngw.dataset.manualOverride = "true"; }
+            tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
+            await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
+
+            let newLpId = newLpRow.dataset.serverId;
+            let retryCount = 0;
+            while (!newLpId && retryCount < 5) {
+              await new Promise(resolve => setTimeout(resolve, 800));
+              const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
+              const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
+              const fetchUrl = `${DCL_LP_API}?$filter=_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and cr650_loadedquantity eq ${splitQty}&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
+              const fetchRes = await safeAjax({ type: "GET", url: fetchUrl, headers: { Accept: "application/json;odata.metadata=minimal" }, dataType: "json", _withLoader: false });
+              if (fetchRes?.value?.length > 0) { newLpId = fetchRes.value[0].cr650_dcl_loading_planid; newLpRow.dataset.serverId = newLpId; break; }
+              retryCount++;
+            }
+
+            if (!newLpId) throw new Error("Failed to get LP ID for split record");
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await createContainerItemOnServer(newLpId, splitQty, null, true);
+
+            await new Promise(resolve => setTimeout(resolve, 800));
+            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
+            DCL_CONTAINER_ITEMS_STATE = allContainerItems
+              .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
+              .map(mapContainerItemRowToState);
+
+            tbody._wired = false;
+            attachRowEvents(tbody);
+            rebuildAssignmentTable();
+            renderContainerCards();
+            renderContainerSummaries();
+            refreshAIAnalysis();
+            recalcAllRows();
+            recomputeTotals();
+
+            showValidation("success", `Split successful! Original: ${remainingQty} units, New: ${splitQty} units`);
+          } catch (err) {
+            console.error("Split failed:", err);
+            showValidation("error", "Failed to split item: " + (err.message || err));
+          } finally {
+            setLoading(false);
+          }
+        }
+      }
     });
 
-    // ✅ UPDATED: Trigger recalc for Loading Qty, Unit Price, AND # Pallets
+    // Trigger recalc for Loading Qty, Unit Price, AND # Pallets
     tbody.addEventListener("input", (e) => {
       const row = e.target.closest("tr.lp-data-row");
       if (!row) return;
@@ -2049,17 +2209,119 @@
       }
     });
 
-    tbody.addEventListener("change", (e) => {
+    tbody.addEventListener("change", async (e) => {
       const row = e.target.closest("tr.lp-data-row");
       if (!row) return;
 
+      // === Container assignment dropdown change ===
+      if (e.target.classList.contains("assign-container")) {
+        const ciId = row.dataset.ciId;
+        const newGuid = (e.target.value || "").trim() || null;
+        const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
+
+        if (ci) {
+          try {
+            if (newGuid) {
+              await patchContainerItem(ciId, {
+                "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${newGuid})`
+              });
+            } else {
+              await patchContainerItem(ciId, {
+                "cr650_dcl_number@odata.bind": null
+              });
+            }
+            ci.containerGuid = newGuid;
+            await refreshContainerItemsState();
+            renderContainerCards();
+            renderContainerSummaries();
+            refreshAIAnalysis();
+          } catch (err) {
+            console.error("Failed to update container assignment", err);
+            showValidation("error", "Failed to update container assignment.");
+          }
+        }
+      }
+
+      // === Palletized select change ===
       if (e.target.classList.contains("palletized-select")) {
-        // Clear gross weight override since pallet status affects it
+        const newPalletized = e.target.value;
+        const numberOfPallets = asNum(row.dataset.numberOfPallets);
+        const isPalletized = newPalletized === "Yes";
+        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+        row.dataset.palletized = newPalletized;
+        row.dataset.palletWeight = String(palletWeight);
+
+        // Update pallet weight display
+        const pwCell = row.querySelector(".pallet-weight");
+        if (pwCell) pwCell.textContent = fmt2(palletWeight);
+
         const gw = row.querySelector(".gross-weight");
         if (gw) delete gw.dataset.manualOverride;
         recalcRow(row);
         recomputeTotals();
         handleCellChange(row, e.target);
+
+        // PATCH LP record in Dataverse
+        const serverId = row.dataset.serverId;
+        if (serverId && isGuid(serverId)) {
+          safeAjax({
+            type: "PATCH",
+            url: `${DCL_LP_API}(${serverId})`,
+            data: JSON.stringify({
+              cr650_ispalletized: isPalletized,
+              cr650_palletweight: palletWeight,
+              cr650_grossweightkg: asNum(row.querySelector(".gross-weight")?.textContent)
+            }),
+            contentType: "application/json; charset=utf-8",
+            headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+            dataType: "json",
+            _withLoader: false
+          }).catch(err => console.error("Failed to patch LP palletized:", err));
+        }
+
+        renderContainerSummaries();
+      }
+
+      // === Pallets input change ===
+      if (e.target.classList.contains("pallets-input")) {
+        const numberOfPallets = asNum(e.target.value) || 0;
+        const palletized = (row.dataset.palletized || "No").trim();
+        const isPalletized = palletized === "Yes";
+        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+        row.dataset.numberOfPallets = String(numberOfPallets);
+        row.dataset.palletWeight = String(palletWeight);
+
+        // Update pallet weight display
+        const pwCell = row.querySelector(".pallet-weight");
+        if (pwCell) pwCell.textContent = fmt2(palletWeight);
+
+        const gw = row.querySelector(".gross-weight");
+        if (gw) delete gw.dataset.manualOverride;
+        recalcRow(row);
+        recomputeTotals();
+        handleCellChange(row, e.target);
+
+        // PATCH LP record in Dataverse
+        const serverId = row.dataset.serverId;
+        if (serverId && isGuid(serverId)) {
+          safeAjax({
+            type: "PATCH",
+            url: `${DCL_LP_API}(${serverId})`,
+            data: JSON.stringify({
+              cr650_palletcount: numberOfPallets,
+              cr650_palletweight: palletWeight,
+              cr650_grossweightkg: asNum(row.querySelector(".gross-weight")?.textContent)
+            }),
+            contentType: "application/json; charset=utf-8",
+            headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+            dataType: "json",
+            _withLoader: false
+          }).catch(err => console.error("Failed to patch LP pallets:", err));
+        }
+
+        renderContainerSummaries();
       }
 
       if (e.target.classList.contains("release-status-select")) {
@@ -2196,10 +2458,12 @@
     const pendQty = getNumText(".pending-qty");
 
     // ─────────────────────────────────────
-    // PALLET & WEIGHT LOGIC (read from dataset attributes)
+    // PALLET & WEIGHT LOGIC (read from inline controls or dataset)
     // ─────────────────────────────────────
-    const palletizedSel = (tr.dataset.palletized || "No").trim();
-    const palletCount = asNum(tr.dataset.numberOfPallets);
+    const palletizedSelect = tr.querySelector(".palletized-select");
+    const palletizedSel = palletizedSelect ? palletizedSelect.value : (tr.dataset.palletized || "No").trim();
+    const palletsInput = tr.querySelector(".pallets-input");
+    const palletCount = palletsInput ? asNum(palletsInput.value) : asNum(tr.dataset.numberOfPallets);
     const palletWeight = asNum(tr.dataset.palletWeight);
 
     const totalVol = getNumText(".total-liters");
@@ -4823,963 +5087,87 @@
   }
 
   /* =============================
-     17) ASSIGN ITEMS TO CONTAINERS TABLE (STEP 2)
+     17) SYNC CONTAINER ASSIGNMENTS IN UNIFIED TABLE
      ============================= */
 
+  /**
+   * Syncs container dropdown selections and palletized data in the unified
+   * Order Items table based on DCL_CONTAINER_ITEMS_STATE.
+   * Replaces the old separate assignment table.
+   */
   function rebuildAssignmentTable() {
-    const tbody = Q("#assignmentTableBody");
-    if (!tbody) return;
+    const lpRows = QA("#itemsTableBody tr.lp-data-row");
+    if (!lpRows.length) return;
 
-    tbody.innerHTML = "";
-
-    if (!DCL_CONTAINER_ITEMS_STATE.length) {
-      const tr = d.createElement("tr");
-      tr.innerHTML = `
-      <td colspan="11" style="text-align:center;color:#666;font-size:12px;">
-        No items in loading plan yet.
-      </td>`;
-      tbody.appendChild(tr);
-      return;
-    }
-
-    const lpIndex = buildLpRowIndex();
     const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
 
-    // ✅ GROUP BY LP ROW
-    const groupedByLP = new Map();
+    // Build container options HTML for dropdowns
+    const containerOptionsHtml = containers.map(c => {
+      const guid = c.dataverseId;
+      if (!guid) return "";
+      return `<option value="${escapeHtml(guid)}">${escapeHtml(c.id || c.type || "Container")}</option>`;
+    }).join("");
+
+    // Group container items by LP ID
+    const ciByLp = new Map();
     DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
       const lpIdLower = (ci.lpId || "").toLowerCase();
       if (!lpIdLower) return;
-      if (!groupedByLP.has(lpIdLower)) {
-        groupedByLP.set(lpIdLower, []);
-      }
-      groupedByLP.get(lpIdLower).push(ci);
+      if (!ciByLp.has(lpIdLower)) ciByLp.set(lpIdLower, []);
+      ciByLp.get(lpIdLower).push(ci);
     });
 
-    console.log("📊 Assignment Table Debug:");
-    console.log("  - Total LP groups:", groupedByLP.size);
+    // Update each LP row's container dropdown and store CI reference
+    lpRows.forEach(tr => {
+      const serverId = (tr.dataset.serverId || "").toLowerCase();
+      if (!serverId) return;
 
-    // ✅ RENDER with professional split styling
-    groupedByLP.forEach((items, lpIdLower) => {
-      const lpRow = lpIndex.get(lpIdLower);
-      if (!lpRow) {
-        console.warn("  ⚠️ No LP row found for:", lpIdLower);
-        return;
+      const containerSelect = tr.querySelector(".assign-container");
+      if (!containerSelect) return;
+
+      // Refresh options in case containers were added/removed
+      const currentVal = containerSelect.value;
+      containerSelect.innerHTML = `<option value="">--</option>${containerOptionsHtml}`;
+
+      const items = ciByLp.get(serverId) || [];
+      if (items.length > 0) {
+        // Use the first container item's assignment
+        const ci = items[0];
+        tr.dataset.ciId = ci.id || "";
+
+        if (ci.containerGuid) {
+          containerSelect.value = ci.containerGuid;
+        }
       }
 
-      const hasSplitItems = items.some(ci => ci.isSplitItem === true);
-      const totalItems = items.length;
+      // Update palletized display
+      const palletized = (tr.dataset.palletized || "No").trim();
+      const numberOfPallets = asNum(tr.dataset.numberOfPallets);
+      const isPalletized = palletized === "Yes";
+      const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
 
-      console.log(`  - LP ${lpIdLower.substring(0, 8)}... has ${items.length} items (hasSplitItems: ${hasSplitItems})`);
+      const palletizedSelect = tr.querySelector(".palletized-select");
+      if (palletizedSelect) palletizedSelect.value = palletized;
 
-      const orderNo = (lpRow.querySelector(".order-no")?.textContent || "").trim();
-      const itemCode = (lpRow.querySelector(".item-code")?.textContent || "").trim();
-      const desc = (lpRow.querySelector(".description")?.textContent || "").trim();
-      const packaging = (lpRow.querySelector(".packaging")?.textContent || "").trim();
+      const palletsInput = tr.querySelector(".pallets-input");
+      if (palletsInput) palletsInput.value = fmt2(numberOfPallets);
 
-      items.forEach((ci, idx) => {
-        const totalLoad = asNum(lpRow.querySelector(".loading-qty")?.value);
-        const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
-        const totalVol = asNum(lpRow.querySelector(".total-liters")?.textContent);
-
-        const qty = ci.quantity;
-        let gross = qty;
-        let vol = qty;
-
-        if (totalLoad > 0) {
-          const ratio = qty / totalLoad;
-          gross = totalGross * ratio;
-          vol = totalVol * ratio;
-        }
-
-        // Check FG Master dimensions
-        let fg = null;
-        let hasDimensions = false;
-
-        if (desc || packaging) {
-          fg = matchFgForOutstanding({
-            cr650_product_name: desc,
-            cr650_pack_desc: packaging,
-            cr650_product_no: itemCode
-          });
-
-          if (fg) {
-            const L = parseFloat(fg.cr650_lengthmm) || 0;
-            const W = parseFloat(fg.cr650_widthmm) || 0;
-            const H = parseFloat(fg.cr650_heightmm) || 0;
-            hasDimensions = (L > 0 && W > 0 && H > 0);
-          }
-        }
-
-        // ✅ CREATE TR ELEMENT
-        const tr = d.createElement("tr");
-        tr.dataset.ciId = ci.id;
-        tr.dataset.lpId = ci.lpId || "";
-
-        const isSplitItem = ci.isSplitItem === true;
-
-        console.log(`    → Item ${idx + 1}/${items.length}: ${itemCode} (${qty} units) - isSplitItem: ${isSplitItem}`);
-
-        // ✅ PROFESSIONAL SPLIT STYLING
-        let splitBadge = "";
-        let rowPrefix = "";
-        let splitIndicator = "";
-
-        // ✅ Only show split styling when there are actually multiple items (2+)
-        if (hasSplitItems && totalItems > 1) {
-          // Professional badge - just "Split" text
-          splitBadge = `<span class="split-badge">Split</span>`;
-
-          if (idx > 0) {
-            // Continuation items - arrow prefix
-            rowPrefix = '<span class="split-arrow">↳</span>';
-          }
-        }
-
-        // Get palletized and # pallets from LP row (stored in cr650_dcl_loading_plans)
-        const palletized = (lpRow.dataset.palletized || "No").trim();
-        const numberOfPallets = asNum(lpRow.dataset.numberOfPallets);
-        const isPalletized = palletized === "Yes";
-
-        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
-        // NOTE: Do NOT add palletWeight to gross here — the LP row's .gross-weight
-        // (cr650_grossweightkg) already includes pallet weight from recalcRow.
-
-
-        // ✅ SET INNER HTML
-        tr.innerHTML = `
-        <td>${rowPrefix}${escapeHtml(orderNo)}</td>
-        <td>
-  ${escapeHtml(itemCode)}${splitBadge}
-</td>
-        <td>${escapeHtml(desc)}</td>
-        <td class="ce-num">
-          <input type="number" class="ci-quantity form-control" min="0"
-                value="${fmt2(qty)}" style="width:100px" />
-        </td>
-        <td class="palletized-cell">
-          <select class="palletized-select form-control" style="width:70px">
-            <option value="No" ${palletized === "No" ? "selected" : ""}>No</option>
-            <option value="Yes" ${palletized === "Yes" ? "selected" : ""}>Yes</option>
-          </select>
-        </td>
-        <td class="pallets-cell">
-          <input type="number" class="pallets-input form-control" min="0" value="${fmt2(numberOfPallets)}" style="width:70px" />
-        </td>
-        <td class="ce-num">${fmt2(palletWeight)}</td>
-        <td class="ce-num">${fmt2(gross)}</td>
-        <td class="ce-num">${fmt2(vol)}</td>
-        <td>
-          <select class="assign-container form-control">
-            <option value="">Not assigned</option>
-            ${containers.map(c => {
-          const guid = c.dataverseId;
-          if (!guid) return "";
-          const selected =
-            ci.containerGuid && guid &&
-              ci.containerGuid.toLowerCase() === guid.toLowerCase()
-              ? "selected"
-              : "";
-          return `<option value="${escapeHtml(guid)}" ${selected}>${escapeHtml(c.id || c.type || "Container")}</option>`;
-        }).join("")}
-          </select>
-        </td>
-        <td style="white-space:nowrap;">
-          <button type="button" class="btn btn-link btn-sm jump-to-lp">View</button>
-          <button type="button" class="btn btn-link btn-sm split-item">Split</button>
-          ${!hasDimensions ? `
-            <button type="button" class="btn btn-sm add-dims-btn"
-                    style="background:#1a7f37;color:white;border:none;padding:4px 8px;border-radius:6px;font-size:0.8rem;margin-left:4px;font-weight:500;"
-                    data-lp-id="${escapeHtml(ci.lpId || "")}"
-                    data-description="${escapeHtml(desc)}"
-                    data-packaging="${escapeHtml(packaging)}"
-                    data-item-code="${escapeHtml(itemCode)}">
-              <i class="fas fa-plus"></i> Add Dims
-            </button>
-          ` : `
-            <span style="color:#1a7f37;font-size:0.85rem;margin-left:8px;font-weight:600;">
-              <i class="fas fa-check-circle"></i> Complete
-            </span>
-          `}
-        </td>
-      `;
-
-        // ✅ APPLY PROFESSIONAL CSS CLASSES
-        if (hasSplitItems) {
-          if (idx === 0) {
-            tr.classList.add("split-item-first", "split-group-start");
-          } else {
-            tr.classList.add("split-continuation-row");
-          }
-
-          // Last item in group gets end marker
-          if (idx === totalItems - 1) {
-            tr.classList.add("split-group-end");
-          }
-
-          console.log(`    ✅ Applied professional split styling to row ${idx + 1}`);
-        }
-
-        tbody.appendChild(tr);
-
-        // Add inline dimension form if needed (same as before)
-        if (!hasDimensions) {
-          const formTr = d.createElement("tr");
-          formTr.className = "inline-dims-form-row";
-          formTr.style.display = "none";
-          formTr.dataset.lpId = ci.lpId || "";
-          formTr.innerHTML = `
-          <td colspan="11" style="background:linear-gradient(to right, #f8fdf9 0%, #ffffff 100%);padding:8px 12px;border-left:3px solid #006633;">
-            <form class="dims-inline-form" data-lp-id="${escapeHtml(ci.lpId || "")}" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-              <div style="flex:1;min-width:200px;font-size:0.85rem;color:#6b7280;">
-                <strong style="color:#2c3e50;">${escapeHtml(desc.substring(0, 50))}${desc.length > 50 ? '...' : ''}</strong>
-                <div style="color:#6b7280;font-size:0.75rem;">${escapeHtml(packaging)}</div>
-              </div>
-              <div style="width:110px;">
-                <select class="fg-brand-input form-control" required style="font-size:0.85rem;padding:6px 8px;border:2px solid #e0e0e0;border-radius:6px;background:white;">
-                  <option value="">Brand...</option>
-                  <option value="PETROMIN">PETROMIN</option>
-                  <option value="PETRONAS">PETRONAS</option>
-                  <option value="ADNOC">ADNOC</option>
-                  <option value="NATIONAL">NATIONAL</option>
-                  <option value="VOYAGER">VOYAGER</option>
-                  <option value="CROWN">CROWN</option>
-                  <option value="DUCKHAMS">DUCKHAMS</option>
-                  <option value="SPEEDX">SPEEDX</option>
-                  <option value="OTHER">Other</option>
-                </select>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" class="fg-length-input form-control" required placeholder="L" style="width:65px;font-size:0.85rem;padding:6px 8px;border:2px solid #e0e0e0;border-radius:6px;text-align:center;background:white;">
-                <span style="color:#9ca3af;font-size:0.85rem;font-weight:500;">×</span>
-                <input type="number" class="fg-width-input form-control" required placeholder="W" style="width:65px;font-size:0.85rem;padding:6px 8px;border:2px solid #e0e0e0;border-radius:6px;text-align:center;background:white;">
-                <span style="color:#9ca3af;font-size:0.85rem;font-weight:500;">×</span>
-                <input type="number" class="fg-height-input form-control" required placeholder="H" style="width:65px;font-size:0.85rem;padding:6px 8px;border:2px solid #e0e0e0;border-radius:6px;text-align:center;background:white;">
-                <span style="color:#6b7280;font-size:0.75rem;font-weight:500;">mm</span>
-              </div>
-              <div style="display:flex;gap:6px;margin-left:auto;">
-                <button type="button" class="skip-dims-btn" style="padding:6px 12px;font-size:0.8rem;background:#6b7280;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;">Skip</button>
-                <button type="submit" class="save-dims-btn" style="padding:6px 14px;font-size:0.8rem;background:#1a7f37;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600;"><i class="fas fa-save"></i> Save</button>
-                <button type="button" class="close-dims-form" style="padding:4px 10px;font-size:1.2rem;background:none;border:none;color:#9ca3af;cursor:pointer;line-height:1;">×</button>
-              </div>
-            </form>
-          </td>
-        `;
-          tbody.appendChild(formTr);
-        }
-      });
+      const palletWeightCell = tr.querySelector(".pallet-weight");
+      if (palletWeightCell) palletWeightCell.textContent = fmt2(palletWeight);
     });
 
-    console.log("✅ Assignment table rebuilt");
+    console.log("✅ Unified table container assignments synced");
   }
 
+  /**
+   * attachAssignmentEvents is now a no-op.
+   * All assignment events (container dropdown, palletized, split, etc.)
+   * are handled directly in attachRowEvents on the unified Order Items table.
+   */
   function attachAssignmentEvents() {
-    const tbody = Q("#assignmentTableBody");
-    if (!tbody || tbody._wired) return;
-    tbody._wired = true;
-
-    // Change events: container assignment + quantity change
-    tbody.addEventListener("change", async (e) => {
-      const tr = e.target.closest("tr");
-      if (!tr) return;
-      const ciId = tr.dataset.ciId;
-      const lpId = tr.dataset.lpId;
-
-      const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
-      if (!ci) return;
-
-      if (e.target.classList.contains("assign-container")) {
-        const newGuid = (e.target.value || "").trim() || null;
-
-        try {
-          // 1️⃣ Update Dataverse
-          if (newGuid) {
-            await patchContainerItem(ciId, {
-              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${newGuid})`
-            });
-          } else {
-            await patchContainerItem(ciId, {
-              "cr650_dcl_number@odata.bind": null
-            });
-          }
-
-          // 2️⃣ Update local object (instant UI consistency)
-          ci.containerGuid = newGuid;
-
-          // 3️⃣ FORCE refresh from Dataverse (this is the key fix)
-          await refreshContainerItemsState();
-
-          // 4️⃣ Refresh LP DOM (volume depends on this)
-          await refreshOrderItemsDisplay();
-          recalcAllRows();
-          recomputeTotals();
-
-          // 5️⃣ Now render (cards finally see correct volume)
-          rebuildAssignmentTable();
-          renderContainerCards();
-          renderContainerSummaries();
-          refreshAIAnalysis();
-
-        } catch (err) {
-          console.error("Failed to update container assignment", err);
-          showValidation("error", "Failed to update container assignment.");
-        }
-      }
-
-      // Handle palletized select change → update LP row in Dataverse + Order Items table
-      if (e.target.classList.contains("palletized-select")) {
-        const newPalletized = e.target.value; // "Yes" or "No"
-        const lpIndex = buildLpRowIndex();
-        const lpRow = lpIndex.get((lpId || "").toLowerCase());
-
-        if (lpRow) {
-          // Read current numberOfPallets from LP row
-          const numberOfPallets = asNum(lpRow.dataset.numberOfPallets);
-          const isPalletized = newPalletized === "Yes";
-          const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
-
-          // Update LP row dataset attributes
-          lpRow.dataset.palletized = newPalletized;
-          lpRow.dataset.palletWeight = String(palletWeight);
-
-          // Clear gross weight override so it recalculates with new pallet weight
-          const gwCell = lpRow.querySelector(".gross-weight");
-          if (gwCell) delete gwCell.dataset.manualOverride;
-          recalcRow(lpRow);
-          handleCellChange(lpRow, e.target);
-
-          // PATCH LP record in Dataverse
-          const serverId = lpRow.dataset.serverId;
-          if (serverId && isGuid(serverId)) {
-            safeAjax({
-              type: "PATCH",
-              url: `${DCL_LP_API}(${serverId})`,
-              data: JSON.stringify({
-                cr650_ispalletized: isPalletized,
-                cr650_palletweight: palletWeight,
-                cr650_grossweightkg: asNum(lpRow.querySelector(".gross-weight")?.textContent)
-              }),
-              contentType: "application/json; charset=utf-8",
-              headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
-              dataType: "json",
-              _withLoader: false
-            }).catch(err => console.error("Failed to patch LP palletized:", err));
-          }
-        }
-
-        // Refresh UI
-        rebuildAssignmentTable();
-        renderContainerSummaries();
-        recomputeTotals();
-      }
-
-      // Handle pallets input change → update LP row in Dataverse + Order Items table
-      if (e.target.classList.contains("pallets-input")) {
-        const numberOfPallets = asNum(e.target.value) || 0;
-        const lpIndex = buildLpRowIndex();
-        const lpRow = lpIndex.get((lpId || "").toLowerCase());
-
-        if (lpRow) {
-          const palletized = (lpRow.dataset.palletized || "No").trim();
-          const isPalletized = palletized === "Yes";
-          const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
-
-          // Update LP row dataset attributes
-          lpRow.dataset.numberOfPallets = String(numberOfPallets);
-          lpRow.dataset.palletWeight = String(palletWeight);
-
-          // Clear gross weight override so it recalculates with new pallet weight
-          const gwCell = lpRow.querySelector(".gross-weight");
-          if (gwCell) delete gwCell.dataset.manualOverride;
-          recalcRow(lpRow);
-          handleCellChange(lpRow, e.target);
-
-          // PATCH LP record in Dataverse
-          const serverId = lpRow.dataset.serverId;
-          if (serverId && isGuid(serverId)) {
-            safeAjax({
-              type: "PATCH",
-              url: `${DCL_LP_API}(${serverId})`,
-              data: JSON.stringify({
-                cr650_palletcount: numberOfPallets,
-                cr650_palletweight: palletWeight,
-                cr650_grossweightkg: asNum(lpRow.querySelector(".gross-weight")?.textContent)
-              }),
-              contentType: "application/json; charset=utf-8",
-              headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
-              dataType: "json",
-              _withLoader: false
-            }).catch(err => console.error("Failed to patch LP pallets:", err));
-          }
-        }
-
-        // Refresh UI
-        rebuildAssignmentTable();
-        renderContainerSummaries();
-        recomputeTotals();
-      }
-
-    });
-
-    // Click events: jump-to-lp + split
-    tbody.addEventListener("click", async (e) => {
-      const tr = e.target.closest("tr");
-      if (!tr) return;
-      const ciId = tr.dataset.ciId;
-      const lpId = tr.dataset.lpId;
-
-      if (e.target.classList.contains("jump-to-lp")) {
-        const lpIndex = buildLpRowIndex();
-        const lpRow = lpIndex.get((lpId || "").toLowerCase());
-        if (!lpRow) return;
-
-        lpRow.scrollIntoView({ behavior: "smooth", block: "center" });
-        lpRow.classList.add("lp-row-highlight");
-        setTimeout(() => lpRow.classList.remove("lp-row-highlight"), 1500);
-
-      } else if (e.target.classList.contains("split-item")) {
-        const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
-        if (!ci) return;
-        const originalQty = ci.quantity || 0;
-
-        // ✅ CHECK: Don't allow splitting already-split items
-        if (ci.isSplitItem) {
-          showValidation("info", "This item is already part of a split group and cannot be split further");
-          return;
-        }
-
-        // Validate minimum quantity
-        if (originalQty <= 1) {
-          showValidation("warning", "Cannot split: Quantity must be greater than 1");
-          return;
-        }
-
-        const maxQty = originalQty - 1;
-        const lpIndex = buildLpRowIndex();
-        const lpRow = lpIndex.get((ci.lpId || "").toLowerCase());
-        if (!lpRow) {
-          showValidation("error", "Could not find LP row");
-          return;
-        }
-
-        const result = await showSimpleSplitPrompt(originalQty, maxQty, lpRow);
-
-        if (result === null) return; // User cancelled
-
-        // ===== HANDLE SIMPLE 2-WAY SPLIT =====
-        if (result.mode === 'simple') {
-          const splitQty = parseFloat(result.value);
-
-          // Validation
-          if (isNaN(splitQty) || splitQty <= 0) {
-            showValidation("error", "Invalid input: Enter a number greater than 0");
-            return;
-          }
-
-          if (!Number.isInteger(splitQty)) {
-            showValidation("error", "Invalid input: Please enter a whole number");
-            return;
-          }
-
-          if (splitQty >= originalQty) {
-            showValidation("error", `Invalid input: Must be less than ${originalQty}`);
-            return;
-          }
-
-          const remainingQty = originalQty - splitQty;
-
-          const confirmed = confirm(
-            `Confirm Split\n\n` +
-            `New Loading Plan Record: ${splitQty} units\n` +
-            `Original Record (Updated): ${remainingQty} units\n\n` +
-            `This will:\n` +
-            `• Update original LP record to ${remainingQty} units\n` +
-            `• Create NEW LP record with ${splitQty} units\n` +
-            `• Create container items for both\n\n` +
-            `Continue?`
-          );
-
-          if (!confirmed) return;
-
-          try {
-            setLoading(true, "Creating split records...");
-
-            const lpIndex = buildLpRowIndex();
-            const originalLpRow = lpIndex.get((ci.lpId || "").toLowerCase());
-
-            if (!originalLpRow) {
-              showValidation("error", "Could not find original LP row");
-              return;
-            }
-
-            console.log("🔀 Starting 2-way split...");
-            console.log("   Split into:", splitQty, "+", remainingQty);
-
-            // Capture original values BEFORE modifying anything for proportional split
-            const origTotalLiters = asNum(originalLpRow.querySelector(".total-liters")?.textContent);
-            const origNetWeight = asNum(originalLpRow.querySelector(".net-weight")?.textContent);
-            const origGrossWeight = asNum(originalLpRow.querySelector(".gross-weight")?.textContent);
-            const origPalletWeight = asNum(originalLpRow.dataset.palletWeight);
-            const origNumPallets = asNum(originalLpRow.dataset.numberOfPallets);
-            const remainingRatio = remainingQty / originalQty;
-            const splitRatio = splitQty / originalQty;
-
-            // Update original LP with proportional values
-            const originalLoadingQtyInput = originalLpRow.querySelector(".loading-qty");
-            if (originalLoadingQtyInput) {
-              originalLoadingQtyInput.value = remainingQty;
-            }
-
-            // Set proportional values on original row (including pallet weight)
-            originalLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * remainingRatio));
-            originalLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * remainingRatio));
-            const origTLCell = originalLpRow.querySelector(".total-liters");
-            const origNWCell = originalLpRow.querySelector(".net-weight");
-            const origGWCell = originalLpRow.querySelector(".gross-weight");
-            if (origTLCell) { origTLCell.textContent = fmt2(origTotalLiters * remainingRatio); origTLCell.dataset.manualOverride = "true"; }
-            if (origNWCell) { origNWCell.textContent = fmt2(origNetWeight * remainingRatio); origNWCell.dataset.manualOverride = "true"; }
-            if (origGWCell) { origGWCell.textContent = fmt2(origGrossWeight * remainingRatio); origGWCell.dataset.manualOverride = "true"; }
-
-            await updateServerRowFromTr(originalLpRow, CURRENT_DCL_ID);
-
-            // Update original container item
-            await patchContainerItem(ci.id, {
-              cr650_quantity: remainingQty,
-              cr650_issplititem: true
-            });
-            ci.quantity = remainingQty;
-            ci.isSplitItem = true;
-
-            // Create new LP record
-            const newLpRow = originalLpRow.cloneNode(true);
-            delete newLpRow.dataset.serverId;
-            delete newLpRow.dataset.containerItemId;
-
-            const newLoadingQtyInput = newLpRow.querySelector(".loading-qty");
-            if (newLoadingQtyInput) {
-              newLoadingQtyInput.value = splitQty;
-            }
-
-            // Set proportional values on new row (including pallet weight)
-            newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * splitRatio));
-            newLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * splitRatio));
-            const newTLCell = newLpRow.querySelector(".total-liters");
-            const newNWCell = newLpRow.querySelector(".net-weight");
-            const newGWCell = newLpRow.querySelector(".gross-weight");
-            if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * splitRatio); newTLCell.dataset.manualOverride = "true"; }
-            if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * splitRatio); newNWCell.dataset.manualOverride = "true"; }
-            if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * splitRatio); newGWCell.dataset.manualOverride = "true"; }
-            originalLpRow.parentNode.insertBefore(newLpRow, originalLpRow.nextSibling);
-            await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
-
-            // Get new LP ID with retry
-            let newLpId = newLpRow.dataset.serverId;
-            let retryCount = 0;
-
-            while (!newLpId && retryCount < 5) {
-              await new Promise(resolve => setTimeout(resolve, 800));
-
-              const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
-              const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
-
-              const fetchUrl =
-                `${DCL_LP_API}?$filter=` +
-                `_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and ` +
-                `cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and ` +
-                `cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and ` +
-                `cr650_loadedquantity eq ${splitQty}` +
-                `&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
-
-              const fetchRes = await safeAjax({
-                type: "GET",
-                url: fetchUrl,
-                headers: { Accept: "application/json;odata.metadata=minimal" },
-                dataType: "json",
-                _withLoader: false
-              });
-
-              if (fetchRes?.value?.length > 0) {
-                newLpId = fetchRes.value[0].cr650_dcl_loading_planid;
-                newLpRow.dataset.serverId = newLpId;
-                break;
-              }
-
-              retryCount++;
-            }
-
-            if (!newLpId) {
-              throw new Error("Failed to get new LP record ID. Please refresh the page.");
-            }
-
-            // Create new container item
-            await new Promise(resolve => setTimeout(resolve, 500));
-            await createContainerItemOnServer(newLpId, splitQty, null, true);
-
-            // Refresh state
-            await new Promise(resolve => setTimeout(resolve, 800));
-            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-            DCL_CONTAINER_ITEMS_STATE = allContainerItems
-              .filter(item =>
-                item._cr650_dcl_master_number_value &&
-                item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase()
-              )
-              .map(mapContainerItemRowToState);
-
-            // Refresh UI
-            const tbody = Q("#itemsTableBody");
-            if (tbody) {
-              tbody._wired = false;
-              attachRowEvents(tbody);
-            }
-
-            rebuildAssignmentTable();
-            attachAssignmentEvents();
-            renderContainerCards();
-            renderContainerSummaries();
-            refreshAIAnalysis();
-            recalcAllRows();
-            recomputeTotals();
-
-            showValidation("success",
-              `✅ Split successful!\n\n` +
-              `Original record: ${remainingQty} units\n` +
-              `New record: ${splitQty} units`
-            );
-
-          } catch (err) {
-            console.error("❌ 2-way split failed:", err);
-            showValidation("error", "Failed to split item. Error: " + (err.message || err));
-          } finally {
-            setLoading(false);
-          }
-        }
-
-        // ===== CLEAN APPROACH: Split Handler (No Container Creation) =====
-
-        // This should be renamed from 'containers' to 'multiple' to match the new dialog
-        else if (result.mode === 'multiple') {
-          const distribution = result.distribution;
-
-          const confirmed = confirm(
-            `Confirm ${distribution.length}-Record Split\n\n` +
-            distribution.map((qty, idx) => `Record ${idx + 1}: ${qty} units`).join('\n') +
-            `\n\nTotal: ${distribution.reduce((a, b) => a + b, 0)} units\n\n` +
-            `This will create ${distribution.length} separate loading plan records.\n` +
-            `You can assign each record to a container afterward.\n\n` +
-            `Continue?`
-          );
-
-          if (!confirmed) return;
-
-          try {
-            setLoading(true, `Creating ${distribution.length} split records...`);
-
-            const lpIndex = buildLpRowIndex();
-            const originalLpRow = lpIndex.get((ci.lpId || "").toLowerCase());
-
-            if (!originalLpRow) {
-              showValidation("error", "Could not find original LP row");
-              return;
-            }
-
-            console.log(`🔀 Starting ${distribution.length}-record split...`);
-
-            // Capture original values BEFORE modifying anything for proportional split
-            const origTotalLiters = asNum(originalLpRow.querySelector(".total-liters")?.textContent);
-            const origNetWeight = asNum(originalLpRow.querySelector(".net-weight")?.textContent);
-            const origGrossWeight = asNum(originalLpRow.querySelector(".gross-weight")?.textContent);
-            const origPalletWeight = asNum(originalLpRow.dataset.palletWeight);
-            const origNumPallets = asNum(originalLpRow.dataset.numberOfPallets);
-            const totalQty = distribution.reduce((a, b) => a + b, 0);
-
-            // ===== STEP 1: UPDATE ORIGINAL LP & CONTAINER ITEM =====
-            const firstQty = distribution[0];
-            const firstRatio = firstQty / totalQty;
-            const originalLoadingQtyInput = originalLpRow.querySelector('.loading-qty');
-            if (originalLoadingQtyInput) {
-              originalLoadingQtyInput.value = firstQty;
-            }
-
-            // Set proportional values on original row (including pallet weight)
-            originalLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * firstRatio));
-            originalLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * firstRatio));
-            const origTLCell = originalLpRow.querySelector(".total-liters");
-            const origNWCell = originalLpRow.querySelector(".net-weight");
-            const origGWCell = originalLpRow.querySelector(".gross-weight");
-            if (origTLCell) { origTLCell.textContent = fmt2(origTotalLiters * firstRatio); origTLCell.dataset.manualOverride = "true"; }
-            if (origNWCell) { origNWCell.textContent = fmt2(origNetWeight * firstRatio); origNWCell.dataset.manualOverride = "true"; }
-            if (origGWCell) { origGWCell.textContent = fmt2(origGrossWeight * firstRatio); origGWCell.dataset.manualOverride = "true"; }
-
-            await updateServerRowFromTr(originalLpRow, CURRENT_DCL_ID);
-
-            // Update original container item quantity (NO container assignment)
-            await patchContainerItem(ci.id, {
-              cr650_quantity: firstQty,
-              cr650_issplititem: true
-            });
-
-            ci.quantity = firstQty;
-            ci.isSplitItem = true;
-            // Note: ci.containerGuid remains as-is (could be null or existing container)
-
-            console.log(`✅ Updated original record: ${firstQty} units`);
-
-            // ===== STEP 2: CREATE N-1 NEW LP RECORDS =====
-            for (let i = 1; i < distribution.length; i++) {
-              const qty = distribution[i];
-              const ratio = qty / totalQty;
-
-              console.log(`   Creating record ${i + 1}/${distribution.length}: ${qty} units`);
-
-              // Clone and create new LP row
-              const newLpRow = originalLpRow.cloneNode(true);
-              delete newLpRow.dataset.serverId;
-              delete newLpRow.dataset.containerItemId;
-
-              const newLoadingQtyInput = newLpRow.querySelector('.loading-qty');
-              if (newLoadingQtyInput) {
-                newLoadingQtyInput.value = qty;
-              }
-
-              // Set proportional values on new row (including pallet weight)
-              newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * ratio));
-              newLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * ratio));
-              const newTLCell = newLpRow.querySelector(".total-liters");
-              const newNWCell = newLpRow.querySelector(".net-weight");
-              const newGWCell = newLpRow.querySelector(".gross-weight");
-              if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
-              if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
-              if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
-              originalLpRow.parentNode.insertBefore(newLpRow, originalLpRow.nextSibling);
-              await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
-
-              // Get new LP ID with retry
-              let newLpId = newLpRow.dataset.serverId;
-              let retryCount = 0;
-
-              while (!newLpId && retryCount < 5) {
-                await new Promise(resolve => setTimeout(resolve, 800));
-
-                const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
-                const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
-
-                const fetchUrl =
-                  `${DCL_LP_API}?$filter=` +
-                  `_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and ` +
-                  `cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and ` +
-                  `cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and ` +
-                  `cr650_loadedquantity eq ${qty}` +
-                  `&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
-
-                const fetchRes = await safeAjax({
-                  type: "GET",
-                  url: fetchUrl,
-                  headers: { Accept: "application/json;odata.metadata=minimal" },
-                  dataType: "json",
-                  _withLoader: false
-                });
-
-                if (fetchRes?.value?.length > 0) {
-                  newLpId = fetchRes.value[0].cr650_dcl_loading_planid;
-                  newLpRow.dataset.serverId = newLpId;
-                  break;
-                }
-
-                retryCount++;
-              }
-
-              if (!newLpId) {
-                throw new Error(`Failed to get LP ID for record ${i + 1}`);
-              }
-
-              // Create container item WITHOUT container assignment (null)
-              await new Promise(resolve => setTimeout(resolve, 500));
-              await createContainerItemOnServer(newLpId, qty, null, true);
-
-              console.log(`   ✅ Created record ${i + 1}`);
-            }
-
-            // ===== STEP 3: REFRESH STATE & UI =====
-            await new Promise(resolve => setTimeout(resolve, 800));
-            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-            DCL_CONTAINER_ITEMS_STATE = allContainerItems
-              .filter(item =>
-                item._cr650_dcl_master_number_value &&
-                item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase()
-              )
-              .map(mapContainerItemRowToState);
-
-            // Refresh UI
-            const tbody = Q("#itemsTableBody");
-            if (tbody) {
-              tbody._wired = false;
-              attachRowEvents(tbody);
-            }
-
-            rebuildAssignmentTable();
-            attachAssignmentEvents();
-            renderContainerCards();
-            renderContainerSummaries();
-            refreshAIAnalysis();
-            recalcAllRows();
-            recomputeTotals();
-
-            // ===== STEP 4: SHOW SUCCESS & GUIDANCE =====
-            showValidation('success',
-              `✅ Split complete!\n\n` +
-              `Created ${distribution.length} loading plan records:\n` +
-              distribution.map((q, i) => `  Record ${i + 1}: ${q} units`).join('\n') +
-              `\n\n` +
-              `💡 Next step: Assign each record to a container in the Assignment Table below.`
-            );
-
-            console.log("✅ Multi-record split completed successfully");
-
-          } catch (err) {
-            console.error('❌ Split failed:', err);
-            showValidation('error', 'Failed to split records: ' + err.message);
-          } finally {
-            setLoading(false);
-          }
-        }
-      }
-      else if (e.target.classList.contains("add-dims-btn")) {
-        // Show inline dimension form
-        const formRow = tr.nextElementSibling;
-        if (formRow && formRow.classList.contains("inline-dims-form-row")) {
-          formRow.style.display = "";
-
-          // Auto-select brand if possible
-          const desc = e.target.dataset.description || "";
-          const brandSelect = formRow.querySelector(".fg-brand-input");
-
-          if (brandSelect) {
-            const descLower = desc.toLowerCase();
-            if (descLower.includes("petromin")) brandSelect.value = "PETROMIN";
-            else if (descLower.includes("petronas")) brandSelect.value = "PETRONAS";
-            else if (descLower.includes("adnoc")) brandSelect.value = "ADNOC";
-            else if (descLower.includes("voyager")) brandSelect.value = "VOYAGER";
-            else if (descLower.includes("national")) brandSelect.value = "NATIONAL";
-          }
-
-          // Focus first input
-          const firstInput = formRow.querySelector(".fg-length-input");
-          if (firstInput) setTimeout(() => firstInput.focus(), 100);
-        }
-
-      } else if (e.target.classList.contains("close-dims-form") || e.target.classList.contains("skip-dims-btn")) {
-        // Close inline form
-        const formRow = e.target.closest(".inline-dims-form-row");
-        if (formRow) formRow.style.display = "none";
-      }
-    });
-
-    // Handle form submissions for inline dimensions
-    tbody.addEventListener("submit", async (e) => {
-      if (!e.target.classList.contains("dims-inline-form")) return;
-
-      e.preventDefault();
-      const form = e.target;
-      const formRow = form.closest(".inline-dims-form-row");
-      const lpId = form.dataset.lpId;
-
-      // Get form values
-      const brand = form.querySelector(".fg-brand-input").value;
-      const length = parseFloat(form.querySelector(".fg-length-input").value);
-      const width = parseFloat(form.querySelector(".fg-width-input").value);
-      const height = parseFloat(form.querySelector(".fg-height-input").value);
-
-      if (!brand || !length || !width || !height) {
-        showValidation("error", "Please fill all required fields");
-        return;
-      }
-
-      // Get LP data for weight calculation
-      const lpIndex = buildLpRowIndex();
-      const lpRow = lpIndex.get(lpId.toLowerCase());
-      if (!lpRow) return;
-
-      const desc = (lpRow.querySelector(".description")?.textContent || "").trim();
-      const packaging = (lpRow.querySelector(".packaging")?.textContent || "").trim();
-      const itemCode = (lpRow.querySelector(".item-code")?.textContent || "").trim();
-      const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
-      const loadingQty = asNum(lpRow.querySelector(".loading-qty")?.value);
-
-      const grossWeight = loadingQty > 0 ? (totalGross / loadingQty) : 0;
-      const netWeight = grossWeight * 0.9; // Estimate
-      const volumeM3 = (length * width * height) / 1_000_000_000;
-      const packSize = extractPackSizeFromPackaging(packaging);
-
-      try {
-        // Check if FG Master already exists
-        const fg = matchFgForOutstanding({
-          cr650_product_name: desc,
-          cr650_pack_desc: packaging,
-          cr650_product_no: itemCode
-        });
-
-        if (fg && fg.cr650_productspecificationid) {
-          // Update existing
-          await updateFgMasterDimensions(
-            fg.cr650_productspecificationid,
-            desc,
-            brand,
-            length, width, height,
-            grossWeight, netWeight, volumeM3,
-            packSize
-          );
-
-          // Update local cache
-          fg.cr650_lengthmm = length;
-          fg.cr650_widthmm = width;
-          fg.cr650_heightmm = height;
-          fg.cr650_grossweightpercartonkg = grossWeight;
-          fg.cr650_brand = brand;
-
-        } else {
-          // Create new
-          await createFgMasterRecord(
-            desc,
-            packaging,
-            brand,
-            length, width, height,
-            grossWeight, netWeight, volumeM3,
-            packSize
-          );
-
-          // Add to local cache
-          window.FG_MASTER.push({
-            cr650_productspecificationid: 'temp_' + Date.now(),
-            cr650_fg_name: desc,
-            cr650_packingdetails: packaging,
-            cr650_brand: brand,
-            cr650_lengthmm: length,
-            cr650_widthmm: width,
-            cr650_heightmm: height,
-            cr650_grossweightpercartonkg: grossWeight,
-            cr650_netweightpercartonkg: netWeight,
-            cr650_cartonvolumem3: volumeM3
-          });
-        }
-
-        // Hide form
-        if (formRow) formRow.style.display = "none";
-
-        // Refresh UI
-        rebuildAssignmentTable();
-        renderContainerCards();
-        showValidation("success", "✓ Dimensions saved!");
-
-      } catch (err) {
-        console.error("Failed to save dimensions:", err);
-        showValidation("error", "Failed to save dimensions");
-      }
-    });
+    // No-op: events are now handled in attachRowEvents
   }
-
-
+  /* --- orphaned old assignment handler code removed --- */
   // ===== RECOMMENDED: SIMPLIFIED SPLIT (No Container Creation) =====
   function showSimpleSplitPrompt(total, max, lpRow) {
     return new Promise((resolve) => {
@@ -6239,8 +5627,7 @@
   }
 
   function resetAllAssignments() {
-    const tbody = Q("#assignmentTableBody");
-    if (!tbody) return;
+    if (!DCL_CONTAINER_ITEMS_STATE.length) return;
 
     Promise.all(
       DCL_CONTAINER_ITEMS_STATE.map(ci =>
