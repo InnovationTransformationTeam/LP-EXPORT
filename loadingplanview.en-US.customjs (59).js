@@ -1963,7 +1963,7 @@
       // Note: Edit/Save/Cancel buttons removed - using Excel-like inline editing now
       // All cells are always editable, Save All button handles persistence
 
-      if (e.target.classList.contains("row-remove")) {
+      if (e.target.closest(".row-remove")) {
         try {
           const serverId = tr.dataset.serverId;
           const containerItemId = tr.dataset.containerItemId; // Only exists for splits
@@ -2054,10 +2054,11 @@
       }
 
       // === Add FG Dimensions button click ===
-      if (e.target.classList.contains("add-dims-btn")) {
-        const desc = e.target.dataset.description || "";
-        const packaging = e.target.dataset.packaging || "";
-        const itemCode = e.target.dataset.itemCode || "";
+      const dimsBtn = e.target.closest(".add-dims-btn");
+      if (dimsBtn) {
+        const desc = dimsBtn.dataset.description || "";
+        const packaging = dimsBtn.dataset.packaging || "";
+        const itemCode = dimsBtn.dataset.itemCode || "";
         const serverId = tr.dataset.serverId || "";
 
         const fg = matchFgForOutstanding({
@@ -2075,7 +2076,7 @@
       }
 
       // === Split button click (unified table) ===
-      if (e.target.classList.contains("split-item")) {
+      if (e.target.closest(".split-item")) {
         const ciId = tr.dataset.ciId;
         const serverId = tr.dataset.serverId;
         const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
@@ -5261,9 +5262,18 @@
 
       const orderDataResults = await Promise.all(orderDataPromises);
 
+      // Build a set of existing order+item keys to prevent duplicate imports
+      const existingKeys = new Set();
+      QA("#itemsTableBody tr.lp-data-row").forEach(r => {
+        const oNo = (r.querySelector(".order-no")?.textContent || "").trim();
+        const iCode = (r.querySelector(".item-code")?.textContent || "").trim();
+        if (oNo || iCode) existingKeys.add(`${oNo}|${iCode}`);
+      });
+
       // Collect all items from all orders first, then render + persist in one batch
       const allItems = [];
       const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
+      let skippedCount = 0;
 
       for (const orderData of orderDataResults) {
         if (!orderData || !orderData.raw || !orderData.raw.length) continue;
@@ -5276,7 +5286,17 @@
             orderData.shippedIndex
           )
         );
-        allItems.push(...items);
+
+        // Filter out items that already exist in the table
+        for (const item of items) {
+          const key = `${item.orderNo}|${item.itemCode}`;
+          if (existingKeys.has(key)) {
+            skippedCount++;
+            continue;
+          }
+          existingKeys.add(key); // prevent intra-batch duplicates too
+          allItems.push(item);
+        }
       }
 
       if (allItems.length) {
@@ -5284,6 +5304,12 @@
         if (tbody) {
           await appendAndPersistItems(allItems, tbody);
         }
+      }
+
+      if (skippedCount > 0 && allItems.length > 0) {
+        showValidation("info", `Imported ${allItems.length} new row(s). Skipped ${skippedCount} already-existing row(s).`);
+      } else if (skippedCount > 0 && allItems.length === 0) {
+        showValidation("info", `All ${skippedCount} row(s) already exist. Nothing new to import.`);
       }
 
       if (!QA("#itemsTableBody tr.lp-data-row").length) {
