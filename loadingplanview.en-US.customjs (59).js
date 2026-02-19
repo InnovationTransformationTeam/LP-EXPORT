@@ -6264,11 +6264,6 @@
       autoAssignBtn.addEventListener("click", allocateItemsToContainers);
     }
 
-    const allocateItemsBtn = Q("#allocateItemsBtn");
-    if (allocateItemsBtn) {
-      allocateItemsBtn.addEventListener("click", allocateItemsToContainers);
-    }
-
     const optimizeBtn = Q("#optimizeBtn");
     if (optimizeBtn) {
       optimizeBtn.addEventListener("click", runLogisticsCheck);
