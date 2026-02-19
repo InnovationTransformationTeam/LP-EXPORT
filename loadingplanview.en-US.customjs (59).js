@@ -2091,21 +2091,30 @@
             const origLoadInput = tr.querySelector('.loading-qty');
             if (origLoadInput) origLoadInput.value = remainingQty;
 
+            const origOrderQty = asNum(tr.querySelector(".order-qty")?.textContent);
             const origTotalLiters = asNum(tr.querySelector(".total-liters")?.textContent);
             const origNetWeight = asNum(tr.querySelector(".net-weight")?.textContent);
             const origGrossWeight = asNum(tr.querySelector(".gross-weight")?.textContent);
             const origPalletWeight = asNum(tr.dataset.palletWeight);
             const origNumPallets = asNum(tr.dataset.numberOfPallets);
+            const isPalletized = (tr.dataset.palletized || "No") === "Yes";
             const ratio = remainingQty / originalQty;
             const splitRatio = splitQty / originalQty;
 
-            const origSplitPallets = Math.round(origNumPallets * ratio);
-            tr.dataset.palletWeight = String(fmt2(origPalletWeight * ratio));
+            // Split Order Qty proportionally so Pending Qty stays correct
+            const origOrderQtyCell = tr.querySelector(".order-qty");
+            if (origOrderQtyCell) origOrderQtyCell.textContent = fmt2(origOrderQty * ratio);
+
+            // Split pallets: new row gets rounded amount, original keeps remainder
+            const newSplitPallets = Math.round(origNumPallets * splitRatio);
+            const origSplitPallets = origNumPallets - newSplitPallets;
+            const origSplitPalletWeight = isPalletized ? (origSplitPallets * 19.38) : 0;
+            tr.dataset.palletWeight = String(fmt2(origSplitPalletWeight));
             tr.dataset.numberOfPallets = String(origSplitPallets);
             const origPalletsInput = tr.querySelector(".pallets-input");
             if (origPalletsInput) origPalletsInput.value = origSplitPallets;
             const origPwCell = tr.querySelector(".pallet-weight");
-            if (origPwCell) origPwCell.textContent = fmt2(origPalletWeight * ratio);
+            if (origPwCell) origPwCell.textContent = fmt2(origSplitPalletWeight);
             const tl = tr.querySelector(".total-liters"); if (tl) { tl.textContent = fmt2(origTotalLiters * ratio); tl.dataset.manualOverride = "true"; }
             const nw = tr.querySelector(".net-weight"); if (nw) { nw.textContent = fmt2(origNetWeight * ratio); nw.dataset.manualOverride = "true"; }
             const gw = tr.querySelector(".gross-weight"); if (gw) { gw.textContent = fmt2(origGrossWeight * ratio); gw.dataset.manualOverride = "true"; }
@@ -2122,13 +2131,17 @@
             delete newLpRow.dataset.ciId;
             const newLoadInput = newLpRow.querySelector('.loading-qty');
             if (newLoadInput) newLoadInput.value = splitQty;
-            const newSplitPallets = Math.round(origNumPallets * splitRatio);
-            newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * splitRatio));
+            // Split Order Qty proportionally on new row
+            const newOrderQtyCell = newLpRow.querySelector(".order-qty");
+            if (newOrderQtyCell) newOrderQtyCell.textContent = fmt2(origOrderQty * splitRatio);
+            // Pallet count already computed above (newSplitPallets); pallet weight from rounded count
+            const newSplitPalletWeight = isPalletized ? (newSplitPallets * 19.38) : 0;
+            newLpRow.dataset.palletWeight = String(fmt2(newSplitPalletWeight));
             newLpRow.dataset.numberOfPallets = String(newSplitPallets);
             const newPalletsInput = newLpRow.querySelector(".pallets-input");
             if (newPalletsInput) newPalletsInput.value = newSplitPallets;
             const newPwCell = newLpRow.querySelector(".pallet-weight");
-            if (newPwCell) newPwCell.textContent = fmt2(origPalletWeight * splitRatio);
+            if (newPwCell) newPwCell.textContent = fmt2(newSplitPalletWeight);
             const ntl = newLpRow.querySelector(".total-liters"); if (ntl) { ntl.textContent = fmt2(origTotalLiters * splitRatio); ntl.dataset.manualOverride = "true"; }
             const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(origNetWeight * splitRatio); nnw.dataset.manualOverride = "true"; }
             const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(origGrossWeight * splitRatio); ngw.dataset.manualOverride = "true"; }
@@ -2195,12 +2208,24 @@
             setLoading(true, `Creating ${distribution.length} split records...`);
 
             // Capture original values BEFORE modifying for proportional split
+            const origOrderQtyM = asNum(tr.querySelector(".order-qty")?.textContent);
             const origTotalLiters = asNum(tr.querySelector(".total-liters")?.textContent);
             const origNetWeight = asNum(tr.querySelector(".net-weight")?.textContent);
             const origGrossWeight = asNum(tr.querySelector(".gross-weight")?.textContent);
             const origPalletWeight = asNum(tr.dataset.palletWeight);
             const origNumPallets = asNum(tr.dataset.numberOfPallets);
+            const isPalletizedM = (tr.dataset.palletized || "No") === "Yes";
             const totalQty = distribution.reduce((a, b) => a + b, 0);
+
+            // Pre-compute pallet distribution: round each split, give remainder to first row
+            let usedPallets = 0;
+            const palletDist = distribution.map((qty, idx) => {
+              if (idx === 0) return 0; // placeholder, computed after loop
+              const p = Math.round(origNumPallets * (qty / totalQty));
+              usedPallets += p;
+              return p;
+            });
+            palletDist[0] = origNumPallets - usedPallets; // first row gets remainder
 
             // STEP 1: UPDATE ORIGINAL LP & CONTAINER ITEM with first split qty
             const firstQty = distribution[0];
@@ -2208,13 +2233,18 @@
             const originalLoadingQtyInput = tr.querySelector('.loading-qty');
             if (originalLoadingQtyInput) originalLoadingQtyInput.value = firstQty;
 
-            const firstPallets = Math.round(origNumPallets * firstRatio);
-            tr.dataset.palletWeight = String(fmt2(origPalletWeight * firstRatio));
+            // Split Order Qty proportionally
+            const mOrigOrderQtyCell = tr.querySelector(".order-qty");
+            if (mOrigOrderQtyCell) mOrigOrderQtyCell.textContent = fmt2(origOrderQtyM * firstRatio);
+
+            const firstPallets = palletDist[0];
+            const firstPalletWeight = isPalletizedM ? (firstPallets * 19.38) : 0;
+            tr.dataset.palletWeight = String(fmt2(firstPalletWeight));
             tr.dataset.numberOfPallets = String(firstPallets);
             const mOrigPalletsInput = tr.querySelector(".pallets-input");
             if (mOrigPalletsInput) mOrigPalletsInput.value = firstPallets;
             const mOrigPwCell = tr.querySelector(".pallet-weight");
-            if (mOrigPwCell) mOrigPwCell.textContent = fmt2(origPalletWeight * firstRatio);
+            if (mOrigPwCell) mOrigPwCell.textContent = fmt2(firstPalletWeight);
             const origTLCell = tr.querySelector(".total-liters");
             const origNWCell = tr.querySelector(".net-weight");
             const origGWCell = tr.querySelector(".gross-weight");
@@ -2240,13 +2270,19 @@
               const newLoadInput = newLpRow.querySelector('.loading-qty');
               if (newLoadInput) newLoadInput.value = qty;
 
-              const mNewPallets = Math.round(origNumPallets * ratio);
-              newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * ratio));
+              // Split Order Qty proportionally on new row
+              const mNewOrderQtyCell = newLpRow.querySelector(".order-qty");
+              if (mNewOrderQtyCell) mNewOrderQtyCell.textContent = fmt2(origOrderQtyM * ratio);
+
+              // Pallet count from pre-computed distribution; weight from rounded count × 19.38
+              const mNewPallets = palletDist[i];
+              const mNewPalletWeight = isPalletizedM ? (mNewPallets * 19.38) : 0;
+              newLpRow.dataset.palletWeight = String(fmt2(mNewPalletWeight));
               newLpRow.dataset.numberOfPallets = String(mNewPallets);
               const mNewPalletsInput = newLpRow.querySelector(".pallets-input");
               if (mNewPalletsInput) mNewPalletsInput.value = mNewPallets;
               const mNewPwCell = newLpRow.querySelector(".pallet-weight");
-              if (mNewPwCell) mNewPwCell.textContent = fmt2(origPalletWeight * ratio);
+              if (mNewPwCell) mNewPwCell.textContent = fmt2(mNewPalletWeight);
               const newTLCell = newLpRow.querySelector(".total-liters"); if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
               const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
               const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
