@@ -204,6 +204,7 @@
         ".row-remove, " +
         ".dc-remove, " +
         ".split-item, " +
+        ".add-dims-btn, " +
         ".assign-container, " +
         ".palletized-select, " +
         ".pallets-input"
@@ -1295,6 +1296,28 @@
     const isPalletized = palletized === "Yes";
     const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
 
+    // Check FG Master dimensions for this item
+    let hasFgDims = false;
+    if (item.description || item.packaging) {
+      const fg = matchFgForOutstanding({
+        cr650_product_name: item.description,
+        cr650_pack_desc: item.packaging,
+        cr650_product_no: item.itemCode
+      });
+      if (fg) {
+        const L = parseFloat(fg.cr650_lengthmm) || 0;
+        const W = parseFloat(fg.cr650_widthmm) || 0;
+        const H = parseFloat(fg.cr650_heightmm) || 0;
+        hasFgDims = (L > 0 && W > 0 && H > 0);
+      }
+    }
+    const addDimsBtn = hasFgDims ? "" :
+      `<button class="btn btn-sm add-dims-btn" type="button" title="Add FG Dimensions"
+              data-description="${escapeHtml(item.description)}"
+              data-packaging="${escapeHtml(item.packaging)}"
+              data-item-code="${escapeHtml(item.itemCode)}"
+              style="background:#1a7f37;color:white;border:none;padding:2px 6px;font-size:0.75rem;border-radius:3px;">Dims</button>`;
+
     tr.innerHTML = `
     <td class="sn">${index + 1}</td>
 
@@ -1343,6 +1366,7 @@
     </td>
 
     <td class="row-actions">
+      ${addDimsBtn}
       <button class="btn btn-link btn-sm split-item" type="button" title="Split across containers">Split</button>
       <button class="btn btn-danger btn-sm row-remove" type="button">Remove</button>
     </td>
@@ -2027,6 +2051,27 @@
           console.error("DELETE failed", err);
           showValidation("error", "❌ Failed to delete: " + (err.responseJSON?.error?.message || err.message));
         }
+      }
+
+      // === Add FG Dimensions button click ===
+      if (e.target.classList.contains("add-dims-btn")) {
+        const desc = e.target.dataset.description || "";
+        const packaging = e.target.dataset.packaging || "";
+        const itemCode = e.target.dataset.itemCode || "";
+        const serverId = tr.dataset.serverId || "";
+
+        const fg = matchFgForOutstanding({
+          cr650_product_name: desc,
+          cr650_pack_desc: packaging,
+          cr650_product_no: itemCode
+        });
+
+        showFgDimensionsModal({
+          description: desc,
+          packaging: packaging,
+          itemCode: itemCode,
+          lpId: serverId
+        }, fg || null);
       }
 
       // === Split button click (unified table) ===
@@ -4487,10 +4532,19 @@
       // 2. Close modal
       closeFgDimensionsModal();
 
-      // 3. Update UI immediately with local cache
+      // 3. Hide the "Dims" button on the source row (dims are now saved)
+      if (itemInfo.lpId) {
+        const lpRow = document.querySelector(`#itemsTableBody tr[data-server-id="${itemInfo.lpId}"]`);
+        if (lpRow) {
+          const dimsBtn = lpRow.querySelector(".add-dims-btn");
+          if (dimsBtn) dimsBtn.style.display = "none";
+        }
+      }
+
+      // 4. Update UI immediately with local cache
       renderContainerCards();
 
-      // 4. Show success
+      // 5. Show success
       showValidation('success', '✓ Saved! Click button for next item.');
 
       // 5. Refresh from Dataverse in background (replace temp data with real)
