@@ -1365,10 +1365,12 @@
       </select>
     </td>
 
-    <td class="row-actions">
+    <td class="row-actions" style="white-space:nowrap;">
       ${addDimsBtn}
-      <button class="btn btn-link btn-sm split-item" type="button" title="Split across containers">Split</button>
-      <button class="btn btn-danger btn-sm row-remove" type="button">Remove</button>
+      <button class="split-item" type="button" title="Split across containers"
+              style="background:none;border:none;color:#1a7f37;font-size:0.8rem;padding:2px 6px;cursor:pointer;text-decoration:underline;">Split</button>
+      <button class="row-remove" type="button"
+              style="background:#dc3545;color:white;border:none;padding:2px 6px;font-size:0.75rem;border-radius:3px;cursor:pointer;">Remove</button>
     </td>
   `;
 
