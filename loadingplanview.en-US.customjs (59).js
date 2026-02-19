@@ -1324,7 +1324,10 @@
     <td class="order-no ce" contenteditable="true" tabindex="0">${escapeHtml(item.orderNo)}</td>
     <td class="item-code ce" contenteditable="true" tabindex="0">${escapeHtml(item.itemCode)}</td>
     <td class="description ce" contenteditable="true" tabindex="0">${escapeHtml(item.description)}</td>
-    <td class="release-status-cell"><span class="release-status-value">${escapeHtml(item.releaseStatus)}</span></td>
+    <td class="release-status-cell">${item.orderNo
+      ? `<span class="release-status-value">${escapeHtml(item.releaseStatus)}</span>`
+      : `<select class="release-status-select"><option value="Y" ${item.releaseStatus === "Y" ? "selected" : ""}>Y</option><option value="N" ${item.releaseStatus === "N" ? "selected" : ""}>N</option></select>`
+    }</td>
     <td class="packaging ce" contenteditable="true" tabindex="0">${escapeHtml(item.packaging)}</td>
 
     <td class="uom ce-num" contenteditable="true" tabindex="0">${fmt2(item.uom)}</td>
@@ -2649,7 +2652,7 @@
     const orderNumber = (tr.querySelector(".order-no")?.textContent || "").trim();
     const itemCode = (tr.querySelector(".item-code")?.textContent || "").trim();
     const desc = (tr.querySelector(".description")?.textContent || "").trim();
-    const relStatusDisp = (tr.querySelector(".release-status-value")?.textContent || "N").trim();
+    const relStatusDisp = (tr.querySelector(".release-status-value")?.textContent || tr.querySelector(".release-status-select")?.value || "N").trim();
     const packaging = (tr.querySelector(".packaging")?.textContent || "").trim();
     const uomNumeric = (tr.querySelector(".uom")?.textContent || "").trim();
     const packType = (tr.querySelector(".pack")?.textContent || "").trim();
@@ -7141,7 +7144,7 @@
       orderNo: (tr.querySelector('.order-no')?.textContent || '').trim(),
       itemCode: (tr.querySelector('.item-code')?.textContent || '').trim(),
       description: (tr.querySelector('.description')?.textContent || '').trim(),
-      releaseStatus: (tr.querySelector('.release-status-value')?.textContent || 'N').trim(),
+      releaseStatus: (tr.querySelector('.release-status-value')?.textContent || tr.querySelector('.release-status-select')?.value || 'N').trim(),
       packaging: (tr.querySelector('.packaging')?.textContent || '').trim(),
       uom: asNum(tr.querySelector('.uom')?.textContent),
       pack: (tr.querySelector('.pack')?.textContent || '').trim(),
@@ -7173,6 +7176,7 @@
       const itemCodeCell = tr.querySelector('.item-code');
       const descCell = tr.querySelector('.description');
       const releaseSpan = tr.querySelector('.release-status-value');
+      const releaseSelect = tr.querySelector('.release-status-select');
       const packagingCell = tr.querySelector('.packaging');
       const uomCell = tr.querySelector('.uom');
       const packCell = tr.querySelector('.pack');
@@ -7183,6 +7187,7 @@
       if (itemCodeCell) itemCodeCell.textContent = originalValues.itemCode || '';
       if (descCell) descCell.textContent = originalValues.description || '';
       if (releaseSpan) releaseSpan.textContent = originalValues.releaseStatus || 'N';
+      if (releaseSelect) releaseSelect.value = originalValues.releaseStatus || 'N';
       if (packagingCell) packagingCell.textContent = originalValues.packaging || '';
       if (uomCell) uomCell.textContent = fmt2(originalValues.uom || 0);
       if (packCell) packCell.textContent = originalValues.pack || '';
