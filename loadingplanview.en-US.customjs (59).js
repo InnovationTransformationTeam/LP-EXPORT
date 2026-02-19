@@ -4557,6 +4557,9 @@
     const cont = DCL_CONTAINERS_STATE[idx];
 
     if (cont.dataverseId) {
+      // Clean up container-items linked to this container (Dataverse + local)
+      await deleteContainerItemsByGuid(cont.dataverseId);
+
       try {
         await deleteContainerOnServer(cont.dataverseId);
       } catch (e) {
@@ -4572,6 +4575,47 @@
     refreshAIAnalysis();
   }
   w.removeContainerCard = removeContainerCard;
+
+  /**
+   * Delete all container-items linked to a given container GUID.
+   * Removes from Dataverse first, then from local state.
+   */
+  async function deleteContainerItemsByGuid(containerGuid) {
+    if (!containerGuid) return;
+    const guidLower = containerGuid.toLowerCase();
+
+    // Find all container-items pointing to this container
+    const orphans = DCL_CONTAINER_ITEMS_STATE.filter(
+      ci => ci.containerGuid && ci.containerGuid.toLowerCase() === guidLower
+    );
+
+    if (!orphans.length) return;
+
+    console.log(`[Cleanup] Removing ${orphans.length} container-item(s) for container ${containerGuid.substring(0, 8)}…`);
+
+    for (const ci of orphans) {
+      // Delete from Dataverse if the item has a server ID
+      if (ci.id) {
+        try {
+          await safeAjax({
+            type: "DELETE",
+            url: `${DCL_CONTAINER_ITEMS_API}(${ci.id})`,
+            headers: {
+              Accept: "application/json;odata.metadata=minimal",
+              "If-Match": "*"
+            },
+            dataType: "json"
+          });
+        } catch (e) {
+          console.error(`[Cleanup] Failed to delete container-item ${ci.id}`, e);
+        }
+      }
+
+      // Remove from local state
+      const localIdx = DCL_CONTAINER_ITEMS_STATE.findIndex(s => s === ci);
+      if (localIdx !== -1) DCL_CONTAINER_ITEMS_STATE.splice(localIdx, 1);
+    }
+  }
 
   /* =============================
      11A-BULK) BULK CONTAINER SELECTION & DELETE
@@ -4643,9 +4687,12 @@
 
       const cont = DCL_CONTAINERS_STATE[idx];
 
-      // Delete from Dataverse if saved
       if (cont.dataverseId) {
         try {
+          // First: clean up container-items linked to this container
+          await deleteContainerItemsByGuid(cont.dataverseId);
+
+          // Then: delete the container itself from Dataverse
           await safeAjax({
             type: "DELETE",
             url: `${DCL_CONTAINERS_API}(${cont.dataverseId})`,
