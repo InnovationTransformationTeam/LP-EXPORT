@@ -3499,6 +3499,7 @@
     background: rgba(255, 255, 255, 0.3);
     transition: all var(--transition-fast);
     transform: translate(-50%, -50%);
+    pointer-events: none;
   }
 
   #splitModal .btn:active::before {
@@ -5083,6 +5084,7 @@
     height: 100%;
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
     transition: left 0.5s ease;
+    pointer-events: none;
   }
 
   .btn:hover::before {
@@ -5491,6 +5493,7 @@
     height: 100%;
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
     transition: left 0.6s ease;
+    pointer-events: none;
   }
 
   #moveItemModal .btn:hover::before {
