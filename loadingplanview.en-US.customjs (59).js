@@ -191,9 +191,8 @@
         "#addItemBtn, " +
         "#importFromOracleBtn, " +
         "#updateAllBtn, " +
-        "#updateAllocationBtn, " +
+        "#allocateItemsBtn, " +
         "#addContainerBtn, " +
-        "#startAllocationBtn, " +
         "#autoAssignBtn, " +
         "#addDiscountChargeBtn, " +
         "#saveDiscountsBtn, " +
@@ -1999,7 +1998,7 @@
         const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
 
         if (!ci) {
-          showValidation("warning", "No container item found for this row. Run 'Start Allocation' first.");
+          showValidation("warning", "No container item found for this row. Run 'Allocate Items' first.");
           return;
         }
 
@@ -2390,7 +2389,7 @@
         if (!ci) {
           // No container item exists yet — revert dropdown and warn
           e.target.value = "";
-          showValidation("warning", "No container item found for this row. Run 'Start Allocation' first.");
+          showValidation("warning", "No container item found for this row. Run 'Allocate Items' first.");
           return;
         }
 
@@ -3923,6 +3922,9 @@
     // Keep bulk LP assign toolbar and dropdown in sync with containers
     refreshBulkAssignToolbar();
 
+    // Keep toolbar buttons and status bar in sync with state
+    updateToolbarState();
+
   }
 
   window.renderContainerCards = renderContainerCards;
@@ -4286,6 +4288,85 @@
   }
 
   /* =============================
+     11A-TOOLBAR) TOOLBAR STATE & ALLOCATION STATUS
+     ============================= */
+
+  /**
+   * Update toolbar button states based on current data.
+   * Disables buttons that don't make sense in the current workflow phase.
+   */
+  function updateToolbarState() {
+    const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+    const hasContainerItems = DCL_CONTAINER_ITEMS_STATE.length > 0;
+    const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
+
+    // Allocate Items — needs LP rows to exist
+    const allocateBtn = Q("#allocateItemsBtn");
+    if (allocateBtn) {
+      allocateBtn.disabled = lpRowCount === 0;
+      allocateBtn.title = lpRowCount === 0
+        ? "Add or import items first"
+        : hasContainerItems
+          ? "Sync changes (new items, quantity updates)"
+          : "Create container item allocations";
+    }
+
+    // Auto-Assign — needs both container items AND containers
+    const autoBtn = Q("#autoAssignBtn");
+    if (autoBtn) {
+      const canAutoAssign = hasContainerItems && hasContainers;
+      autoBtn.disabled = !canAutoAssign;
+      autoBtn.title = !hasContainerItems
+        ? "Run 'Allocate Items' first"
+        : !hasContainers
+          ? "Add containers first"
+          : "Auto-assign unassigned items to containers";
+    }
+
+    updateAllocationStatusBar();
+  }
+
+  /**
+   * Update the allocation status bar text between toolbar and table.
+   */
+  function updateAllocationStatusBar() {
+    const bar = Q("#allocationStatusBar");
+    const textEl = Q("#allocationStatusText");
+    if (!bar || !textEl) return;
+
+    const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+    const ciCount = DCL_CONTAINER_ITEMS_STATE.length;
+    const assignedCount = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
+    const unassignedCount = ciCount - assignedCount;
+    const containerCount = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length;
+
+    let text = "";
+    let barClass = "status-neutral";
+
+    if (lpRowCount === 0) {
+      text = "No items yet \u2014 Import from Oracle or Add Items";
+      barClass = "status-neutral";
+    } else if (ciCount === 0) {
+      text = `${lpRowCount} item${lpRowCount !== 1 ? "s" : ""} loaded \u2014 Click "Allocate Items" to begin`;
+      barClass = "status-action";
+    } else if (unassignedCount > 0) {
+      text = `${ciCount} allocated \u00b7 ${assignedCount} assigned \u00b7 ${unassignedCount} unassigned`;
+      if (containerCount > 0) {
+        text += ` \u00b7 ${containerCount} container${containerCount !== 1 ? "s" : ""}`;
+      }
+      barClass = "status-warning";
+    } else {
+      text = `${ciCount} item${ciCount !== 1 ? "s" : ""} \u00b7 All assigned to ${containerCount} container${containerCount !== 1 ? "s" : ""}`;
+      barClass = "status-good";
+    }
+
+    textEl.textContent = text;
+    bar.className = "allocation-status-bar " + barClass;
+  }
+
+  window.updateToolbarState = updateToolbarState;
+
+  /* =============================
      11A-BULK-ASSIGN) BULK LP ROW ASSIGNMENT
      ============================= */
 
@@ -4361,7 +4442,7 @@
     });
 
     if (!toPatch.length) {
-      showValidation("warning", "Selected rows have no container items. Run 'Start Allocation' first.");
+      showValidation("warning", "Selected rows have no container items. Run 'Allocate Items' first.");
       return;
     }
 
@@ -5552,6 +5633,7 @@
 
     // Initialize UI components
     populateContainerTypeDropdown();
+    updateToolbarState();
 
     const tbody = Q("#itemsTableBody");
     if (tbody) attachRowEvents(tbody);
@@ -6131,66 +6213,49 @@
     }
 
 
-    // ✅ UPDATE BUTTON - Enhanced smart update
-    const updateAllocationBtn = Q("#updateAllocationBtn");
-    if (updateAllocationBtn) {
-      updateAllocationBtn.addEventListener("click", updateContainerItemsIncrementally);
-    }
-    const startAllocationBtn = Q("#startAllocationBtn");
-    if (startAllocationBtn) {
-      startAllocationBtn.addEventListener("click", async () => {
+    // Smart Allocate Items button — merges "Start Allocation" + "Update Items"
+    const allocateItemsBtn = Q("#allocateItemsBtn");
+    if (allocateItemsBtn) {
+      allocateItemsBtn.addEventListener("click", async () => {
         if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
           showValidation("error", "Missing or invalid DCL id in URL.");
           return;
         }
 
-        try {
-          setLoading(true, "Preparing allocation…");
+        const hasExisting = DCL_CONTAINER_ITEMS_STATE.length > 0;
 
-          console.log("=== START ALLOCATION CLICKED ===");
+        if (hasExisting) {
+          // Incremental update — preserves existing assignments
+          await updateContainerItemsIncrementally();
+        } else {
+          // First-time — full allocation from scratch
+          try {
+            setLoading(true, "Preparing allocation…");
+            await hydrateLpRowServerIds();
+            await deleteAllContainerItemsForCurrentDcl();
 
-          // ✅ Hydrate LP rows before anything else
-          await hydrateLpRowServerIds();
+            const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
+            await ensureContainerItemsForCurrentDcl(freshLpRows);
 
-          console.log("1. Current DCL ID:", CURRENT_DCL_ID);
-          console.log("2. Container items before delete:", DCL_CONTAINER_ITEMS_STATE.length);
+            rebuildAssignmentTable();
+            renderContainerCards();
+            renderContainerSummaries();
+            refreshAIAnalysis();
+            updateToolbarState();
 
-          await deleteAllContainerItemsForCurrentDcl();
-          console.log("3. Container items after delete:", DCL_CONTAINER_ITEMS_STATE.length);
-
-          const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
-          console.log("4. Fresh LP rows fetched:", freshLpRows.length);
-
-          await ensureContainerItemsForCurrentDcl(freshLpRows);
-          console.log("5. Container items after ensure:", DCL_CONTAINER_ITEMS_STATE.length);
-
-          const domLpRows = QA("#itemsTableBody tr.lp-data-row");
-          console.log("6. LP rows in DOM:", domLpRows.length);
-          console.log("   DOM LP IDs:", domLpRows.map(tr => tr.dataset.serverId).filter(Boolean));
-
-          const lpIndex = buildLpRowIndex();
-          console.log("7. LP Index size:", lpIndex.size);
-
-          // Force UI update
-          rebuildAssignmentTable();
-    
-          renderContainerCards();
-          renderContainerSummaries();
-          refreshAIAnalysis();
-
-          console.log("=== START ALLOCATION COMPLETE ===");
-
-          showValidation(
-            "success",
-            `Allocation reset: ${DCL_CONTAINER_ITEMS_STATE.length} items loaded in container-items table.`
-          );
-
-        } catch (err) {
-          console.error("Start Allocation failed", err);
-          showValidation("error", "Failed to start allocation. Please try again.");
-        } finally {
-          setLoading(false);
+            showValidation(
+              "success",
+              `Allocation complete: ${DCL_CONTAINER_ITEMS_STATE.length} items ready for assignment.`
+            );
+          } catch (err) {
+            console.error("Allocate Items failed", err);
+            showValidation("error", "Failed to allocate items. Please try again.");
+          } finally {
+            setLoading(false);
+          }
         }
+
+        updateToolbarState();
       });
     }
 

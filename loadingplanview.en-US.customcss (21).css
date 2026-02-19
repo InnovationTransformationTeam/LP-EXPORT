@@ -11207,28 +11207,84 @@
 /* Enhanced Toolbar */
 .items-toolbar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
   padding: 10px 16px;
   background: #fafbfc;
   border: 1px solid #e1e4e8;
   border-bottom: none;
   border-radius: 8px 8px 0 0;
-  gap: 12px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
-.toolbar-left,
-.toolbar-right {
+/* Toolbar group — phase container */
+.toolbar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.toolbar-group-right {
+  margin-left: auto;
+}
+
+.toolbar-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #6b7280;
+  padding-left: 2px;
+}
+
+.toolbar-group-buttons {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .toolbar-center {
   flex: 1;
   display: flex;
   justify-content: center;
+  align-self: center;
+}
+
+/* Disabled button styling */
+.items-toolbar .btn:disabled,
+.items-toolbar .btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: auto;
+}
+
+/* Allocation Status Bar */
+.allocation-status-bar {
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  border-left: 1px solid #e1e4e8;
+  border-right: 1px solid #e1e4e8;
+}
+
+.allocation-status-bar.status-neutral {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.allocation-status-bar.status-action {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.allocation-status-bar.status-warning {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.allocation-status-bar.status-good {
+  background: #ecfdf5;
+  color: #065f46;
 }
 
 /* Modified Indicator - Subtle & Clean */

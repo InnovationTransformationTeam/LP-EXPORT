@@ -59,43 +59,61 @@
       <div class="items-section" id="orderItemsSection">
         <h3 class="section-title">Order Items</h3>
 
-        <!-- Enhanced Toolbar -->
+        <!-- Toolbar — grouped by workflow phase -->
         <div class="items-toolbar">
-          <div class="toolbar-left">
-            <button type="button" id="addItemBtn" class="btn btn-primary">
-              <i class="fas fa-plus"></i> Add Item
-            </button>
-            <button type="button" id="importFromOracleBtn" class="btn btn-outline">
-              <i class="fas fa-file-import"></i> Import from Oracle
-            </button>
-            <span class="toolbar-divider"></span>
-            <button type="button" id="startAllocationBtn" class="btn btn-outline" title="Delete all assignments and re-create container items from scratch">
-              <i class="fas fa-play"></i> Start Allocation
-            </button>
-            <button type="button" id="autoAssignBtn" class="btn btn-outline" title="Auto-assign unassigned items to containers">
-              <i class="fas fa-magic"></i> Auto-Assign
-            </button>
-            <button type="button" id="updateAllocationBtn" class="btn btn-outline" title="Detect new LP rows and create container items for them">
-              <i class="fas fa-sync-alt"></i> Update Items
-            </button>
+          <!-- Phase 1: Items -->
+          <div class="toolbar-group">
+            <span class="toolbar-group-label">Items</span>
+            <div class="toolbar-group-buttons">
+              <button type="button" id="addItemBtn" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Add Item
+              </button>
+              <button type="button" id="importFromOracleBtn" class="btn btn-outline">
+                <i class="fas fa-file-import"></i> Import from Oracle
+              </button>
+            </div>
           </div>
+
+          <!-- Phase 2: Allocation -->
+          <div class="toolbar-group">
+            <span class="toolbar-group-label">Allocation</span>
+            <div class="toolbar-group-buttons">
+              <button type="button" id="allocateItemsBtn" class="btn btn-outline" title="Create or update container item allocations">
+                <i class="fas fa-boxes"></i> Allocate Items
+              </button>
+              <button type="button" id="autoAssignBtn" class="btn btn-outline" disabled title="Run 'Allocate Items' first">
+                <i class="fas fa-magic"></i> Auto-Assign
+              </button>
+            </div>
+          </div>
+
+          <!-- Center: Status -->
           <div class="toolbar-center">
             <div id="modifiedIndicator" class="modified-indicator" style="display:none;">
               <i class="fas fa-circle"></i>
               <span id="modifiedCount">0</span> modified rows
             </div>
           </div>
-          <div class="toolbar-right">
-            <button type="button" id="saveAllChangesBtn" class="btn btn-success" style="display:none;">
-              <i class="fas fa-save"></i> Save All Changes
-            </button>
-            <button type="button" id="discardChangesBtn" class="btn btn-outline-danger" style="display:none;">
-              <i class="fas fa-undo"></i> Discard
-            </button>
-            <button type="button" id="fullscreenTableBtn" class="btn btn-outline" title="Toggle Fullscreen">
-              <i class="fas fa-expand"></i>
-            </button>
+
+          <!-- Phase 3: Save -->
+          <div class="toolbar-group toolbar-group-right">
+            <div class="toolbar-group-buttons">
+              <button type="button" id="saveAllChangesBtn" class="btn btn-success" style="display:none;">
+                <i class="fas fa-save"></i> Save All Changes
+              </button>
+              <button type="button" id="discardChangesBtn" class="btn btn-outline-danger" style="display:none;">
+                <i class="fas fa-undo"></i> Discard
+              </button>
+              <button type="button" id="fullscreenTableBtn" class="btn btn-outline" title="Toggle Fullscreen">
+                <i class="fas fa-expand"></i>
+              </button>
+            </div>
           </div>
+        </div>
+
+        <!-- Allocation Status Bar -->
+        <div id="allocationStatusBar" class="allocation-status-bar">
+          <span id="allocationStatusText">No items yet — Import from Oracle or Add Items</span>
         </div>
 
         <!-- Bulk Assign Toolbar (shown when rows have container items) -->
