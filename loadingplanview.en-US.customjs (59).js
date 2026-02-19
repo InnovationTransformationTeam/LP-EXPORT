@@ -3549,11 +3549,22 @@
   function renderContainerCards() {
     const grid = Q("#containerCardsGrid");
     const countSpan = Q("#containerCount");
+    const bulkToolbar = Q("#containerBulkToolbar");
     if (!grid) return;
 
     if (countSpan) {
       countSpan.textContent = DCL_CONTAINERS_STATE.length;
     }
+
+    // Show/hide bulk toolbar based on whether containers exist
+    if (bulkToolbar) {
+      bulkToolbar.style.display = DCL_CONTAINERS_STATE.length ? "flex" : "none";
+    }
+
+    // Reset Select All checkbox when re-rendering
+    const selectAllCb = Q("#containerSelectAll");
+    if (selectAllCb) selectAllCb.checked = false;
+    updateBulkDeleteButton();
 
     if (!DCL_CONTAINERS_STATE.length) {
       grid.innerHTML = `
@@ -3857,7 +3868,10 @@
         }
 
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <strong style="color:#333;font-size:14px;">${escapeHtml(c.id)}</strong>
+            <label class="container-card-checkbox-label">
+              <input type="checkbox" class="container-select-cb" data-container-id="${escapeHtml(c.id)}" />
+            </label>
+            <strong style="color:#333;font-size:14px;flex:1;margin-left:6px;">${escapeHtml(c.id)}</strong>
             ${statusBadge}
           </div>
 
@@ -3921,13 +3935,6 @@
 
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#6c757d;margin-top:8px;padding-top:8px;border-top:1px solid #e9ecef;">
             <span>Total Items: <strong>${itemCount}</strong></span>
-            <button type="button"
-              class="delete-container-btn"
-              data-container-id="${escapeHtml(c.id)}"
-              style="background:#dc3545;color:white;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;"
-              title="Remove container">
-              Delete
-            </button>
           </div>
 
           ${(weightExceeded || volumeExceeded) ? `
@@ -3944,15 +3951,8 @@
       `;
     }).join("");
 
-    // Attach delete button event listeners (CSP-compliant - no inline handlers)
-    grid.querySelectorAll(".delete-container-btn").forEach(btn => {
-      btn.addEventListener("click", function() {
-        const containerId = this.dataset.containerId;
-        if (containerId) {
-          removeContainerCard(containerId);
-        }
-      });
-    });
+    // Attach checkbox event listeners for bulk selection
+    attachContainerSelectionEvents(grid);
 
   }
 
@@ -4572,6 +4572,119 @@
     refreshAIAnalysis();
   }
   w.removeContainerCard = removeContainerCard;
+
+  /* =============================
+     11A-BULK) BULK CONTAINER SELECTION & DELETE
+     ============================= */
+
+  /** Attach checkbox change events to all container cards in the grid */
+  function attachContainerSelectionEvents(grid) {
+    grid.querySelectorAll(".container-select-cb").forEach(cb => {
+      cb.addEventListener("change", function () {
+        // Toggle highlight class on the parent card
+        const card = this.closest(".mini-container-card");
+        if (card) card.classList.toggle("card-selected", this.checked);
+
+        updateBulkDeleteButton();
+        syncSelectAllCheckbox();
+      });
+    });
+  }
+
+  /** Count selected checkboxes and update the "Delete Selected (N)" button */
+  function updateBulkDeleteButton() {
+    const selected = QA("#containerCardsGrid .container-select-cb:checked");
+    const countSpan = Q("#selectedContainerCount");
+    const deleteBtn = Q("#deleteSelectedContainersBtn");
+    const count = selected ? selected.length : 0;
+
+    if (countSpan) countSpan.textContent = count;
+    if (deleteBtn) deleteBtn.disabled = count === 0;
+  }
+
+  /** Keep "Select All" checkbox in sync with individual checkboxes */
+  function syncSelectAllCheckbox() {
+    const allCbs = QA("#containerCardsGrid .container-select-cb");
+    const checkedCbs = QA("#containerCardsGrid .container-select-cb:checked");
+    const selectAllCb = Q("#containerSelectAll");
+    if (!selectAllCb || !allCbs.length) return;
+    selectAllCb.checked = allCbs.length === checkedCbs.length;
+  }
+
+  /** Toggle all container checkboxes when Select All is clicked */
+  function handleSelectAll(checked) {
+    QA("#containerCardsGrid .container-select-cb").forEach(cb => {
+      cb.checked = checked;
+      const card = cb.closest(".mini-container-card");
+      if (card) card.classList.toggle("card-selected", checked);
+    });
+    updateBulkDeleteButton();
+  }
+
+  /** Bulk delete all selected containers with progress feedback */
+  async function bulkDeleteSelectedContainers() {
+    const selectedCbs = QA("#containerCardsGrid .container-select-cb:checked");
+    const ids = Array.from(selectedCbs).map(cb => cb.dataset.containerId);
+    if (!ids.length) return;
+
+    const confirmed = confirm(
+      `Delete ${ids.length} container${ids.length > 1 ? "s" : ""}?\n\nThis will remove them from the shipment and cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setLoading(true, `Deleting ${ids.length} container${ids.length > 1 ? "s" : ""}…`);
+
+    let deleted = 0;
+    let failed = 0;
+
+    for (const id of ids) {
+      const idx = DCL_CONTAINERS_STATE.findIndex(c => c.id === id);
+      if (idx === -1) continue;
+
+      const cont = DCL_CONTAINERS_STATE[idx];
+
+      // Delete from Dataverse if saved
+      if (cont.dataverseId) {
+        try {
+          await safeAjax({
+            type: "DELETE",
+            url: `${DCL_CONTAINERS_API}(${cont.dataverseId})`,
+            headers: {
+              Accept: "application/json;odata.metadata=minimal",
+              "If-Match": "*"
+            },
+            dataType: "json"
+          });
+        } catch (e) {
+          console.error(`[Bulk Delete] Failed to delete container ${id} from server`, e);
+          failed++;
+          continue; // Skip removing from state if server delete failed
+        }
+      }
+
+      // Remove from local state
+      DCL_CONTAINERS_STATE.splice(idx, 1);
+      deleted++;
+
+      // Update progress text
+      setLoading(true, `Deleting containers… ${deleted + failed}/${ids.length}`);
+    }
+
+    setLoading(false);
+
+    // Re-render everything
+    renderContainerCards();
+    renderContainerSummaries();
+    rebuildAssignmentTable();
+    refreshAIAnalysis();
+
+    // Show result
+    if (failed > 0) {
+      showValidation("warning", `Deleted ${deleted} container${deleted !== 1 ? "s" : ""}. ${failed} failed to delete from server.`);
+    } else {
+      showValidation("success", `Successfully deleted ${deleted} container${deleted !== 1 ? "s" : ""}.`);
+    }
+  }
 
   /* =============================
      11B) CONTAINER SUMMARY BASED ON CONTAINER-ITEMS
@@ -5718,6 +5831,20 @@
     const clearContainersBtn = Q("#clearContainersBtn");
     if (clearContainersBtn) {
       clearContainersBtn.addEventListener("click", resetAllAssignments);
+    }
+
+    // Bulk container selection: Select All toggle
+    const selectAllCb = Q("#containerSelectAll");
+    if (selectAllCb) {
+      selectAllCb.addEventListener("change", function () {
+        handleSelectAll(this.checked);
+      });
+    }
+
+    // Bulk container selection: Delete Selected button
+    const deleteSelBtn = Q("#deleteSelectedContainersBtn");
+    if (deleteSelBtn) {
+      deleteSelBtn.addEventListener("click", bulkDeleteSelectedContainers);
     }
 
     // ===== STEP 2: ALLOCATION & ASSIGNMENT (ENHANCED) =====

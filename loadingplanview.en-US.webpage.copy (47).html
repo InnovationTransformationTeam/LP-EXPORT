@@ -219,6 +219,18 @@
             <h4 class="subsection-title">
               Current Containers (<span id="containerCount">0</span>)
             </h4>
+
+            <!-- Bulk Actions Toolbar -->
+            <div id="containerBulkToolbar" class="container-bulk-toolbar" style="display:none;">
+              <label class="bulk-select-all-label">
+                <input type="checkbox" id="containerSelectAll" />
+                Select All
+              </label>
+              <button type="button" id="deleteSelectedContainersBtn" class="btn-delete-selected" disabled>
+                Delete Selected (<span id="selectedContainerCount">0</span>)
+              </button>
+            </div>
+
             <div id="containerCardsGrid" class="container-cards-grid">
               <div class="empty-state">
                 <i class="fas fa-inbox"></i>
