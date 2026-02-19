@@ -2045,7 +2045,7 @@
           return;
         }
 
-        const originalQty = ci.quantity || 0;
+        const originalQty = asNum(tr.querySelector('.loading-qty')?.value) || 0;
 
         if (ci.isSplitItem) {
           showValidation("info", "This item is already part of a split group and cannot be split further.");
