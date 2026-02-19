@@ -3128,52 +3128,8 @@
   }
 
 
-  function rebuildAssignmentTableWithSync() {
-    // Call the original rebuild
-    rebuildAssignmentTable();
-
-    // ✅ After rebuilding assignment table, sync back to order items if needed
-    syncAssignmentToOrderItems();
-  }
-
-
   /**
-     * ✅ NEW: Sync assignment table changes back to order items table
-     */
-  function syncAssignmentToOrderItems() {
-    const lpIndex = buildLpRowIndex();
-
-    DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
-      const lpIdLower = (ci.lpId || "").toLowerCase();
-      const lpRow = lpIndex.get(lpIdLower);
-
-      if (!lpRow) return;
-
-      // Find corresponding order item row by container item ID (try both attribute names)
-      const orderItemRow =
-        Q(`#itemsTableBody tr[data-ci-id="${ci.id}"]`) ||
-        Q(`#itemsTableBody tr[data-container-item-id="${ci.id}"]`);
-      if (!orderItemRow) return;
-
-      // Update quantity if changed
-      const qtyInput = orderItemRow.querySelector(".loading-qty");
-      if (qtyInput && asNum(qtyInput.value) !== ci.quantity) {
-        qtyInput.value = ci.quantity;
-
-        // Trigger recalculation
-        recalcRow(orderItemRow);
-      }
-
-      // Update container assignment if changed
-      //const containerSelect = orderItemRow.querySelector(".container-no");
-
-    });
-
-    recomputeTotals();
-  }
-
-  /**
-   * ✅ NEW: Refresh order items display after assignment changes
+   * Refresh order items display after assignment changes
    */
   async function refreshOrderItemsDisplay() {
     if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return;
@@ -3415,234 +3371,6 @@
   w.matchFgForLpRow = matchFgForLpRow;
 
 
-
-  /**
-   * ✅ CORRECT: Logistics-grade split algorithm
-   * Based on weight/volume constraints, deterministic, auditable
-   */
-  function splitIntoContainers({
-    totalQty,
-    numContainers,
-    perUnitWeightKg,
-    perUnitVolumeM3 = null,
-    containerMaxWeightKg,
-    containerMaxVolumeM3 = null
-  }) {
-    if (totalQty <= 0 || numContainers < 1) {
-      throw new Error("Invalid input");
-    }
-
-    // STEP 1: Calculate max qty per container
-    const maxByWeight = Math.floor(containerMaxWeightKg / perUnitWeightKg);
-
-    const maxByVolume = perUnitVolumeM3 && containerMaxVolumeM3
-      ? Math.floor(containerMaxVolumeM3 / perUnitVolumeM3)
-      : Infinity;
-
-    const maxQtyPerContainer = Math.min(maxByWeight, maxByVolume);
-
-    if (maxQtyPerContainer <= 0) {
-      throw new Error("Item too heavy/large for container type");
-    }
-
-    // STEP 2: Feasibility check
-    const minRequiredContainers = Math.ceil(totalQty / maxQtyPerContainer);
-
-    if (minRequiredContainers > numContainers) {
-      return {
-        feasible: false,
-        minRequiredContainers,
-        maxQtyPerContainer,
-        message: `This quantity requires at least ${minRequiredContainers} containers (max ${maxQtyPerContainer} units per container). You selected ${numContainers}.`
-      };
-    }
-
-    // STEP 3: Balanced distribution
-    const baseQty = Math.floor(totalQty / numContainers);
-    const remainder = totalQty % numContainers;
-
-    const distribution = [];
-    for (let i = 0; i < numContainers; i++) {
-      distribution.push(
-        i === numContainers - 1
-          ? baseQty + remainder
-          : baseQty
-      );
-    }
-
-    return {
-      feasible: true,
-      distribution,
-      maxQtyPerContainer,
-      utilizationPercentages: distribution.map(qty =>
-        ((qty / maxQtyPerContainer) * 100).toFixed(1) + '%'
-      )
-    };
-  }
-
-  /**
-   * Get container capacity for an item from LP row data
-   */
-  function getContainerCapacityForItem(containerType, lpRow) {
-    const constraints = CONTAINER_CONSTRAINTS[containerType];
-    if (!constraints) {
-      throw new Error(`Unknown container type: ${containerType}`);
-    }
-
-    const containerMaxWeightKg = constraints.maxWeight || 25000;
-    const containerMaxVolumeM3 = constraints.maxVolume || null;
-
-    // Get per-unit weight and volume from LP row
-    const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
-    const totalLiters = asNum(lpRow.querySelector(".total-liters")?.textContent);
-    const loadingQty = asNum(lpRow.querySelector(".loading-qty")?.value);
-
-    if (loadingQty <= 0) {
-      throw new Error("Loading quantity must be greater than 0");
-    }
-
-    const perUnitWeightKg = totalGross / loadingQty;
-    const perUnitVolumeM3 = totalLiters > 0
-      ? (totalLiters / loadingQty) / 1000
-      : null;
-
-    return {
-      containerMaxWeightKg,
-      containerMaxVolumeM3,
-      perUnitWeightKg,
-      perUnitVolumeM3
-    };
-  }
-
-
-  /* =============================
-     VALIDATION HELPER
-     ============================= */
-
-  function validateContainerItemQuantities(lpId) {
-    const lpIndex = buildLpRowIndex();
-    const lpRow = lpIndex.get((lpId || "").toLowerCase());
-
-    if (!lpRow) {
-      console.warn(`LP row not found: ${lpId}`);
-      return false;
-    }
-
-    const lpTotal = asNum(lpRow.querySelector(".loading-qty")?.value);
-
-    const containerItems = DCL_CONTAINER_ITEMS_STATE.filter(
-      ci => ci.lpId && ci.lpId.toLowerCase() === lpId.toLowerCase()
-    );
-
-    const ciTotal = containerItems.reduce((sum, ci) => sum + (ci.quantity || 0), 0);
-
-    if (Math.abs(ciTotal - lpTotal) > 0.01) {
-      const difference = ciTotal - lpTotal;
-
-      console.error(`Quantity mismatch for LP ${lpId}:`, {
-        lpQuantity: lpTotal,
-        containerItemsTotal: ciTotal,
-        difference: difference
-      });
-
-      // ✅ ADD THIS - Show user-facing warning:
-      showValidation("error",
-        `Data integrity issue: LP row has ${lpTotal} units but container items total ${ciTotal} units. ` +
-        `Difference: ${difference.toFixed(2)} units.`
-      );
-
-      return false;
-    }
-
-    return true;
-  }
-  w.validateContainerItemQuantities = validateContainerItemQuantities;
-
-
-
-  /* =============================
-     MERGE SPLIT ITEMS
-     ============================= */
-
-  async function mergeContainerItems(itemIds) {
-    if (!itemIds || itemIds.length < 2) {
-      showValidation("warning", "Select at least 2 items to merge");
-      return;
-    }
-
-    // Get all items
-    const items = itemIds.map(id =>
-      DCL_CONTAINER_ITEMS_STATE.find(ci => ci.id === id)
-    ).filter(Boolean);
-
-    if (items.length < 2) {
-      showValidation("error", "Could not find all selected items");
-      return;
-    }
-
-    // Validate same LP row
-    const lpIds = new Set(items.map(i => i.lpId?.toLowerCase()));
-    if (lpIds.size > 1) {
-      showValidation("error", "Cannot merge items from different LP rows");
-      return;
-    }
-
-    const lpId = items[0].lpId;
-    const totalQty = items.reduce((sum, i) => sum + (i.quantity || 0), 0);
-    const keepItem = items[0];
-
-    try {
-      setLoading(true, "Merging items...");
-
-      // Update first item with total quantity
-      await patchContainerItem(keepItem.id, {
-        cr650_quantity: totalQty,
-        cr650_issplititem: false
-      });
-
-      keepItem.quantity = totalQty;
-      keepItem.isSplitItem = false;
-
-      // Delete other items
-      for (let i = 1; i < items.length; i++) {
-        await safeAjax({
-          type: "DELETE",
-          url: `${DCL_CONTAINER_ITEMS_API}(${items[i].id})`,
-          headers: {
-            Accept: "application/json;odata.metadata=minimal",
-            "If-Match": "*"
-          },
-          dataType: "json"
-        });
-
-        const idx = DCL_CONTAINER_ITEMS_STATE.findIndex(ci => ci.id === items[i].id);
-        if (idx >= 0) {
-          DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
-        }
-      }
-
-      // Refresh UI
-      await ensureContainerItemsForCurrentDcl();
-      rebuildAssignmentTable();
-      renderContainerCards();
-      renderContainerSummaries();
-      refreshAIAnalysis();
-
-
-      if (!validateContainerItemQuantities(lpId)) {
-        showValidation("warning", "Merge completed but quantities may not match. Please verify.");
-      } else {
-        showValidation("success", `Merged ${items.length} items into one (${totalQty} units)`);
-      }
-
-    } catch (err) {
-      console.error("Failed to merge items", err);
-      showValidation("error", "Failed to merge items");
-    } finally {
-      setLoading(false);
-    }
-  }
-  w.mergeContainerItems = mergeContainerItems;
 
   function descSimilarity(a, b) {
     if (!a || !b) return 0;
@@ -5007,7 +4735,7 @@
 
             // Important: refresh assignment table so the new container appears
             rebuildAssignmentTable();
-            attachAssignmentEvents();
+
             refreshAIAnalysis();
           }
         })
@@ -5325,15 +5053,6 @@
     console.log("✅ Unified table container assignments synced");
   }
 
-  /**
-   * attachAssignmentEvents is now a no-op.
-   * All assignment events (container dropdown, palletized, split, etc.)
-   * are handled directly in attachRowEvents on the unified Order Items table.
-   */
-  function attachAssignmentEvents() {
-    // No-op: events are now handled in attachRowEvents
-  }
-  /* --- orphaned old assignment handler code removed --- */
   // ===== RECOMMENDED: SIMPLIFIED SPLIT (No Container Creation) =====
   function showSimpleSplitPrompt(total, max, lpRow) {
     return new Promise((resolve) => {
@@ -5819,15 +5538,6 @@
       });
   }
 
-  /* =============================
-     19) SAVE CONTAINER ALLOCATIONS STUB
-     ============================= */
-
-  async function saveContainerAllocationsToDataverse() {
-    showValidation("success", "Save Containers to Dataverse is not implemented yet, but the button works.");
-  }
-  w.saveContainerAllocationsToDataverse = saveContainerAllocationsToDataverse;
-
   const Qall = (sel) => Array.from(d.querySelectorAll(sel));
 
   function getQueryParam(name) {
@@ -5849,83 +5559,6 @@
     }
     return null;
   }
-
-  // Dev helper: validate LP ↔ Container-items consistency
-  function debugValidateAssignmentsDeep() {
-    const lpIndex = buildLpRowIndex();
-    const byLp = new Map();
-
-    // 1) Group container-items by lpId
-    DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
-      const lpId = (ci.lpId || "").toLowerCase();
-      if (!lpId) return;
-      if (!byLp.has(lpId)) {
-        byLp.set(lpId, { items: [], qty: 0, gross: 0, liters: 0 });
-      }
-      byLp.get(lpId).items.push(ci);
-    });
-
-    let issues = 0;
-
-    byLp.forEach((group, lpId) => {
-      const lpRow = lpIndex.get(lpId);
-      if (!lpRow) {
-        console.warn("❌ No LP row found for lpId:", lpId);
-        issues++;
-        return;
-      }
-
-      const totalLoad = asNum(lpRow.querySelector(".loading-qty")?.value);
-      const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
-      const totalLiters = asNum(lpRow.querySelector(".total-liters")?.textContent);
-
-      // Aggregate from container-items
-      let qtySum = 0;
-      let grossSum = 0;
-      let literSum = 0;
-
-      group.items.forEach(ci => {
-        const qty = ci.quantity || 0;
-        qtySum += qty;
-
-        if (totalLoad > 0) {
-          const ratio = qty / totalLoad;
-          grossSum += totalGross * ratio;
-          literSum += totalLiters * ratio;
-        }
-      });
-
-      const qDiff = Math.abs(qtySum - totalLoad);
-      const gDiff = Math.abs(grossSum - totalGross);
-      const lDiff = Math.abs(literSum - totalLiters);
-
-      if (qDiff > 0.01 || gDiff > 0.1 || lDiff > 0.1) {
-        issues++;
-        console.group(`❌ Mismatch for LP ${lpId}`);
-        console.log("LP:", {
-          loadingQty: totalLoad,
-          gross: totalGross,
-          liters: totalLiters
-        });
-        console.log("From container-items:", {
-          qtySum,
-          grossSum: grossSum.toFixed(3),
-          literSum: literSum.toFixed(3)
-        });
-        console.groupEnd();
-      }
-    });
-
-    if (!issues) {
-      console.log("✅ All LP ↔ container-items quantities, weights, and liters are consistent.");
-    } else {
-      console.warn(`⚠ Found ${issues} LP row(s) with mismatches.`);
-    }
-  }
-
-  // Expose for console
-  window.debugValidateAssignmentsDeep = debugValidateAssignmentsDeep;
-
 
   /* =============================
      20) BOOTSTRAP / PAGE INIT - COMPREHENSIVE VERSION
@@ -5994,7 +5627,7 @@
       // Render everything after data is loaded
       renderContainerCards();
       rebuildAssignmentTable();
-      attachAssignmentEvents();
+
       renderContainerSummaries();
       refreshAIAnalysis();
     }
@@ -6241,7 +5874,7 @@
 
           // Refresh UI
           rebuildAssignmentTable();
-          attachAssignmentEvents();
+    
           renderContainerCards();
           renderContainerSummaries();
           refreshAIAnalysis();
@@ -6576,7 +6209,7 @@
 
           // Force UI update
           rebuildAssignmentTable();
-          attachAssignmentEvents();
+    
           renderContainerCards();
           renderContainerSummaries();
           refreshAIAnalysis();
@@ -6664,7 +6297,7 @@
           importBtn.textContent = oldText || "Import from Oracle";
 
           rebuildAssignmentTable();
-          attachAssignmentEvents();
+    
           renderContainerCards();
           renderContainerSummaries();
           refreshAIAnalysis();
@@ -7477,69 +7110,6 @@
       indicator.style.display = 'none';
       saveBtn.style.display = 'none';
       discardBtn.style.display = 'none';
-    }
-  }
-
-  // Save All Changes
-  async function saveAllChanges() {
-    if (MODIFIED_ROWS.size === 0) {
-      showValidation("info", "No changes to save.");
-      return;
-    }
-
-    setLoading(true, `Saving ${MODIFIED_ROWS.size} rows...`);
-
-    try {
-      const rows = QA("#itemsTableBody tr.lp-data-row.row-modified");
-      let successCount = 0;
-      let errorCount = 0;
-
-      for (const tr of rows) {
-        try {
-          const serverId = tr.dataset.serverId;
-
-          if (serverId && isGuid(serverId)) {
-            await updateServerRowFromTr(tr, CURRENT_DCL_ID);
-          } else {
-            await createServerRowFromTr(tr, CURRENT_DCL_ID);
-          }
-
-          // Mark as saved - clean up classes
-          tr.classList.remove('row-modified');
-          tr.querySelectorAll('.cell-modified').forEach(c => c.classList.remove('cell-modified'));
-
-          // Update original values
-          tr.dataset.originalValues = JSON.stringify(getRowCurrentValues(tr));
-
-          successCount++;
-
-        } catch (err) {
-          console.error("Failed to save row:", err);
-          errorCount++;
-        }
-      }
-
-      // Clear modified tracking
-      MODIFIED_ROWS.clear();
-      updateModifiedIndicator();
-
-      // Refresh related data
-      await ensureContainerItemsForCurrentDcl();
-      rebuildAssignmentTable();
-      renderContainerSummaries();
-      refreshAIAnalysis();
-
-      if (errorCount === 0) {
-        showValidation("success", `Successfully saved ${successCount} rows.`);
-      } else {
-        showValidation("warning", `Saved ${successCount} rows. ${errorCount} failed.`);
-      }
-
-    } catch (err) {
-      console.error("Save all failed:", err);
-      showValidation("error", "Failed to save changes: " + err.message);
-    } finally {
-      setLoading(false);
     }
   }
 
