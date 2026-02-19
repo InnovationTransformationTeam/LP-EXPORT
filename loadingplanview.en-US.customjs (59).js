@@ -2130,8 +2130,6 @@
               .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
               .map(mapContainerItemRowToState);
 
-            tbody._wired = false;
-            attachRowEvents(tbody);
             rebuildAssignmentTable();
             renderContainerCards();
             renderContainerSummaries();
@@ -2273,8 +2271,6 @@
               .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
               .map(mapContainerItemRowToState);
 
-            tbody._wired = false;
-            attachRowEvents(tbody);
             rebuildAssignmentTable();
             renderContainerCards();
             renderContainerSummaries();
