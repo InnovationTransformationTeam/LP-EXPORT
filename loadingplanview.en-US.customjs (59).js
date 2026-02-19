@@ -1526,79 +1526,29 @@
   function recomputeTotals() {
     const rows = QA("#itemsTableBody tr.lp-data-row");
 
-    // Group rows by order number + item code.
-    // Split items (same item across multiple rows/containers) share a
-    // single order qty but each row carries its own loading qty & weights.
-    // When split rows still carry the FULL order-level values (not yet
-    // proportionally divided), the raw row sums would inflate the totals.
-    // We cap each group's loading qty at its order qty and scale
-    // net / gross weight proportionally so the summary stays accurate.
-    const orderItemGroups = new Map();
-
-    rows.forEach((r) => {
-      const orderNo = (r.querySelector(".order-no")?.textContent || "").trim();
-      const itemCode = (r.querySelector(".item-code")?.textContent || "").trim();
-      const orderQty = asNum(r.querySelector(".order-qty")?.textContent);
-      const loadingQty = asNum(r.querySelector(".loading-qty")?.value);
-      const netWeight = asNum(r.querySelector(".net-weight")?.textContent);
-      const grossWeight = asNum(r.querySelector(".gross-weight")?.textContent);
-
-      const key = `${orderNo}|${itemCode}`;
-
-      if (!orderItemGroups.has(key)) {
-        orderItemGroups.set(key, {
-          orderQty: orderQty,
-          rawLoadingQty: 0,
-          rawNet: 0,
-          rawGross: 0
-        });
-      }
-
-      const group = orderItemGroups.get(key);
-      group.rawLoadingQty += loadingQty;
-      group.rawNet += netWeight;
-      group.rawGross += grossWeight;
-    });
-
-    // Build summary totals from unique groups with per-group capping
-    let totalItems = orderItemGroups.size;
+    // Every row is an independent loading plan record.
+    // Straight sum — no grouping, no capping.
+    let totalItems = rows.length;
     let totalOrderQty = 0;
     let totalLoadingQty = 0;
     let totalNet = 0;
     let totalGross = 0;
 
-    orderItemGroups.forEach((group) => {
-      totalOrderQty += group.orderQty;
-
-      // Cap loading qty at order qty so duplicate split rows don't inflate
-      const cappedLoading = Math.min(group.rawLoadingQty, group.orderQty);
-      totalLoadingQty += cappedLoading;
-
-      // Scale net / gross proportionally when the raw sum was capped
-      if (group.rawLoadingQty > 0 && group.rawLoadingQty > group.orderQty) {
-        const scale = cappedLoading / group.rawLoadingQty;
-        totalNet += round2(group.rawNet * scale);
-        totalGross += round2(group.rawGross * scale);
-      } else {
-        totalNet += group.rawNet;
-        totalGross += group.rawGross;
-      }
-    });
-
-    // Update pending qty for each row based on its group
     rows.forEach((r) => {
-      const orderNo = (r.querySelector(".order-no")?.textContent || "").trim();
-      const itemCode = (r.querySelector(".item-code")?.textContent || "").trim();
-      const key = `${orderNo}|${itemCode}`;
-      const group = orderItemGroups.get(key);
+      const orderQty = asNum(r.querySelector(".order-qty")?.textContent);
+      const loadingQty = asNum(r.querySelector(".loading-qty")?.value);
+      const netWeight = asNum(r.querySelector(".net-weight")?.textContent);
+      const grossWeight = asNum(r.querySelector(".gross-weight")?.textContent);
 
-      if (group) {
-        const pendingQtyCell = r.querySelector(".pending-qty");
-        if (pendingQtyCell) {
-          const cappedLoading = Math.min(group.rawLoadingQty, group.orderQty);
-          const pendingQty = group.orderQty - cappedLoading;
-          pendingQtyCell.textContent = fmt2(Math.max(0, pendingQty));
-        }
+      totalOrderQty += orderQty;
+      totalLoadingQty += loadingQty;
+      totalNet += netWeight;
+      totalGross += grossWeight;
+
+      // Pending qty per row = its own order qty − its own loading qty
+      const pendingQtyCell = r.querySelector(".pending-qty");
+      if (pendingQtyCell) {
+        pendingQtyCell.textContent = fmt2(Math.max(0, orderQty - loadingQty));
       }
     });
 
@@ -1623,7 +1573,6 @@
       totalNet,
       totalGross
     });
-
 
     renderContainerSummaries();
   }
@@ -2151,13 +2100,6 @@
             ci.quantity = remainingQty;
             ci.isSplitItem = true;
 
-            // Mark original row as part of a split
-            tr.classList.add("split-origin-row");
-            const origItemCodeCell = tr.querySelector(".item-code");
-            if (origItemCodeCell && !origItemCodeCell.querySelector(".split-badge")) {
-              origItemCodeCell.insertAdjacentHTML("beforeend", ' <span class="split-badge">Split</span>');
-            }
-
             // Create new LP row
             const newLpRow = tr.cloneNode(true);
             delete newLpRow.dataset.serverId;
@@ -2171,14 +2113,6 @@
             const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(origNetWeight * splitRatio); nnw.dataset.manualOverride = "true"; }
             const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(origGrossWeight * splitRatio); ngw.dataset.manualOverride = "true"; }
 
-            // Style new row as split continuation
-            newLpRow.classList.add("split-continuation-row");
-            newLpRow.style.backgroundColor = "#fffbf0";
-            newLpRow.style.borderLeft = "3px solid #ffc107";
-            const newSnCell = newLpRow.querySelector(".sn");
-            if (newSnCell) {
-              newSnCell.innerHTML = `<span style="color:#999;margin-right:4px;">\u21b3</span>${escapeHtml(newSnCell.textContent)}`;
-            }
             tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
             await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
 
@@ -2268,13 +2202,6 @@
             ci.quantity = firstQty;
             ci.isSplitItem = true;
 
-            // Mark original row as part of a split
-            tr.classList.add("split-origin-row");
-            const origItemCodeCell = tr.querySelector(".item-code");
-            if (origItemCodeCell && !origItemCodeCell.querySelector(".split-badge")) {
-              origItemCodeCell.insertAdjacentHTML("beforeend", ' <span class="split-badge">Split</span>');
-            }
-
             // STEP 2: CREATE N-1 NEW LP RECORDS
             for (let i = 1; i < distribution.length; i++) {
               const qty = distribution[i];
@@ -2293,15 +2220,6 @@
               const newTLCell = newLpRow.querySelector(".total-liters"); if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
               const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
               const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
-
-              // Style as split continuation
-              newLpRow.classList.add("split-continuation-row");
-              newLpRow.style.backgroundColor = "#fffbf0";
-              newLpRow.style.borderLeft = "3px solid #ffc107";
-              const newSnCell = newLpRow.querySelector(".sn");
-              if (newSnCell) {
-                newSnCell.innerHTML = `<span style="color:#999;margin-right:4px;">\u21b3</span>${escapeHtml(newSnCell.textContent)}`;
-              }
 
               tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
               await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
@@ -3094,20 +3012,6 @@
       // ✅ Store container item ID for two-way binding
       if (it._containerItemId) {
         tr.dataset.containerItemId = it._containerItemId;
-      }
-
-      // ✅ Apply split item styling
-      if (it._isSplitContinuation) {
-        tr.classList.add("split-continuation-row");
-        tr.style.backgroundColor = "#fffbf0";
-        tr.style.borderLeft = "3px solid #ffc107";
-
-        // Add arrow prefix to serial number cell
-        const serialCell = tr.querySelector(".sn");  // ✅ FIXED class name
-        if (serialCell) {
-          const currentText = serialCell.textContent;
-          serialCell.innerHTML = `<span style="color:#999;margin-right:4px;">↳</span>${escapeHtml(currentText)}`;
-        }
       }
 
       frag.appendChild(tr);
