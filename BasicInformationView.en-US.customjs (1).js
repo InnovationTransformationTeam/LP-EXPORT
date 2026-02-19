@@ -2356,52 +2356,52 @@
     }
     w.toggleLoadingTimeInput = toggleLoadingTimeInput;
 
-    w.onAddBrand = async function () {
-        const select = $("#brandSelect");
+    w.handleBrandChange = async function (selectEl) {
+        if (!selectEl) return;
         const listEl = $("#brandList");
-        if (!select || !listEl) return;
 
-        let value = select.value;
-        let text = select.options[select.selectedIndex]?.textContent?.trim() || "";
+        if (selectEl.value === "__add_new__") {
+            const name = prompt("Enter new brand name:");
 
-        // Handle "Add new brand" option
-        if (value === "__add_new__") {
-            const newBrandName = prompt("Enter new brand name:");
-
-            if (newBrandName && newBrandName.trim()) {
-                const cleanName = newBrandName.trim();
+            if (name && name.trim()) {
+                const clean = name.trim();
 
                 try {
                     TopLoader.begin();
 
                     // Create the brand in the lookup list
-                    await createBrandInList(cleanName);
+                    await createBrandInList(clean);
 
                     // Reload and repopulate the brand select
                     const allBrands = await loadAllBrandsList();
                     cache.brandsList = allBrands;
-                    populateBrandSelect(select, allBrands);
+                    populateBrandSelect(selectEl, allBrands);
 
                     // Set the newly added brand as selected
-                    select.value = cleanName;
-                    value = cleanName;
-                    text = cleanName;
+                    selectEl.value = clean;
+
+                    // Also add it to the DCL brands
+                    await createBrand(clean);
+                    const refreshedBrands = await loadBrands(cache.currentId);
+                    renderBrandList(refreshedBrands);
 
                     TopLoader.end();
                 } catch (err) {
                     TopLoader.end();
-                    console.error("Failed to add new brand to list", err);
+                    console.error("Failed to add new brand", err);
                     alert("Failed to add new brand. Please try again.");
-                    select.value = "";
-                    return;
+                    selectEl.value = "";
                 }
             } else {
-                select.value = "";
-                return;
+                selectEl.value = "";
             }
+            return;
         }
 
-        if (!value || !text || value === "__add_new__") return;
+        // Handle selecting an existing brand — auto-add it (no separate Add button needed)
+        const value = selectEl.value;
+        const text = selectEl.options[selectEl.selectedIndex]?.textContent?.trim() || "";
+        if (!value || !text) return;
 
         try {
             await createBrand(text);
@@ -2412,7 +2412,13 @@
             alert("Failed to add Brand. Check permissions or connection.");
         }
 
-        select.value = "";
+        selectEl.value = "";
+    };
+
+    // Keep backward compat alias
+    w.onAddBrand = function () {
+        const select = $("#brandSelect");
+        if (select) w.handleBrandChange(select);
     };
 
     w.onAddOrderNumber = async function () {
@@ -3194,7 +3200,6 @@
             });
 
             const actionButtons = [
-                "#addBrandBtn",
                 "#addOrderBtn",
                 "#btnAddNotifyParty",
                 "#addNotifyPartyBtn"
@@ -3468,9 +3473,6 @@
             });
         }
 
-        if ($("#addBrandBtn")) {
-            $("#addBrandBtn").addEventListener("click", w.onAddBrand);
-        }
         if ($("#addOrderBtn")) {
             $("#addOrderBtn").addEventListener("click", w.onAddOrderNumber);
         }

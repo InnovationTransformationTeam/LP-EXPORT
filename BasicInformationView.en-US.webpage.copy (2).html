@@ -471,8 +471,7 @@
               <label for="brandSelect"
                 style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Brand
                 *</label>
-              <div style="display: flex; gap: 8px;">
-                <select id="brandSelect" aria-required="true"
+              <select id="brandSelect" aria-required="true" onchange="handleBrandChange(this)"
                   style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;">
                   <option value="">Select Brand</option>
                   <option value="national">National</option>
@@ -492,10 +491,8 @@
                   <option value="GREEN">GREEN</option>
                   <option value="PETRONAS">PETRONAS</option>
                   <option value="APEX">APEX</option>
-                </select><button type="button" id="addBrandBtn" class="btn btn-outline"
-                  style="display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(255, 255, 255); color: var(--pri); padding-top: 8px; padding-right: 12px; padding-bottom: 8px; padding-left: 12px; border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-right-radius: 10px; border-bottom-left-radius: 10px; font-weight: 600;"><i
-                    aria-hidden="true" class="fas fa-plus"></i> Add</button>
-              </div>
+                  <option value="__add_new__">+ Add new brand</option>
+                </select>
             </div>
             <div class="form-group" style="display: flex; flex-direction: column;">
               <label
