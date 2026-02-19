@@ -6484,183 +6484,6 @@
       updateLpCommentsCharCount();
       loadLpComments();
     }
-    // ===== SAVE ALL FUNCTION =====
-    async function saveAllChanges() {
-      let savedCount = 0;
-      const errors = [];
-      const verificationResults = [];
-
-      try {
-        if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
-          throw new Error("Invalid DCL ID");
-        }
-
-        // ===== 1. SAVE LP COMMENTS WITH VERIFICATION =====
-        if (lpCommentsField && lpCommentsField.value.trim()) {
-          try {
-            const commentText = lpCommentsField.value.trim();
-            const payload = { cr650_additionalco_lp: commentText };
-            
-            // Save
-            await safeAjax({
-              type: "PATCH",
-              url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})`,
-              data: JSON.stringify(payload),
-              contentType: "application/json; charset=utf-8",
-              headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
-              dataType: "json",
-              _withLoader: false
-            });
-
-            // ✅ VERIFY: Fetch back and compare
-            const verifyData = await safeAjax({
-              type: "GET",
-              url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})?$select=cr650_additionalco_lp`,
-              headers: { Accept: "application/json;odata.metadata=minimal" },
-              dataType: "json",
-              _withLoader: false
-            });
-
-            const savedComment = verifyData.cr650_additionalco_lp || "";
-            
-            if (savedComment === commentText) {
-              savedCount++;
-              verificationResults.push({
-                type: "comments",
-                verified: true,
-                message: "Comments verified in Dataverse"
-              });
-              console.log("✅ LP comments saved and verified");
-            } else {
-              throw new Error(`Verification failed: Saved "${savedComment}" but expected "${commentText}"`);
-            }
-
-          } catch (err) {
-            console.error("❌ LP comments failed:", err);
-            errors.push({
-              type: "Comments",
-              error: err.message,
-              verified: false
-            });
-          }
-        }
-
-        // ===== 2. SAVE EDITED ROWS WITH VERIFICATION =====
-        const editingRows = QA("#itemsTableBody tr.lp-data-row .row-save");
-        
-        if (editingRows.length > 0) {
-          for (const btn of editingRows) {
-            try {
-              const tr = btn.closest("tr");
-              const serverId = tr.dataset.serverId;
-              
-              // Get expected values BEFORE save
-              const expectedQty = asNum(tr.querySelector(".loading-qty")?.value);
-              const expectedItem = (tr.querySelector(".item-code")?.textContent || "").trim();
-              
-              // Save
-              await saveRowEdits(tr);
-              
-              // ✅ VERIFY: Fetch back and compare
-              if (serverId && isGuid(serverId)) {
-                const verifyData = await safeAjax({
-                  type: "GET",
-                  url: `${DCL_LP_API}(${serverId})?$select=cr650_loadedquantity,cr650_itemcode`,
-                  headers: { Accept: "application/json;odata.metadata=minimal" },
-                  dataType: "json",
-                  _withLoader: false
-                });
-
-                const savedQty = asNum(verifyData.cr650_loadedquantity);
-                const savedItem = (verifyData.cr650_itemcode || "").trim();
-
-                if (Math.abs(savedQty - expectedQty) < 0.01 && savedItem === expectedItem) {
-                  savedCount++;
-                  verificationResults.push({
-                    type: "row",
-                    item: expectedItem,
-                    verified: true,
-                    message: `Row verified: ${expectedItem} - ${expectedQty} units`
-                  });
-                  console.log(`✅ Row saved and verified: ${expectedItem}`);
-                } else {
-                  throw new Error(
-                    `Verification failed: Expected qty ${expectedQty}, got ${savedQty}. ` +
-                    `Expected item "${expectedItem}", got "${savedItem}"`
-                  );
-                }
-              } else {
-                // New row without ID yet - consider it saved if no error
-                savedCount++;
-                verificationResults.push({
-                  type: "row",
-                  verified: false,
-                  message: "New row created (ID not yet available for verification)"
-                });
-              }
-
-            } catch (err) {
-              console.error("❌ Row save failed:", err);
-              errors.push({
-                type: "Order item",
-                error: err.message,
-                verified: false
-              });
-            }
-          }
-        }
-
-        // ===== 3. BUILD DETAILED RESPONSE =====
-        const totalAttempted = (lpCommentsField?.value ? 1 : 0) + editingRows.length;
-        const totalFailed = errors.length;
-        const totalVerified = verificationResults.filter(r => r.verified).length;
-
-        let message = "";
-        if (savedCount > 0) {
-          message = `✅ Saved ${savedCount} item(s)`;
-          if (totalVerified > 0) {
-            message += ` (${totalVerified} verified in Dataverse)`;
-          }
-        }
-        
-        if (totalFailed > 0) {
-          message += `\n❌ Failed: ${totalFailed} item(s)`;
-          errors.forEach(e => {
-            message += `\n  • ${e.type}: ${e.error}`;
-          });
-        }
-
-        if (totalAttempted === 0) {
-          message = "No changes to save";
-        }
-
-        const success = totalAttempted > 0 && totalFailed === 0;
-
-        return {
-          success,
-          attempted: totalAttempted,
-          succeeded: savedCount,
-          failed: totalFailed,
-          verified: totalVerified,
-          message,
-          verificationResults,
-          errors
-        };
-
-      } catch (err) {
-        console.error("❌ Unexpected error:", err);
-        return {
-          success: false,
-          attempted: 0,
-          succeeded: 0,
-          failed: 0,
-          verified: 0,
-          message: "Critical error: " + err.message,
-          verificationResults: [],
-          errors: [{ type: "System", error: err.message }]
-        };
-      }
-    }
     // ===== "SAVE & NEXT" BUTTON =====
     const saveAndNextBtn = Q("#saveAndNextBtn");
     if (saveAndNextBtn) {
@@ -6780,6 +6603,185 @@
     // Don't call recalcAllRows() - preserve saved values from Dataverse (like manually set gross weight)
     recomputeTotals();
   });
+
+  // ===== SAVE ALL FUNCTION (IIFE level — accessible from initEnhancedOrderTable & keyboard shortcuts) =====
+  async function saveAllChanges() {
+    const lpCommentsField = Q("#lpAdditionalComments");
+    let savedCount = 0;
+    const errors = [];
+    const verificationResults = [];
+
+    try {
+      if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+        throw new Error("Invalid DCL ID");
+      }
+
+      // ===== 1. SAVE LP COMMENTS WITH VERIFICATION =====
+      if (lpCommentsField && lpCommentsField.value.trim()) {
+        try {
+          const commentText = lpCommentsField.value.trim();
+          const payload = { cr650_additionalco_lp: commentText };
+
+          // Save
+          await safeAjax({
+            type: "PATCH",
+            url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})`,
+            data: JSON.stringify(payload),
+            contentType: "application/json; charset=utf-8",
+            headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+            dataType: "json",
+            _withLoader: false
+          });
+
+          // ✅ VERIFY: Fetch back and compare
+          const verifyData = await safeAjax({
+            type: "GET",
+            url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})?$select=cr650_additionalco_lp`,
+            headers: { Accept: "application/json;odata.metadata=minimal" },
+            dataType: "json",
+            _withLoader: false
+          });
+
+          const savedComment = verifyData.cr650_additionalco_lp || "";
+
+          if (savedComment === commentText) {
+            savedCount++;
+            verificationResults.push({
+              type: "comments",
+              verified: true,
+              message: "Comments verified in Dataverse"
+            });
+            console.log("✅ LP comments saved and verified");
+          } else {
+            throw new Error(`Verification failed: Saved "${savedComment}" but expected "${commentText}"`);
+          }
+
+        } catch (err) {
+          console.error("❌ LP comments failed:", err);
+          errors.push({
+            type: "Comments",
+            error: err.message,
+            verified: false
+          });
+        }
+      }
+
+      // ===== 2. SAVE EDITED ROWS WITH VERIFICATION =====
+      const editingRows = QA("#itemsTableBody tr.lp-data-row .row-save");
+
+      if (editingRows.length > 0) {
+        for (const btn of editingRows) {
+          try {
+            const tr = btn.closest("tr");
+            const serverId = tr.dataset.serverId;
+
+            // Get expected values BEFORE save
+            const expectedQty = asNum(tr.querySelector(".loading-qty")?.value);
+            const expectedItem = (tr.querySelector(".item-code")?.textContent || "").trim();
+
+            // Save
+            await saveRowEdits(tr);
+
+            // ✅ VERIFY: Fetch back and compare
+            if (serverId && isGuid(serverId)) {
+              const verifyData = await safeAjax({
+                type: "GET",
+                url: `${DCL_LP_API}(${serverId})?$select=cr650_loadedquantity,cr650_itemcode`,
+                headers: { Accept: "application/json;odata.metadata=minimal" },
+                dataType: "json",
+                _withLoader: false
+              });
+
+              const savedQty = asNum(verifyData.cr650_loadedquantity);
+              const savedItem = (verifyData.cr650_itemcode || "").trim();
+
+              if (Math.abs(savedQty - expectedQty) < 0.01 && savedItem === expectedItem) {
+                savedCount++;
+                verificationResults.push({
+                  type: "row",
+                  item: expectedItem,
+                  verified: true,
+                  message: `Row verified: ${expectedItem} - ${expectedQty} units`
+                });
+                console.log(`✅ Row saved and verified: ${expectedItem}`);
+              } else {
+                throw new Error(
+                  `Verification failed: Expected qty ${expectedQty}, got ${savedQty}. ` +
+                  `Expected item "${expectedItem}", got "${savedItem}"`
+                );
+              }
+            } else {
+              // New row without ID yet - consider it saved if no error
+              savedCount++;
+              verificationResults.push({
+                type: "row",
+                verified: false,
+                message: "New row created (ID not yet available for verification)"
+              });
+            }
+
+          } catch (err) {
+            console.error("❌ Row save failed:", err);
+            errors.push({
+              type: "Order item",
+              error: err.message,
+              verified: false
+            });
+          }
+        }
+      }
+
+      // ===== 3. BUILD DETAILED RESPONSE =====
+      const totalAttempted = (lpCommentsField?.value ? 1 : 0) + editingRows.length;
+      const totalFailed = errors.length;
+      const totalVerified = verificationResults.filter(r => r.verified).length;
+
+      let message = "";
+      if (savedCount > 0) {
+        message = `✅ Saved ${savedCount} item(s)`;
+        if (totalVerified > 0) {
+          message += ` (${totalVerified} verified in Dataverse)`;
+        }
+      }
+
+      if (totalFailed > 0) {
+        message += `\n❌ Failed: ${totalFailed} item(s)`;
+        errors.forEach(e => {
+          message += `\n  • ${e.type}: ${e.error}`;
+        });
+      }
+
+      if (totalAttempted === 0) {
+        message = "No changes to save";
+      }
+
+      const success = totalAttempted > 0 && totalFailed === 0;
+
+      return {
+        success,
+        attempted: totalAttempted,
+        succeeded: savedCount,
+        failed: totalFailed,
+        verified: totalVerified,
+        message,
+        verificationResults,
+        errors
+      };
+
+    } catch (err) {
+      console.error("❌ Unexpected error:", err);
+      return {
+        success: false,
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        verified: 0,
+        message: "Critical error: " + err.message,
+        verificationResults: [],
+        errors: [{ type: "System", error: err.message }]
+      };
+    }
+  }
 
   // ============================================================
   // 🟢 UNRELEASED ORDERS CHECK - ADD THIS ENTIRE SECTION
@@ -7243,12 +7245,10 @@
   // Global keyboard shortcuts
   function setupGlobalKeyboardShortcuts() {
     d.addEventListener('keydown', (e) => {
-      // Ctrl+S to save all
+      // Ctrl+S to save all (always prevent browser save dialog)
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        if (MODIFIED_ROWS.size > 0) {
-          e.preventDefault();
-          saveAllChanges();
-        }
+        e.preventDefault();
+        saveAllChanges();
       }
 
       // Ctrl+Z to discard (with confirmation)
