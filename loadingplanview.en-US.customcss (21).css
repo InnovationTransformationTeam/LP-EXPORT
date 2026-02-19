@@ -11279,17 +11279,11 @@
   border-color: #d4a93c;
 }
 
-/* Release status select - Clean, no effects */
-.items-table .release-status-select {
+/* Release status - read-only display */
+.items-table .release-status-value {
   padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid #d1d5db;
-  cursor: pointer;
-  background: #fff;
-}
-
-.items-table .release-status-select:focus {
-  outline: none;
+  font-weight: 600;
+  user-select: none;
 }
 
 /* =====================================================

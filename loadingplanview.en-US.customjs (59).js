@@ -1324,12 +1324,7 @@
     <td class="order-no ce" contenteditable="true" tabindex="0">${escapeHtml(item.orderNo)}</td>
     <td class="item-code ce" contenteditable="true" tabindex="0">${escapeHtml(item.itemCode)}</td>
     <td class="description ce" contenteditable="true" tabindex="0">${escapeHtml(item.description)}</td>
-    <td class="release-status-cell">
-      <select class="release-status-select">
-        <option value="Y" ${item.releaseStatus === "Y" ? "selected" : ""}>Y</option>
-        <option value="N" ${item.releaseStatus === "N" ? "selected" : ""}>N</option>
-      </select>
-    </td>
+    <td class="release-status-cell"><span class="release-status-value">${escapeHtml(item.releaseStatus)}</span></td>
     <td class="packaging ce" contenteditable="true" tabindex="0">${escapeHtml(item.packaging)}</td>
 
     <td class="uom ce-num" contenteditable="true" tabindex="0">${fmt2(item.uom)}</td>
@@ -1646,9 +1641,6 @@
     const palletizedSelect = tr.querySelector(".palletized-select");
     if (palletizedSelect) palletizedSelect.disabled = false;
 
-    const releaseStatusSelect = tr.querySelector(".release-status-select");
-    if (releaseStatusSelect) releaseStatusSelect.disabled = false;
-
     // Update control buttons
     const ctrl = tr.querySelector(".controls");
     if (ctrl) {
@@ -1671,9 +1663,6 @@
 
     const palletizedSelect = tr.querySelector(".palletized-select");
     if (palletizedSelect) palletizedSelect.disabled = true;
-
-    const releaseStatusSelect = tr.querySelector(".release-status-select");
-    if (releaseStatusSelect) releaseStatusSelect.disabled = true;
 
     const ctrl = tr.querySelector(".controls");
     if (ctrl) {
@@ -2543,10 +2532,6 @@
         renderContainerSummaries();
       }
 
-      if (e.target.classList.contains("release-status-select")) {
-        handleCellChange(row, e.target);
-      }
-
       if (e.target.classList.contains("loading-qty")) {
         // Clear downstream overrides since loading qty affects total liters → net weight → gross weight
         ["total-liters", "net-weight", "gross-weight"].forEach(cls => {
@@ -2664,7 +2649,7 @@
     const orderNumber = (tr.querySelector(".order-no")?.textContent || "").trim();
     const itemCode = (tr.querySelector(".item-code")?.textContent || "").trim();
     const desc = (tr.querySelector(".description")?.textContent || "").trim();
-    const relStatusDisp = (tr.querySelector(".release-status-select")?.value || "N").trim();
+    const relStatusDisp = (tr.querySelector(".release-status-value")?.textContent || "N").trim();
     const packaging = (tr.querySelector(".packaging")?.textContent || "").trim();
     const uomNumeric = (tr.querySelector(".uom")?.textContent || "").trim();
     const packType = (tr.querySelector(".pack")?.textContent || "").trim();
@@ -7039,11 +7024,6 @@
       loadingQtyInput.addEventListener('input', () => handleCellChange(tr, loadingQtyInput));
     }
 
-    // Track release status select
-    const releaseSelect = tr.querySelector('.release-status-select');
-    if (releaseSelect) {
-      releaseSelect.addEventListener('change', () => handleCellChange(tr, releaseSelect));
-    }
   }
 
   // Handle cell change - mark row as modified
@@ -7161,7 +7141,7 @@
       orderNo: (tr.querySelector('.order-no')?.textContent || '').trim(),
       itemCode: (tr.querySelector('.item-code')?.textContent || '').trim(),
       description: (tr.querySelector('.description')?.textContent || '').trim(),
-      releaseStatus: tr.querySelector('.release-status-select')?.value || 'N',
+      releaseStatus: (tr.querySelector('.release-status-value')?.textContent || 'N').trim(),
       packaging: (tr.querySelector('.packaging')?.textContent || '').trim(),
       uom: asNum(tr.querySelector('.uom')?.textContent),
       pack: (tr.querySelector('.pack')?.textContent || '').trim(),
@@ -7192,7 +7172,7 @@
       const orderNoCell = tr.querySelector('.order-no');
       const itemCodeCell = tr.querySelector('.item-code');
       const descCell = tr.querySelector('.description');
-      const releaseSelect = tr.querySelector('.release-status-select');
+      const releaseSpan = tr.querySelector('.release-status-value');
       const packagingCell = tr.querySelector('.packaging');
       const uomCell = tr.querySelector('.uom');
       const packCell = tr.querySelector('.pack');
@@ -7202,7 +7182,7 @@
       if (orderNoCell) orderNoCell.textContent = originalValues.orderNo || '';
       if (itemCodeCell) itemCodeCell.textContent = originalValues.itemCode || '';
       if (descCell) descCell.textContent = originalValues.description || '';
-      if (releaseSelect) releaseSelect.value = originalValues.releaseStatus || 'N';
+      if (releaseSpan) releaseSpan.textContent = originalValues.releaseStatus || 'N';
       if (packagingCell) packagingCell.textContent = originalValues.packaging || '';
       if (uomCell) uomCell.textContent = fmt2(originalValues.uom || 0);
       if (packCell) packCell.textContent = originalValues.pack || '';
