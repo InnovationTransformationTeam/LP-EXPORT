@@ -10183,6 +10183,84 @@
     background: #eff6ff !important;
   }
 
+  /* ─── Bulk LP Row Assign Toolbar ─── */
+  .lp-bulk-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+  }
+
+  .bulk-assign-dropdown {
+    padding: 5px 10px;
+    font-size: 13px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    min-width: 180px;
+    cursor: pointer;
+  }
+
+  .bulk-assign-dropdown:focus {
+    border-color: #2563eb;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+  }
+
+  .btn-bulk-assign {
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+  }
+
+  .btn-bulk-assign:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
+
+  .btn-bulk-assign:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* Table header & row checkboxes */
+  .th-checkbox {
+    width: 36px;
+    min-width: 36px;
+  }
+
+  .td-row-checkbox {
+    text-align: center;
+    width: 36px;
+    min-width: 36px;
+  }
+
+  .td-row-checkbox input[type="checkbox"],
+  .th-checkbox input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+    accent-color: #2563eb;
+  }
+
+  /* Selected row highlight */
+  tr.lp-data-row.row-selected {
+    background: #eff6ff !important;
+  }
+
+  tr.lp-data-row.row-selected td {
+    background: inherit !important;
+  }
+
 
   /* Loading overlay for container refresh */
   .container-refresh-overlay {

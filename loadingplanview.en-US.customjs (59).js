@@ -1319,6 +1319,7 @@
               style="background:#1a7f37;color:white;border:none;padding:2px 6px;font-size:0.75rem;border-radius:3px;">Dims</button>`;
 
     tr.innerHTML = `
+    <td class="td-row-checkbox"><input type="checkbox" class="lp-row-select-cb" /></td>
     <td class="sn">${index + 1}</td>
 
     <td class="order-no ce" contenteditable="true" tabindex="0">${escapeHtml(item.orderNo)}</td>
@@ -1906,6 +1907,16 @@
   function attachRowEvents(tbody) {
     if (!tbody || tbody._wired) return;
     tbody._wired = true;
+
+    // Delegated handler for LP row checkboxes (bulk assign)
+    tbody.addEventListener("change", (e) => {
+      if (e.target.classList.contains("lp-row-select-cb")) {
+        const tr = e.target.closest("tr.lp-data-row");
+        if (tr) tr.classList.toggle("row-selected", e.target.checked);
+        updateBulkAssignButton();
+        syncLpRowSelectAll();
+      }
+    });
 
     tbody.addEventListener("click", async (e) => {
       const tr = e.target.closest("tr.lp-data-row");
@@ -3954,6 +3965,9 @@
     // Attach checkbox event listeners for bulk selection
     attachContainerSelectionEvents(grid);
 
+    // Keep bulk LP assign toolbar and dropdown in sync with containers
+    refreshBulkAssignToolbar();
+
   }
 
   window.renderContainerCards = renderContainerCards;
@@ -4730,6 +4744,142 @@
       showValidation("warning", `Deleted ${deleted} container${deleted !== 1 ? "s" : ""}. ${failed} failed to delete from server.`);
     } else {
       showValidation("success", `Successfully deleted ${deleted} container${deleted !== 1 ? "s" : ""}.`);
+    }
+  }
+
+  /* =============================
+     11A-BULK-ASSIGN) BULK LP ROW ASSIGNMENT
+     ============================= */
+
+  /** Refresh the container options inside the bulk assign dropdown */
+  function refreshBulkAssignDropdown() {
+    const sel = Q("#bulkAssignContainerSelect");
+    if (!sel) return;
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+    sel.innerHTML = '<option value="">Choose container…</option>' +
+      containers.map(c =>
+        `<option value="${escapeHtml(c.dataverseId)}">${escapeHtml(c.id || c.type || "Container")}</option>`
+      ).join("");
+  }
+
+  /** Show/hide the bulk toolbar when container-items exist */
+  function refreshBulkAssignToolbar() {
+    const toolbar = Q("#lpRowBulkToolbar");
+    if (!toolbar) return;
+    const hasCI = DCL_CONTAINER_ITEMS_STATE.length > 0;
+    toolbar.style.display = hasCI ? "flex" : "none";
+    if (hasCI) refreshBulkAssignDropdown();
+  }
+
+  /** Update counter and disable/enable the Assign button */
+  function updateBulkAssignButton() {
+    const checked = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const countSpan = Q("#selectedRowCount");
+    const btn = Q("#bulkAssignBtn");
+    const count = checked ? checked.length : 0;
+    if (countSpan) countSpan.textContent = count;
+    if (btn) btn.disabled = count === 0 || !Q("#bulkAssignContainerSelect")?.value;
+  }
+
+  /** Keep header + toolbar Select All checkboxes in sync */
+  function syncLpRowSelectAll() {
+    const allCbs = QA("#itemsTableBody .lp-row-select-cb");
+    const checkedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const headerCb = Q("#lpRowSelectAllHeader");
+    const toolbarCb = Q("#lpRowSelectAll");
+    const allChecked = allCbs.length > 0 && allCbs.length === checkedCbs.length;
+    if (headerCb) headerCb.checked = allChecked;
+    if (toolbarCb) toolbarCb.checked = allChecked;
+  }
+
+  /** Toggle all row checkboxes */
+  function handleLpRowSelectAll(checked) {
+    QA("#itemsTableBody .lp-row-select-cb").forEach(cb => {
+      cb.checked = checked;
+      cb.closest("tr")?.classList.toggle("row-selected", checked);
+    });
+    updateBulkAssignButton();
+  }
+
+  /** Bulk assign all selected rows to the chosen container */
+  async function bulkAssignSelectedRows() {
+    const containerGuid = (Q("#bulkAssignContainerSelect")?.value || "").trim();
+    if (!containerGuid) {
+      showValidation("warning", "Please choose a container first.");
+      return;
+    }
+
+    const selectedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const rows = Array.from(selectedCbs).map(cb => cb.closest("tr.lp-data-row")).filter(Boolean);
+    if (!rows.length) return;
+
+    // Collect container-item IDs that need patching
+    const toPatch = [];
+    rows.forEach(tr => {
+      const ciId = tr.dataset.ciId;
+      if (!ciId) return;
+      const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
+      if (ci) toPatch.push({ ci, ciId, tr });
+    });
+
+    if (!toPatch.length) {
+      showValidation("warning", "Selected rows have no container items. Run 'Start Allocation' first.");
+      return;
+    }
+
+    setLoading(true, `Assigning ${toPatch.length} item${toPatch.length > 1 ? "s" : ""} to container…`);
+
+    let success = 0;
+    let failed = 0;
+
+    for (const { ci, ciId, tr } of toPatch) {
+      try {
+        await safeAjax({
+          type: "PATCH",
+          url: `${DCL_CONTAINER_ITEMS_API}(${ciId})`,
+          data: JSON.stringify({
+            "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${containerGuid})`
+          }),
+          contentType: "application/json; charset=utf-8",
+          headers: {
+            Accept: "application/json;odata.metadata=minimal",
+            "If-Match": "*"
+          },
+          dataType: "json"
+        });
+
+        // Update local state
+        ci.containerGuid = containerGuid;
+        success++;
+      } catch (e) {
+        console.error(`[Bulk Assign] Failed to assign row ${ciId}`, e);
+        failed++;
+      }
+
+      setLoading(true, `Assigning items… ${success + failed}/${toPatch.length}`);
+    }
+
+    setLoading(false);
+
+    // Deselect all rows
+    QA("#itemsTableBody .lp-row-select-cb:checked").forEach(cb => {
+      cb.checked = false;
+      cb.closest("tr")?.classList.remove("row-selected");
+    });
+    syncLpRowSelectAll();
+    updateBulkAssignButton();
+
+    // Refresh all UI
+    rebuildAssignmentTable();
+    renderContainerCards();
+    renderContainerSummaries();
+    refreshAIAnalysis();
+
+    if (failed > 0) {
+      showValidation("warning", `Assigned ${success} item${success !== 1 ? "s" : ""}. ${failed} failed.`);
+    } else {
+      const contLabel = DCL_CONTAINERS_STATE.find(c => c.dataverseId === containerGuid)?.id || "container";
+      showValidation("success", `Assigned ${success} item${success !== 1 ? "s" : ""} to ${contLabel}.`);
     }
   }
 
@@ -5892,6 +6042,38 @@
     const deleteSelBtn = Q("#deleteSelectedContainersBtn");
     if (deleteSelBtn) {
       deleteSelBtn.addEventListener("click", bulkDeleteSelectedContainers);
+    }
+
+    // Bulk LP row assignment: Select All (toolbar checkbox)
+    const lpRowSelectAll = Q("#lpRowSelectAll");
+    if (lpRowSelectAll) {
+      lpRowSelectAll.addEventListener("change", function () {
+        handleLpRowSelectAll(this.checked);
+        const headerCb = Q("#lpRowSelectAllHeader");
+        if (headerCb) headerCb.checked = this.checked;
+      });
+    }
+
+    // Bulk LP row assignment: Select All (table header checkbox)
+    const lpRowSelectAllHeader = Q("#lpRowSelectAllHeader");
+    if (lpRowSelectAllHeader) {
+      lpRowSelectAllHeader.addEventListener("change", function () {
+        handleLpRowSelectAll(this.checked);
+        const toolbarCb = Q("#lpRowSelectAll");
+        if (toolbarCb) toolbarCb.checked = this.checked;
+      });
+    }
+
+    // Bulk LP row assignment: container dropdown change -> re-evaluate button state
+    const bulkContainerSel = Q("#bulkAssignContainerSelect");
+    if (bulkContainerSel) {
+      bulkContainerSel.addEventListener("change", updateBulkAssignButton);
+    }
+
+    // Bulk LP row assignment: Assign Selected button
+    const bulkAssignBtn = Q("#bulkAssignBtn");
+    if (bulkAssignBtn) {
+      bulkAssignBtn.addEventListener("click", bulkAssignSelectedRows);
     }
 
     // ===== STEP 2: ALLOCATION & ASSIGNMENT (ENHANCED) =====

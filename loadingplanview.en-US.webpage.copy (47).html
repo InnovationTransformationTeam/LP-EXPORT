@@ -98,10 +98,25 @@
           </div>
         </div>
 
+        <!-- Bulk Assign Toolbar (shown when rows have container items) -->
+        <div id="lpRowBulkToolbar" class="lp-bulk-toolbar" style="display:none;">
+          <label class="bulk-select-all-label">
+            <input type="checkbox" id="lpRowSelectAll" />
+            Select All
+          </label>
+          <select id="bulkAssignContainerSelect" class="bulk-assign-dropdown">
+            <option value="">Choose container…</option>
+          </select>
+          <button type="button" id="bulkAssignBtn" class="btn-bulk-assign" disabled>
+            Assign Selected (<span id="selectedRowCount">0</span>)
+          </button>
+        </div>
+
         <div class="items-table-container" id="itemsTableContainer">
           <table id="itemsTable" class="items-table">
             <thead>
               <tr>
+                <th align="center" class="th-checkbox"><input type="checkbox" id="lpRowSelectAllHeader" title="Select all rows" /></th>
                 <th align="center">S/N</th>
                 <th align="center">Order #</th>
                 <th align="center">Item Code</th>
