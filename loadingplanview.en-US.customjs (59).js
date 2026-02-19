@@ -1882,8 +1882,8 @@
   }
 
   function attachRowEvents(tbody) {
-    if (!tbody || tbody._wired) return;
-    tbody._wired = true;
+    if (!tbody || tbody.dataset.rowEventsWired === "true") return;
+    tbody.dataset.rowEventsWired = "true";
 
     // Delegated handler for LP row checkboxes (bulk assign)
     tbody.addEventListener("change", (e) => {
@@ -5108,18 +5108,6 @@
 
   // ===== RECOMMENDED: SIMPLIFIED SPLIT (No Container Creation) =====
   function showSimpleSplitPrompt(total, max, lpRow) {
-    const definedContainers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
-    const containerCount = definedContainers.length;
-    const containerNote = containerCount > 0
-      ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:#e8f4fd;border-radius:6px;font-size:12px;color:#1565c0;margin-top:4px;">
-           <i class="fas fa-box" style="font-size:11px;"></i>
-           <span>You have <strong>${containerCount}</strong> container${containerCount !== 1 ? 's' : ''} defined: ${definedContainers.map(c => c.id || c.type).join(', ')}</span>
-         </div>`
-      : `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:#fff3cd;border-radius:6px;font-size:12px;color:#856404;margin-top:4px;">
-           <i class="fas fa-exclamation-triangle" style="font-size:11px;"></i>
-           <span>No containers defined yet. Add containers before assigning split items.</span>
-         </div>`;
-
     return new Promise((resolve) => {
       const overlay = document.createElement('div');
       overlay.className = 'split-overlay';
@@ -5133,7 +5121,6 @@
             <span class="split-current-label">Total Loading Quantity:</span>
             <span class="split-current-value">${total} units</span>
           </div>
-          ${containerNote}
 
           <!-- Tab Selection - 3 Options -->
           <div class="split-tabs-container">
@@ -5631,6 +5618,10 @@
      ============================= */
 
   d.addEventListener("DOMContentLoaded", async () => {
+    // Prevent double-initialization if script is loaded multiple times
+    if (w.__LP_VIEW_INITIALIZED__) return;
+    w.__LP_VIEW_INITIALIZED__ = true;
+
     // Initialize item master cache
     const itemMaster = w.__ITEM_MASTER__ || {};
     ITEM_MASTER_CACHE = itemMaster;
