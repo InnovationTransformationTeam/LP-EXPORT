@@ -1533,30 +1533,38 @@
     let totalItems = rows.length;
     let totalOrderQty = 0;
     let totalLoadingQty = 0;
+    let totalPendingQty = 0;
+    let totalLiters = 0;
     let totalNet = 0;
     let totalGross = 0;
 
     rows.forEach((r) => {
       const orderQty = asNum(r.querySelector(".order-qty")?.textContent);
       const loadingQty = asNum(r.querySelector(".loading-qty")?.value);
+      const liters = asNum(r.querySelector(".total-liters")?.textContent);
       const netWeight = asNum(r.querySelector(".net-weight")?.textContent);
       const grossWeight = asNum(r.querySelector(".gross-weight")?.textContent);
 
       totalOrderQty += orderQty;
       totalLoadingQty += loadingQty;
+      totalLiters += liters;
       totalNet += netWeight;
       totalGross += grossWeight;
 
       // Pending qty per row = its own order qty − its own loading qty
+      const pendQty = Math.max(0, orderQty - loadingQty);
+      totalPendingQty += pendQty;
       const pendingQtyCell = r.querySelector(".pending-qty");
       if (pendingQtyCell) {
-        pendingQtyCell.textContent = fmt2(Math.max(0, orderQty - loadingQty));
+        pendingQtyCell.textContent = fmt2(pendQty);
       }
     });
 
     setText("#totalItems", totalItems);
     setText("#totalOrderQty", fmt2(totalOrderQty));
     setText("#totalLoadingQty", fmt2(totalLoadingQty));
+    setText("#totalPendingQty", fmt2(totalPendingQty));
+    setText("#totalLiters", fmt2(totalLiters));
     setText("#totalNetWeight", `${fmt2(totalNet)} kg`);
     setText("#totalGrossWeight", `${fmt2(totalGross)} kg`);
 
@@ -2091,8 +2099,13 @@
             const ratio = remainingQty / originalQty;
             const splitRatio = splitQty / originalQty;
 
+            const origSplitPallets = Math.round(origNumPallets * ratio);
             tr.dataset.palletWeight = String(fmt2(origPalletWeight * ratio));
-            tr.dataset.numberOfPallets = String(Math.round(origNumPallets * ratio));
+            tr.dataset.numberOfPallets = String(origSplitPallets);
+            const origPalletsInput = tr.querySelector(".pallets-input");
+            if (origPalletsInput) origPalletsInput.value = origSplitPallets;
+            const origPwCell = tr.querySelector(".pallet-weight");
+            if (origPwCell) origPwCell.textContent = fmt2(origPalletWeight * ratio);
             const tl = tr.querySelector(".total-liters"); if (tl) { tl.textContent = fmt2(origTotalLiters * ratio); tl.dataset.manualOverride = "true"; }
             const nw = tr.querySelector(".net-weight"); if (nw) { nw.textContent = fmt2(origNetWeight * ratio); nw.dataset.manualOverride = "true"; }
             const gw = tr.querySelector(".gross-weight"); if (gw) { gw.textContent = fmt2(origGrossWeight * ratio); gw.dataset.manualOverride = "true"; }
@@ -2109,8 +2122,13 @@
             delete newLpRow.dataset.ciId;
             const newLoadInput = newLpRow.querySelector('.loading-qty');
             if (newLoadInput) newLoadInput.value = splitQty;
+            const newSplitPallets = Math.round(origNumPallets * splitRatio);
             newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * splitRatio));
-            newLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * splitRatio));
+            newLpRow.dataset.numberOfPallets = String(newSplitPallets);
+            const newPalletsInput = newLpRow.querySelector(".pallets-input");
+            if (newPalletsInput) newPalletsInput.value = newSplitPallets;
+            const newPwCell = newLpRow.querySelector(".pallet-weight");
+            if (newPwCell) newPwCell.textContent = fmt2(origPalletWeight * splitRatio);
             const ntl = newLpRow.querySelector(".total-liters"); if (ntl) { ntl.textContent = fmt2(origTotalLiters * splitRatio); ntl.dataset.manualOverride = "true"; }
             const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(origNetWeight * splitRatio); nnw.dataset.manualOverride = "true"; }
             const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(origGrossWeight * splitRatio); ngw.dataset.manualOverride = "true"; }
@@ -2190,8 +2208,13 @@
             const originalLoadingQtyInput = tr.querySelector('.loading-qty');
             if (originalLoadingQtyInput) originalLoadingQtyInput.value = firstQty;
 
+            const firstPallets = Math.round(origNumPallets * firstRatio);
             tr.dataset.palletWeight = String(fmt2(origPalletWeight * firstRatio));
-            tr.dataset.numberOfPallets = String(Math.round(origNumPallets * firstRatio));
+            tr.dataset.numberOfPallets = String(firstPallets);
+            const mOrigPalletsInput = tr.querySelector(".pallets-input");
+            if (mOrigPalletsInput) mOrigPalletsInput.value = firstPallets;
+            const mOrigPwCell = tr.querySelector(".pallet-weight");
+            if (mOrigPwCell) mOrigPwCell.textContent = fmt2(origPalletWeight * firstRatio);
             const origTLCell = tr.querySelector(".total-liters");
             const origNWCell = tr.querySelector(".net-weight");
             const origGWCell = tr.querySelector(".gross-weight");
@@ -2217,8 +2240,13 @@
               const newLoadInput = newLpRow.querySelector('.loading-qty');
               if (newLoadInput) newLoadInput.value = qty;
 
+              const mNewPallets = Math.round(origNumPallets * ratio);
               newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * ratio));
-              newLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * ratio));
+              newLpRow.dataset.numberOfPallets = String(mNewPallets);
+              const mNewPalletsInput = newLpRow.querySelector(".pallets-input");
+              if (mNewPalletsInput) mNewPalletsInput.value = mNewPallets;
+              const mNewPwCell = newLpRow.querySelector(".pallet-weight");
+              if (mNewPwCell) mNewPwCell.textContent = fmt2(origPalletWeight * ratio);
               const newTLCell = newLpRow.querySelector(".total-liters"); if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
               const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
               const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
@@ -2325,13 +2353,31 @@
         recomputeTotals();
       }
 
-      // Handle loading qty and # pallets changes → clear downstream overrides
-      if (e.target.classList.contains("loading-qty") ||
-        (tdCE && tdCE.classList.contains("pallets"))) {
+      // Handle loading qty changes → clear downstream overrides
+      if (e.target.classList.contains("loading-qty")) {
         ["total-liters", "net-weight", "gross-weight"].forEach(cls => {
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
         });
+        recalcRow(row);
+        recomputeTotals();
+      }
+
+      // Handle # pallets input changes → recalc pallet weight + gross weight
+      if (e.target.classList.contains("pallets-input")) {
+        const numberOfPallets = asNum(e.target.value) || 0;
+        const palletized = (row.dataset.palletized || "No").trim();
+        const isPalletized = palletized === "Yes";
+        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+        row.dataset.numberOfPallets = String(numberOfPallets);
+        row.dataset.palletWeight = String(palletWeight);
+
+        const pwCell = row.querySelector(".pallet-weight");
+        if (pwCell) pwCell.textContent = fmt2(palletWeight);
+
+        const gw = row.querySelector(".gross-weight");
+        if (gw) delete gw.dataset.manualOverride;
         recalcRow(row);
         recomputeTotals();
       }
@@ -6609,177 +6655,135 @@
     const lpCommentsField = Q("#lpAdditionalComments");
     let savedCount = 0;
     const errors = [];
-    const verificationResults = [];
 
     try {
       if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
         throw new Error("Invalid DCL ID");
       }
 
-      // ===== 1. SAVE LP COMMENTS WITH VERIFICATION =====
+      setLoading(true, "Saving all changes…");
+
+      // ===== 1. SAVE LP COMMENTS =====
       if (lpCommentsField && lpCommentsField.value.trim()) {
         try {
           const commentText = lpCommentsField.value.trim();
-          const payload = { cr650_additionalco_lp: commentText };
-
-          // Save
           await safeAjax({
             type: "PATCH",
             url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})`,
-            data: JSON.stringify(payload),
+            data: JSON.stringify({ cr650_additionalco_lp: commentText }),
             contentType: "application/json; charset=utf-8",
             headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
             dataType: "json",
             _withLoader: false
           });
-
-          // ✅ VERIFY: Fetch back and compare
-          const verifyData = await safeAjax({
-            type: "GET",
-            url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})?$select=cr650_additionalco_lp`,
-            headers: { Accept: "application/json;odata.metadata=minimal" },
-            dataType: "json",
-            _withLoader: false
-          });
-
-          const savedComment = verifyData.cr650_additionalco_lp || "";
-
-          if (savedComment === commentText) {
-            savedCount++;
-            verificationResults.push({
-              type: "comments",
-              verified: true,
-              message: "Comments verified in Dataverse"
-            });
-            console.log("✅ LP comments saved and verified");
-          } else {
-            throw new Error(`Verification failed: Saved "${savedComment}" but expected "${commentText}"`);
-          }
-
+          savedCount++;
+          console.log("✅ LP comments saved");
         } catch (err) {
           console.error("❌ LP comments failed:", err);
-          errors.push({
-            type: "Comments",
-            error: err.message,
-            verified: false
-          });
+          errors.push({ type: "Comments", error: err.message });
         }
       }
 
-      // ===== 2. SAVE EDITED ROWS WITH VERIFICATION =====
-      const editingRows = QA("#itemsTableBody tr.lp-data-row .row-save");
+      // ===== 2. SAVE ALL LP ROWS =====
+      // Save every row in the table — not just rows with .row-save buttons.
+      // Users edit cells directly (contenteditable + inputs) without
+      // entering Edit mode, so we must persist ALL rows.
+      const allLpRows = QA("#itemsTableBody tr.lp-data-row");
 
-      if (editingRows.length > 0) {
-        for (const btn of editingRows) {
-          try {
-            const tr = btn.closest("tr");
-            const serverId = tr.dataset.serverId;
+      for (const tr of allLpRows) {
+        try {
+          const payload = buildPayloadFromRow(tr, CURRENT_DCL_ID);
+          let serverId = tr.dataset.serverId;
 
-            // Get expected values BEFORE save
-            const expectedQty = asNum(tr.querySelector(".loading-qty")?.value);
-            const expectedItem = (tr.querySelector(".item-code")?.textContent || "").trim();
-
-            // Save
-            await saveRowEdits(tr);
-
-            // ✅ VERIFY: Fetch back and compare
-            if (serverId && isGuid(serverId)) {
-              const verifyData = await safeAjax({
-                type: "GET",
-                url: `${DCL_LP_API}(${serverId})?$select=cr650_loadedquantity,cr650_itemcode`,
-                headers: { Accept: "application/json;odata.metadata=minimal" },
-                dataType: "json",
-                _withLoader: false
-              });
-
-              const savedQty = asNum(verifyData.cr650_loadedquantity);
-              const savedItem = (verifyData.cr650_itemcode || "").trim();
-
-              if (Math.abs(savedQty - expectedQty) < 0.01 && savedItem === expectedItem) {
-                savedCount++;
-                verificationResults.push({
-                  type: "row",
-                  item: expectedItem,
-                  verified: true,
-                  message: `Row verified: ${expectedItem} - ${expectedQty} units`
-                });
-                console.log(`✅ Row saved and verified: ${expectedItem}`);
-              } else {
-                throw new Error(
-                  `Verification failed: Expected qty ${expectedQty}, got ${savedQty}. ` +
-                  `Expected item "${expectedItem}", got "${savedItem}"`
-                );
-              }
-            } else {
-              // New row without ID yet - consider it saved if no error
-              savedCount++;
-              verificationResults.push({
-                type: "row",
-                verified: false,
-                message: "New row created (ID not yet available for verification)"
-              });
-            }
-
-          } catch (err) {
-            console.error("❌ Row save failed:", err);
-            errors.push({
-              type: "Order item",
-              error: err.message,
-              verified: false
+          if (serverId && isGuid(serverId)) {
+            // UPDATE existing record
+            await safeAjax({
+              type: "PATCH",
+              url: `${DCL_LP_API}(${serverId})`,
+              data: JSON.stringify(payload),
+              contentType: "application/json; charset=utf-8",
+              headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+              dataType: "json",
+              _withLoader: false
             });
+          } else {
+            // CREATE new record
+            const res = await safeAjax({
+              type: "POST",
+              url: DCL_LP_API,
+              data: JSON.stringify(payload),
+              contentType: "application/json; charset=utf-8",
+              headers: { Accept: "application/json;odata.metadata=minimal", Prefer: "return=representation" },
+              dataType: "json",
+              _withLoader: false
+            });
+            const newId = res && (res.cr650_dcl_loading_planid || res.id);
+            if (newId) tr.dataset.serverId = newId;
           }
+
+          savedCount++;
+
+          // Clear modified visual state for this row
+          tr.classList.remove("row-modified");
+          tr.querySelectorAll(".cell-modified").forEach(c => c.classList.remove("cell-modified"));
+
+        } catch (err) {
+          const itemCode = (tr.querySelector(".item-code")?.textContent || "unknown").trim();
+          console.error(`❌ Row save failed (${itemCode}):`, err);
+          errors.push({ type: `Row ${itemCode}`, error: err.message });
         }
       }
 
-      // ===== 3. BUILD DETAILED RESPONSE =====
-      const totalAttempted = (lpCommentsField?.value ? 1 : 0) + editingRows.length;
+      // ===== 3. CLEAR MODIFIED TRACKING =====
+      MODIFIED_ROWS.clear();
+      ORIGINAL_ROW_DATA.clear();
+      updateModifiedIndicator();
+
+      // ===== 4. UPDATE DCL MASTER TOTALS =====
+      recomputeTotals();
+
+      // ===== 5. SYNC CONTAINER ITEMS =====
+      await ensureContainerItemsForCurrentDcl();
+      rebuildAssignmentTable();
+      renderContainerSummaries();
+
+      // ===== 6. BUILD RESULT =====
+      const totalAttempted = allLpRows.length + (lpCommentsField?.value ? 1 : 0);
       const totalFailed = errors.length;
-      const totalVerified = verificationResults.filter(r => r.verified).length;
 
       let message = "";
       if (savedCount > 0) {
-        message = `✅ Saved ${savedCount} item(s)`;
-        if (totalVerified > 0) {
-          message += ` (${totalVerified} verified in Dataverse)`;
-        }
+        message = `Saved ${savedCount} item(s) to Dataverse`;
       }
-
       if (totalFailed > 0) {
-        message += `\n❌ Failed: ${totalFailed} item(s)`;
-        errors.forEach(e => {
-          message += `\n  • ${e.type}: ${e.error}`;
-        });
+        message += `\nFailed: ${totalFailed} item(s)`;
+        errors.forEach(e => { message += `\n  - ${e.type}: ${e.error}`; });
       }
-
       if (totalAttempted === 0) {
         message = "No changes to save";
       }
 
       const success = totalAttempted > 0 && totalFailed === 0;
 
-      return {
-        success,
-        attempted: totalAttempted,
-        succeeded: savedCount,
-        failed: totalFailed,
-        verified: totalVerified,
-        message,
-        verificationResults,
-        errors
-      };
+      if (success) {
+        showValidation("success", message);
+      } else if (totalFailed > 0 && savedCount > 0) {
+        showValidation("warning", message);
+      } else if (totalFailed > 0) {
+        showValidation("error", message);
+      }
+
+      return { success, attempted: totalAttempted, succeeded: savedCount, failed: totalFailed, message, errors };
 
     } catch (err) {
       console.error("❌ Unexpected error:", err);
+      showValidation("error", "Critical error: " + err.message);
       return {
-        success: false,
-        attempted: 0,
-        succeeded: 0,
-        failed: 0,
-        verified: 0,
-        message: "Critical error: " + err.message,
-        verificationResults: [],
-        errors: [{ type: "System", error: err.message }]
+        success: false, attempted: 0, succeeded: 0, failed: 0,
+        message: "Critical error: " + err.message, errors: [{ type: "System", error: err.message }]
       };
+    } finally {
+      setLoading(false);
     }
   }
 
