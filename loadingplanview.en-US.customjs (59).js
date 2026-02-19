@@ -1286,9 +1286,10 @@
 
     // Build container options for dropdown
     const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
-    const containerOptions = containers.map(c =>
-      `<option value="${escapeHtml(c.dataverseId)}">${escapeHtml(c.id || c.type || "Container")}</option>`
-    ).join("");
+    const containerOptions = containers.map(c => {
+      const label = c.id || c.type || "Container";
+      return `<option value="${escapeHtml(c.dataverseId)}" title="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
+    }).join("");
 
     const palletized = item.palletized || "No";
     const numberOfPallets = item.numberOfPallets || 0;
@@ -1334,8 +1335,8 @@
       <input type="number" class="pallets-input" min="0" value="${fmt2(numberOfPallets)}" style="width:70px" />
     </td>
     <td class="pallet-weight ce-num">${fmt2(palletWeight)}</td>
-    <td class="container-cell">
-      <select class="assign-container">
+    <td class="container-cell" style="min-width:170px;">
+      <select class="assign-container" style="width:100%;min-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="">
         <option value="">--</option>
         ${containerOptions}
       </select>
@@ -2382,6 +2383,10 @@
 
       // === Container assignment dropdown change ===
       if (e.target.classList.contains("assign-container")) {
+        // Update tooltip to show full selected container name
+        const selectedOption = e.target.options[e.target.selectedIndex];
+        e.target.title = selectedOption ? selectedOption.text : "";
+
         const ciId = row.dataset.ciId;
         const newGuid = (e.target.value || "").trim() || null;
         const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
@@ -3925,6 +3930,54 @@
     // Keep toolbar buttons and status bar in sync with state
     updateToolbarState();
 
+    // Update the container summary badge near order items table
+    updateContainerBadgeNearTable();
+  }
+
+  /**
+   * Renders a compact container summary strip near the order items table
+   * so users don't have to scroll back to the container section.
+   */
+  function updateContainerBadgeNearTable() {
+    const section = d.getElementById("orderItemsSection");
+    if (!section) return;
+
+    let badge = d.getElementById("containerBadgeStrip");
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+
+    if (!containers.length) {
+      if (badge) badge.remove();
+      return;
+    }
+
+    if (!badge) {
+      badge = d.createElement("div");
+      badge.id = "containerBadgeStrip";
+      badge.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;background:#f0f7ff;border:1px solid #bdd7ee;border-radius:6px;margin-bottom:8px;font-size:12px;color:#1a3e5c;";
+      // Insert at the top of the order items section
+      section.insertBefore(badge, section.firstChild);
+    }
+
+    // Count assigned vs total items
+    const totalItems = (DCL_CONTAINER_ITEMS_STATE || []).length;
+    const assignedItems = (DCL_CONTAINER_ITEMS_STATE || []).filter(ci => ci.containerGuid).length;
+    const unassigned = totalItems - assignedItems;
+
+    const chips = containers.map(c => {
+      const itemsInContainer = (DCL_CONTAINER_ITEMS_STATE || []).filter(
+        ci => ci.containerGuid && c.dataverseId && ci.containerGuid.toLowerCase() === c.dataverseId.toLowerCase()
+      ).length;
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#fff;border:1px solid #d0dbe7;border-radius:4px;font-size:11px;white-space:nowrap;">
+        <i class="fas fa-box" style="font-size:9px;color:#5b8db8;"></i>
+        ${escapeHtml(c.id || c.type)} <span style="color:#888;">(${itemsInContainer})</span>
+      </span>`;
+    }).join("");
+
+    badge.innerHTML = `
+      <span style="font-weight:600;margin-right:4px;"><i class="fas fa-boxes" style="margin-right:4px;"></i>Containers:</span>
+      ${chips}
+      ${unassigned > 0 ? `<span style="margin-left:auto;color:#b45309;font-weight:500;"><i class="fas fa-exclamation-circle" style="margin-right:3px;"></i>${unassigned} item${unassigned !== 1 ? 's' : ''} unassigned</span>` : `<span style="margin-left:auto;color:#15803d;font-weight:500;"><i class="fas fa-check-circle" style="margin-right:3px;"></i>All items assigned</span>`}
+    `;
   }
 
   window.renderContainerCards = renderContainerCards;
@@ -4991,7 +5044,8 @@
     const containerOptionsHtml = containers.map(c => {
       const guid = c.dataverseId;
       if (!guid) return "";
-      return `<option value="${escapeHtml(guid)}">${escapeHtml(c.id || c.type || "Container")}</option>`;
+      const label = c.id || c.type || "Container";
+      return `<option value="${escapeHtml(guid)}" title="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
     }).join("");
 
     // Group container items by LP ID
@@ -5033,6 +5087,10 @@
         }
       }
 
+      // Set tooltip to show full selected container name
+      const selectedOpt = containerSelect.options[containerSelect.selectedIndex];
+      containerSelect.title = selectedOpt ? selectedOpt.text : "";
+
       // Update palletized display
       const palletized = (tr.dataset.palletized || "No").trim();
       const numberOfPallets = asNum(tr.dataset.numberOfPallets);
@@ -5054,6 +5112,18 @@
 
   // ===== RECOMMENDED: SIMPLIFIED SPLIT (No Container Creation) =====
   function showSimpleSplitPrompt(total, max, lpRow) {
+    const definedContainers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+    const containerCount = definedContainers.length;
+    const containerNote = containerCount > 0
+      ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:#e8f4fd;border-radius:6px;font-size:12px;color:#1565c0;margin-top:4px;">
+           <i class="fas fa-box" style="font-size:11px;"></i>
+           <span>You have <strong>${containerCount}</strong> container${containerCount !== 1 ? 's' : ''} defined: ${definedContainers.map(c => c.id || c.type).join(', ')}</span>
+         </div>`
+      : `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:#fff3cd;border-radius:6px;font-size:12px;color:#856404;margin-top:4px;">
+           <i class="fas fa-exclamation-triangle" style="font-size:11px;"></i>
+           <span>No containers defined yet. Add containers before assigning split items.</span>
+         </div>`;
+
     return new Promise((resolve) => {
       const overlay = document.createElement('div');
       overlay.className = 'split-overlay';
@@ -5067,6 +5137,7 @@
             <span class="split-current-label">Total Loading Quantity:</span>
             <span class="split-current-value">${total} units</span>
           </div>
+          ${containerNote}
 
           <!-- Tab Selection - 3 Options -->
           <div class="split-tabs-container">
