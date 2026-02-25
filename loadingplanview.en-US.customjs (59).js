@@ -2002,7 +2002,14 @@
             if (origPwCell) origPwCell.textContent = fmt2(origSplitPalletWeight);
             const tl = tr.querySelector(".total-liters"); if (tl) { tl.textContent = fmt2(origTotalLiters * ratio); tl.dataset.manualOverride = "true"; }
             const nw = tr.querySelector(".net-weight"); if (nw) { nw.textContent = fmt2(origNetWeight * ratio); nw.dataset.manualOverride = "true"; }
-            const gw = tr.querySelector(".gross-weight"); if (gw) { gw.textContent = fmt2(origGrossWeight * ratio); gw.dataset.manualOverride = "true"; }
+            // Gross Weight = PalletWeight + NetWeight + LoadingQty (formula-based, not ratio, because pallet rounding causes drift)
+            const origRemainNW = fmt2(origNetWeight * ratio);
+            const origRemainGW = origSplitPalletWeight + asNum(origRemainNW) + remainingQty;
+            const gw = tr.querySelector(".gross-weight"); if (gw) { gw.textContent = fmt2(origRemainGW); gw.dataset.manualOverride = "true"; }
+
+            // Set pending qty BEFORE server save (stale DOM value would be saved otherwise)
+            const origPendCell = tr.querySelector(".pending-qty");
+            if (origPendCell) origPendCell.textContent = fmt2(Math.max(0, asNum(tr.querySelector(".order-qty")?.textContent) - remainingQty));
 
             await updateServerRowFromTr(tr, CURRENT_DCL_ID);
             await patchContainerItem(ci.id, { cr650_quantity: remainingQty, cr650_issplititem: true });
@@ -2028,8 +2035,15 @@
             const newPwCell = newLpRow.querySelector(".pallet-weight");
             if (newPwCell) newPwCell.textContent = fmt2(newSplitPalletWeight);
             const ntl = newLpRow.querySelector(".total-liters"); if (ntl) { ntl.textContent = fmt2(origTotalLiters * splitRatio); ntl.dataset.manualOverride = "true"; }
-            const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(origNetWeight * splitRatio); nnw.dataset.manualOverride = "true"; }
-            const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(origGrossWeight * splitRatio); ngw.dataset.manualOverride = "true"; }
+            const newSplitNW = fmt2(origNetWeight * splitRatio);
+            const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = newSplitNW; nnw.dataset.manualOverride = "true"; }
+            // Gross Weight from formula: PalletWeight + NetWeight + LoadingQty
+            const newSplitGW = newSplitPalletWeight + asNum(newSplitNW) + splitQty;
+            const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(newSplitGW); ngw.dataset.manualOverride = "true"; }
+
+            // Set pending qty BEFORE server save
+            const newPendCell = newLpRow.querySelector(".pending-qty");
+            if (newPendCell) newPendCell.textContent = fmt2(Math.max(0, asNum(newLpRow.querySelector(".order-qty")?.textContent) - splitQty));
 
             tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
             await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
@@ -2132,8 +2146,15 @@
             const origNWCell = tr.querySelector(".net-weight");
             const origGWCell = tr.querySelector(".gross-weight");
             if (origTLCell) { origTLCell.textContent = fmt2(origTotalLiters * firstRatio); origTLCell.dataset.manualOverride = "true"; }
-            if (origNWCell) { origNWCell.textContent = fmt2(origNetWeight * firstRatio); origNWCell.dataset.manualOverride = "true"; }
-            if (origGWCell) { origGWCell.textContent = fmt2(origGrossWeight * firstRatio); origGWCell.dataset.manualOverride = "true"; }
+            const mFirstNW = fmt2(origNetWeight * firstRatio);
+            if (origNWCell) { origNWCell.textContent = mFirstNW; origNWCell.dataset.manualOverride = "true"; }
+            // Gross Weight from formula: PW + NW + Loading (not ratio, because pallet rounding causes drift)
+            const mFirstGW = firstPalletWeight + asNum(mFirstNW) + firstQty;
+            if (origGWCell) { origGWCell.textContent = fmt2(mFirstGW); origGWCell.dataset.manualOverride = "true"; }
+
+            // Set pending qty BEFORE server save (stale DOM value would be saved otherwise)
+            const mOrigPendCell = tr.querySelector(".pending-qty");
+            if (mOrigPendCell) mOrigPendCell.textContent = fmt2(Math.max(0, asNum(tr.querySelector(".order-qty")?.textContent) - firstQty));
 
             await updateServerRowFromTr(tr, CURRENT_DCL_ID);
             await patchContainerItem(ci.id, { cr650_quantity: firstQty, cr650_issplititem: true });
@@ -2167,8 +2188,15 @@
               const mNewPwCell = newLpRow.querySelector(".pallet-weight");
               if (mNewPwCell) mNewPwCell.textContent = fmt2(mNewPalletWeight);
               const newTLCell = newLpRow.querySelector(".total-liters"); if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
-              const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
-              const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
+              const mLoopNW = fmt2(origNetWeight * ratio);
+              const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = mLoopNW; newNWCell.dataset.manualOverride = "true"; }
+              // Gross Weight from formula: PW + NW + Loading (not ratio)
+              const mLoopGW = mNewPalletWeight + asNum(mLoopNW) + qty;
+              const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(mLoopGW); newGWCell.dataset.manualOverride = "true"; }
+
+              // Set pending qty BEFORE server save
+              const mNewPendCell = newLpRow.querySelector(".pending-qty");
+              if (mNewPendCell) mNewPendCell.textContent = fmt2(Math.max(0, asNum(newLpRow.querySelector(".order-qty")?.textContent) - qty));
 
               tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
               await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
