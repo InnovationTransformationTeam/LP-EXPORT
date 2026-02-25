@@ -6297,6 +6297,273 @@
       });
     }
 
+    // ===== IMPORT FROM PDF =====
+
+    /**
+     * Loads the pdf.js library from CDN (lazy, once).
+     */
+    function loadPdfJs() {
+      return new Promise((resolve, reject) => {
+        if (window.pdfjsLib) return resolve(window.pdfjsLib);
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+        script.onload = () => {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+          resolve(window.pdfjsLib);
+        };
+        script.onerror = () => reject(new Error("Failed to load pdf.js library."));
+        document.head.appendChild(script);
+      });
+    }
+
+    /**
+     * Extracts all text from every page of a PDF file, returning one string.
+     */
+    async function extractTextFromPdf(file) {
+      const lib = await loadPdfJs();
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await lib.getDocument({ data: arrayBuffer }).promise;
+
+      let fullText = "";
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        const pageText = content.items.map(item => item.str).join("\n");
+        fullText += pageText + "\n";
+      }
+      return fullText;
+    }
+
+    /**
+     * Parses the extracted PDF text into structured order items.
+     * Handles the Oracle Order Document format where fields appear on separate lines:
+     *   Line#, ItemCode-Description (may span multiple lines), Qty, UnitsCode, ...
+     *
+     * Detection strategy:
+     *   - A LINE NUMBER is a standalone 1-3 digit number whose NEXT line starts
+     *     with a product code pattern (10-15 digits followed by a dash).
+     *   - Inside a product block, a QUANTITY is a standalone number (possibly with commas)
+     *     whose NEXT line is a units code like "84P", "35D", "57P", "26P", etc.
+     *   - The quantity check is done BEFORE the line-number break so that quantities
+     *     like "250" are not mistaken for line numbers.
+     */
+    function parseOrderPdfText(text) {
+      const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+
+      // --- Extract Order Number from header ---
+      let orderNo = "";
+      for (let i = 0; i < lines.length; i++) {
+        if (/^Order\s*#$/i.test(lines[i]) && lines[i + 1]) {
+          const candidate = lines[i + 1].trim();
+          if (/^\d{6,12}$/.test(candidate)) { orderNo = candidate; break; }
+        }
+        const inline = lines[i].match(/Order\s*#\s*(\d{6,12})/i);
+        if (inline) { orderNo = inline[1]; break; }
+      }
+
+      // --- Parse line items ---
+      // Anchor on line numbers: a standalone 1-3 digit number where the next line
+      // starts with a product code (10-15 digits + dash).
+      const items = [];
+      let i = 0;
+
+      while (i < lines.length) {
+        // Look for a standalone line number where the NEXT line is a product code
+        if (!/^\d{1,3}$/.test(lines[i])) { i++; continue; }
+        const lineNo = parseInt(lines[i], 10);
+        if (lineNo < 1 || lineNo > 999) { i++; continue; }
+        // Verify the next line starts with a product code: 10-15 digits then dash
+        if (!lines[i + 1] || !/^\d{10,15}-/.test(lines[i + 1].trim())) { i++; continue; }
+
+        i++; // move past line number
+
+        // Accumulate product description lines until we find quantity + units code
+        let productBlock = "";
+        let foundProduct = false;
+
+        while (i < lines.length) {
+          const l = lines[i];
+
+          // FIRST check: is this line a quantity followed by a units code?
+          // This MUST come before the line-number break so "250" followed by "84P"
+          // is detected as qty+units, not as line number 250.
+          if (/^[\d,]+$/.test(l) && lines[i + 1] && /^\d{1,3}[A-Z]$/i.test(lines[i + 1].trim())) {
+            const qty = parseFloat(l.replace(/,/g, ""));
+            const unitsCode = lines[i + 1].trim();
+            i += 2; // skip past qty and units code
+
+            // Skip remaining fields (Sale Price, price, amount) until next item
+            while (i < lines.length) {
+              const peek = lines[i];
+              // Stop at a line number that is followed by a product code
+              if (/^\d{1,3}$/.test(peek) && lines[i + 1] && /^\d{10,15}-/.test(lines[i + 1].trim())) break;
+              if (/^Totals$/i.test(peek)) break;
+              if (/^Order\s+Document$/i.test(peek)) break;
+              i++;
+            }
+
+            // Parse productBlock: "118000004084-PETROMIN A1 SUPER SYNTHETIC 5W30 (4X4 LTR CARTON)"
+            const dashIdx = productBlock.indexOf("-");
+            let itemCode = "";
+            let description = "";
+
+            if (dashIdx > 0) {
+              itemCode = productBlock.substring(0, dashIdx).trim();
+              description = productBlock.substring(dashIdx + 1).trim();
+            } else {
+              description = productBlock;
+            }
+
+            // Extract packaging from parenthesized part at end of description
+            let packaging = "";
+            let pack = "";
+            const packMatch = description.match(/\(([^)]+)\)\s*$/);
+
+            if (packMatch) {
+              packaging = packMatch[1].trim();
+              const packTypeMatch = packaging.match(/(CARTON|CTN|DRUM|PAIL|IBC|BARREL|BOTTLE|CAN)\s*$/i);
+              pack = packTypeMatch ? packTypeMatch[1].toUpperCase() : "";
+              if (pack === "CTN") pack = "CARTON";
+            }
+
+            if (itemCode && qty > 0) {
+              items.push({
+                lineNo,
+                orderNo,
+                itemCode,
+                description,
+                packaging,
+                pack,
+                quantity: qty,
+                unitsCode
+              });
+            }
+            foundProduct = true;
+            break;
+          }
+
+          // Stop conditions
+          if (/^Totals$/i.test(l)) break;
+          if (/^Order\s+Document$/i.test(l)) break;
+          // New line number (digit followed by product code on next line) — break to outer loop
+          if (/^\d{1,3}$/.test(l) && lines[i + 1] && /^\d{10,15}-/.test(lines[i + 1].trim())) break;
+
+          // Otherwise accumulate into product description block
+          if (productBlock) productBlock += " ";
+          productBlock += l;
+          i++;
+        }
+
+        if (!foundProduct) continue;
+      }
+
+      return { orderNo, items };
+    }
+
+    /**
+     * Converts a parsed PDF item into the same shape that adaptRawRowToOrderItem() returns,
+     * so it can be fed directly into computeItemData().
+     */
+    function pdfItemToOrderItem(pdfItem) {
+      return {
+        order_no:           pdfItem.orderNo,
+        product_no:         pdfItem.itemCode,
+        product_name:       pdfItem.description,
+        released_flag:      "N",
+        pack_desc:          pdfItem.packaging,
+        pack:               pdfItem.pack,
+        original_order_qty: pdfItem.quantity
+      };
+    }
+
+    // --- Import from PDF button handler ---
+    const pdfImportBtn = Q("#importFromPdfBtn");
+    const pdfFileInput = Q("#pdfFileInput");
+
+    if (pdfImportBtn && pdfFileInput) {
+      pdfImportBtn.addEventListener("click", () => pdfFileInput.click());
+
+      pdfFileInput.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        pdfImportBtn.disabled = true;
+        const oldText = pdfImportBtn.textContent;
+        pdfImportBtn.textContent = "Importing…";
+        setLoading(true, "Extracting data from PDF…");
+
+        try {
+          // 1) Extract text from PDF
+          const text = await extractTextFromPdf(file);
+
+          // 2) Parse into structured items
+          const { orderNo, items } = parseOrderPdfText(text);
+
+          if (!items.length) {
+            alert("No order items found in this PDF. Please check the file format.");
+            return;
+          }
+
+          // 3) Duplicate check — same logic as Oracle import
+          const existingKeys = new Set();
+          QA("#itemsTableBody tr.lp-data-row").forEach(r => {
+            const oNo = (r.querySelector(".order-no")?.textContent || "").trim();
+            const iCode = (r.querySelector(".item-code")?.textContent || "").trim();
+            if (oNo || iCode) existingKeys.add(`${oNo}|${iCode}`);
+          });
+
+          let skippedCount = 0;
+          const newItems = [];
+
+          for (const pdfItem of items) {
+            const key = `${pdfItem.orderNo}|${pdfItem.itemCode}`;
+            if (existingKeys.has(key)) {
+              skippedCount++;
+              continue;
+            }
+            existingKeys.add(key);
+            newItems.push(pdfItem);
+          }
+
+          if (!newItems.length) {
+            alert(`All ${items.length} item(s) already exist in the table. Nothing new to import.`);
+            return;
+          }
+
+          // 4) Convert to order items and compute data using existing pipeline
+          const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
+          const computed = newItems.map((pdfItem, idx) =>
+            computeItemData(pdfItemToOrderItem(pdfItem), baseCount + idx, itemMaster, null)
+          );
+
+          // 5) Render and persist using existing function
+          const tbody = Q("#itemsTableBody");
+          if (tbody) {
+            await appendAndPersistItems(computed, tbody);
+          }
+
+          // 6) Post-import UI updates
+          await ensureContainerItemsForCurrentDcl();
+          rebuildAssignmentTable();
+          renderContainerSummaries();
+
+          let msg = `Successfully imported ${newItems.length} item(s) from PDF (Order ${orderNo}).`;
+          if (skippedCount > 0) msg += ` ${skippedCount} duplicate(s) skipped.`;
+          showValidation("info", msg);
+
+        } catch (err) {
+          console.error("PDF import error:", err);
+          alert("Error importing PDF: " + err.message);
+        } finally {
+          pdfImportBtn.disabled = false;
+          pdfImportBtn.textContent = oldText || "Import from PDF";
+          setLoading(false);
+          e.target.value = ""; // reset so same file can be re-selected
+        }
+      });
+    }
+
     // ===== VALIDATION & LOGISTICS =====
 
     const validateBtn = Q("#validateAllBtn");
