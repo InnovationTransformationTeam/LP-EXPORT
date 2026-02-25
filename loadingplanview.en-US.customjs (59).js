@@ -191,10 +191,9 @@
         "#addItemBtn, " +
         "#importFromOracleBtn, " +
         "#updateAllBtn, " +
+        "#allocateItemsBtn, " +
         "#addContainerBtn, " +
-        "#startAllocationBtn, " +
         "#autoAssignBtn, " +
-        "#resetAssignmentsBtn, " +
         "#addDiscountChargeBtn, " +
         "#saveDiscountsBtn, " +
         "#loadDiscountsBtn, " +
@@ -204,7 +203,10 @@
         ".row-remove, " +
         ".dc-remove, " +
         ".split-item, " +
-        ".add-dims-btn"
+        ".add-dims-btn, " +
+        ".assign-container, " +
+        ".palletized-select, " +
+        ".pallets-input"
       );
 
       actionButtons.forEach(btn => {
@@ -217,8 +219,7 @@
         "#containerTypeSelect, " +
         "#containerQtyInput, " +
         "#containerMaxWeightInput, " +
-        ".assign-container, " +
-        ".ci-quantity"
+        ".assign-container"
       ).forEach(el => {
         el.disabled = true;
         el.style.cursor = "not-allowed";
@@ -226,8 +227,7 @@
 
       // 7. Make tables read-only visually
       const tables = document.querySelectorAll(
-        "#itemsTable, " +
-        "#assignmentTable, "
+        "#itemsTable"
       );
 
       tables.forEach(table => {
@@ -1284,18 +1284,29 @@
       loadingQty: item.LoadingQuantity || 0
     });
 
+    // Build container options for dropdown
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+    const containerOptions = containers.map(c => {
+      const label = c.id || c.type || "Container";
+      return `<option value="${escapeHtml(c.dataverseId)}" title="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
+    }).join("");
+
+    const palletized = item.palletized || "No";
+    const numberOfPallets = item.numberOfPallets || 0;
+    const isPalletized = palletized === "Yes";
+    const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
     tr.innerHTML = `
+    <td class="td-row-checkbox"><input type="checkbox" class="lp-row-select-cb" /></td>
     <td class="sn">${index + 1}</td>
 
     <td class="order-no ce" contenteditable="true" tabindex="0">${escapeHtml(item.orderNo)}</td>
     <td class="item-code ce" contenteditable="true" tabindex="0">${escapeHtml(item.itemCode)}</td>
     <td class="description ce" contenteditable="true" tabindex="0">${escapeHtml(item.description)}</td>
-    <td class="release-status-cell">
-      <select class="release-status-select">
-        <option value="Y" ${item.releaseStatus === "Y" ? "selected" : ""}>Y</option>
-        <option value="N" ${item.releaseStatus === "N" ? "selected" : ""}>N</option>
-      </select>
-    </td>
+    <td class="release-status-cell">${item.orderNo
+      ? `<span class="release-status-value">${escapeHtml(item.releaseStatus)}</span>`
+      : `<select class="release-status-select"><option value="Y" ${item.releaseStatus === "Y" ? "selected" : ""}>Y</option><option value="N" ${item.releaseStatus === "N" ? "selected" : ""}>N</option></select>`
+    }</td>
     <td class="packaging ce" contenteditable="true" tabindex="0">${escapeHtml(item.packaging)}</td>
 
     <td class="uom ce-num" contenteditable="true" tabindex="0">${fmt2(item.uom)}</td>
@@ -1314,9 +1325,28 @@
     <td class="net-weight ce-num" contenteditable="true" tabindex="0">${fmt2(item.netWeight)}</td>
     <td class="gross-weight ce-num" contenteditable="true" tabindex="0">${fmt2(item.grossWeight)}</td>
 
+    <td class="palletized-cell">
+      <select class="palletized-select">
+        <option value="No" ${palletized === "No" ? "selected" : ""}>No</option>
+        <option value="Yes" ${palletized === "Yes" ? "selected" : ""}>Yes</option>
+      </select>
+    </td>
+    <td class="pallets-cell">
+      <input type="number" class="pallets-input" min="0" value="${fmt2(numberOfPallets)}" style="width:70px" />
+    </td>
+    <td class="pallet-weight ce-num">${fmt2(palletWeight)}</td>
+    <td class="container-cell" style="min-width:170px;">
+      <select class="assign-container" style="width:100%;min-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="">
+        <option value="">--</option>
+        ${containerOptions}
+      </select>
+    </td>
 
-    <td class="row-actions">
-      <button class="btn btn-danger btn-sm row-remove" type="button">Remove</button>
+    <td class="row-actions" style="white-space:nowrap;">
+      <button class="split-item" type="button" title="Split across containers"
+              style="background:none;border:none;color:#1a7f37;font-size:0.8rem;padding:2px 6px;cursor:pointer;text-decoration:underline;">Split</button>
+      <button class="row-remove" type="button"
+              style="background:#dc3545;color:white;border:none;padding:2px 6px;font-size:0.75rem;border-radius:3px;cursor:pointer;">Remove</button>
     </td>
   `;
 
@@ -1393,6 +1423,12 @@
       const grossWeight = palletWeight + netWeight + loadingQty;
       grossWeightCell.textContent = fmt2(grossWeight);
     }
+
+    // Sync pallet weight display cell (read-only computed value)
+    const palletWeightCell = tr.querySelector(".pallet-weight");
+    if (palletWeightCell) {
+      palletWeightCell.textContent = fmt2(asNum(tr.dataset.palletWeight));
+    }
   }
 
   function recalcAllRows() {
@@ -1468,77 +1504,43 @@
   function recomputeTotals() {
     const rows = QA("#itemsTableBody tr.lp-data-row");
 
+    // Every row is an independent loading plan record.
+    // Straight sum — no grouping, no capping.
+    let totalItems = rows.length;
+    let totalOrderQty = 0;
     let totalLoadingQty = 0;
+    let totalPendingQty = 0;
+    let totalLiters = 0;
     let totalNet = 0;
     let totalGross = 0;
 
-    // Group rows by order number + item code to avoid double-counting
-    // Order Qty and Total Items for split items (same item across multiple containers)
-    const orderItemGroups = new Map();
-
     rows.forEach((r) => {
-      const orderNo = (r.querySelector(".order-no")?.textContent || "").trim();
-      const itemCode = (r.querySelector(".item-code")?.textContent || "").trim();
       const orderQty = asNum(r.querySelector(".order-qty")?.textContent);
       const loadingQty = asNum(r.querySelector(".loading-qty")?.value);
+      const liters = asNum(r.querySelector(".total-liters")?.textContent);
       const netWeight = asNum(r.querySelector(".net-weight")?.textContent);
       const grossWeight = asNum(r.querySelector(".gross-weight")?.textContent);
 
-      // Create a unique key for order + item combination
-      const key = `${orderNo}|${itemCode}`;
-
-      if (!orderItemGroups.has(key)) {
-        orderItemGroups.set(key, {
-          orderQty: orderQty, // Only count order qty once per unique order+item
-          totalLoadingQty: 0,
-          totalNet: 0,
-          totalGross: 0
-        });
-      }
-
-      const group = orderItemGroups.get(key);
-      group.totalLoadingQty += loadingQty;
-      group.totalNet += netWeight;
-      group.totalGross += grossWeight;
-
+      totalOrderQty += orderQty;
       totalLoadingQty += loadingQty;
+      totalLiters += liters;
       totalNet += netWeight;
       totalGross += grossWeight;
-    });
 
-    // Total Items = unique order+item combinations (not visual row count)
-    // This avoids over-counting when a single item is split across multiple containers
-    let totalItems = orderItemGroups.size;
-
-    // Calculate total order qty (unique, not double-counting splits)
-    let totalOrderQty = 0;
-    orderItemGroups.forEach(group => {
-      totalOrderQty += group.orderQty;
-    });
-
-    // Now update pending qty for each row based on its group
-    rows.forEach((r) => {
-      const orderNo = (r.querySelector(".order-no")?.textContent || "").trim();
-      const itemCode = (r.querySelector(".item-code")?.textContent || "").trim();
-      const key = `${orderNo}|${itemCode}`;
-      const group = orderItemGroups.get(key);
-
-      if (group) {
-        const pendingQtyCell = r.querySelector(".pending-qty");
-        if (pendingQtyCell) {
-          // Pending = Order Qty - Total Loading Qty for this order+item group
-          const pendingQty = group.orderQty - group.totalLoadingQty;
-          pendingQtyCell.textContent = fmt2(Math.max(0, pendingQty));
-        }
+      // Pending qty per row = its own order qty − its own loading qty
+      const pendQty = Math.max(0, orderQty - loadingQty);
+      totalPendingQty += pendQty;
+      const pendingQtyCell = r.querySelector(".pending-qty");
+      if (pendingQtyCell) {
+        pendingQtyCell.textContent = fmt2(pendQty);
       }
     });
-
-    // Calculate total pending qty
-    const totalPendingQty = Math.max(0, totalOrderQty - totalLoadingQty);
 
     setText("#totalItems", totalItems);
     setText("#totalOrderQty", fmt2(totalOrderQty));
     setText("#totalLoadingQty", fmt2(totalLoadingQty));
+    setText("#totalPendingQty", fmt2(totalPendingQty));
+    setText("#totalLiters", fmt2(totalLiters));
     setText("#totalNetWeight", `${fmt2(totalNet)} kg`);
     setText("#totalGrossWeight", `${fmt2(totalGross)} kg`);
 
@@ -1557,7 +1559,6 @@
       totalNet,
       totalGross
     });
-
 
     renderContainerSummaries();
   }
@@ -1621,9 +1622,6 @@
     const palletizedSelect = tr.querySelector(".palletized-select");
     if (palletizedSelect) palletizedSelect.disabled = false;
 
-    const releaseStatusSelect = tr.querySelector(".release-status-select");
-    if (releaseStatusSelect) releaseStatusSelect.disabled = false;
-
     // Update control buttons
     const ctrl = tr.querySelector(".controls");
     if (ctrl) {
@@ -1646,9 +1644,6 @@
 
     const palletizedSelect = tr.querySelector(".palletized-select");
     if (palletizedSelect) palletizedSelect.disabled = true;
-
-    const releaseStatusSelect = tr.querySelector(".release-status-select");
-    if (releaseStatusSelect) releaseStatusSelect.disabled = true;
 
     const ctrl = tr.querySelector(".controls");
     if (ctrl) {
@@ -1887,8 +1882,18 @@
   }
 
   function attachRowEvents(tbody) {
-    if (!tbody || tbody._wired) return;
-    tbody._wired = true;
+    if (!tbody || tbody.dataset.rowEventsWired === "true") return;
+    tbody.dataset.rowEventsWired = "true";
+
+    // Delegated handler for LP row checkboxes (bulk assign)
+    tbody.addEventListener("change", (e) => {
+      if (e.target.classList.contains("lp-row-select-cb")) {
+        const tr = e.target.closest("tr.lp-data-row");
+        if (tr) tr.classList.toggle("row-selected", e.target.checked);
+        updateBulkAssignButton();
+        syncLpRowSelectAll();
+      }
+    });
 
     tbody.addEventListener("click", async (e) => {
       const tr = e.target.closest("tr.lp-data-row");
@@ -1897,7 +1902,7 @@
       // Note: Edit/Save/Cancel buttons removed - using Excel-like inline editing now
       // All cells are always editable, Save All button handles persistence
 
-      if (e.target.classList.contains("row-remove")) {
+      if (e.target.closest(".row-remove")) {
         try {
           const serverId = tr.dataset.serverId;
           const containerItemId = tr.dataset.containerItemId; // Only exists for splits
@@ -1986,9 +1991,310 @@
           showValidation("error", "❌ Failed to delete: " + (err.responseJSON?.error?.message || err.message));
         }
       }
+
+      // === Split button click (unified table) ===
+      if (e.target.closest(".split-item")) {
+        const ciId = tr.dataset.ciId;
+        const serverId = tr.dataset.serverId;
+        const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
+
+        if (!ci) {
+          showValidation("warning", "No container item found for this row. Run 'Allocate Items' first.");
+          return;
+        }
+
+        const originalQty = asNum(tr.querySelector('.loading-qty')?.value) || 0;
+
+        if (ci.isSplitItem) {
+          showValidation("info", "This item is already part of a split group and cannot be split further.");
+          return;
+        }
+        if (originalQty <= 1) {
+          showValidation("warning", "Cannot split: Quantity must be greater than 1.");
+          return;
+        }
+
+        const maxQty = originalQty - 1;
+        const result = await showSimpleSplitPrompt(originalQty, maxQty, tr);
+
+        if (result === null) return;
+
+        if (result.mode === 'simple') {
+          const splitQty = parseFloat(result.value);
+          if (isNaN(splitQty) || splitQty <= 0) {
+            showValidation("error", "Invalid input: Enter a number greater than 0");
+            return;
+          }
+          if (splitQty >= originalQty) {
+            showValidation("error", "Split quantity must be less than the original quantity");
+            return;
+          }
+
+          const remainingQty = originalQty - splitQty;
+
+          const confirmed = confirm(
+            `Confirm Split\n\n` +
+            `New Loading Plan Record: ${splitQty} units\n` +
+            `Remaining on Original: ${remainingQty} units\n\n` +
+            `This will create a new loading plan record.\n` +
+            `You can assign it to a container afterward.\n\n` +
+            `Continue?`
+          );
+          if (!confirmed) return;
+
+          try {
+            setLoading(true, "Splitting item...");
+
+            // Update original
+            const origLoadInput = tr.querySelector('.loading-qty');
+            if (origLoadInput) origLoadInput.value = remainingQty;
+
+            const origOrderQty = asNum(tr.querySelector(".order-qty")?.textContent);
+            const origTotalLiters = asNum(tr.querySelector(".total-liters")?.textContent);
+            const origNetWeight = asNum(tr.querySelector(".net-weight")?.textContent);
+            const origGrossWeight = asNum(tr.querySelector(".gross-weight")?.textContent);
+            const origPalletWeight = asNum(tr.dataset.palletWeight);
+            const origNumPallets = asNum(tr.dataset.numberOfPallets);
+            const isPalletized = (tr.dataset.palletized || "No") === "Yes";
+            const ratio = remainingQty / originalQty;
+            const splitRatio = splitQty / originalQty;
+
+            // Split Order Qty proportionally so Pending Qty stays correct
+            const origOrderQtyCell = tr.querySelector(".order-qty");
+            if (origOrderQtyCell) origOrderQtyCell.textContent = fmt2(origOrderQty * ratio);
+
+            // Split pallets: new row gets rounded amount, original keeps remainder
+            const newSplitPallets = Math.round(origNumPallets * splitRatio);
+            const origSplitPallets = origNumPallets - newSplitPallets;
+            const origSplitPalletWeight = isPalletized ? (origSplitPallets * 19.38) : 0;
+            tr.dataset.palletWeight = String(fmt2(origSplitPalletWeight));
+            tr.dataset.numberOfPallets = String(origSplitPallets);
+            const origPalletsInput = tr.querySelector(".pallets-input");
+            if (origPalletsInput) origPalletsInput.value = origSplitPallets;
+            const origPwCell = tr.querySelector(".pallet-weight");
+            if (origPwCell) origPwCell.textContent = fmt2(origSplitPalletWeight);
+            const tl = tr.querySelector(".total-liters"); if (tl) { tl.textContent = fmt2(origTotalLiters * ratio); tl.dataset.manualOverride = "true"; }
+            const nw = tr.querySelector(".net-weight"); if (nw) { nw.textContent = fmt2(origNetWeight * ratio); nw.dataset.manualOverride = "true"; }
+            const gw = tr.querySelector(".gross-weight"); if (gw) { gw.textContent = fmt2(origGrossWeight * ratio); gw.dataset.manualOverride = "true"; }
+
+            await updateServerRowFromTr(tr, CURRENT_DCL_ID);
+            await patchContainerItem(ci.id, { cr650_quantity: remainingQty, cr650_issplititem: true });
+            ci.quantity = remainingQty;
+            ci.isSplitItem = true;
+
+            // Create new LP row
+            const newLpRow = tr.cloneNode(true);
+            delete newLpRow.dataset.serverId;
+            delete newLpRow.dataset.containerItemId;
+            delete newLpRow.dataset.ciId;
+            const newLoadInput = newLpRow.querySelector('.loading-qty');
+            if (newLoadInput) newLoadInput.value = splitQty;
+            // Split Order Qty proportionally on new row
+            const newOrderQtyCell = newLpRow.querySelector(".order-qty");
+            if (newOrderQtyCell) newOrderQtyCell.textContent = fmt2(origOrderQty * splitRatio);
+            // Pallet count already computed above (newSplitPallets); pallet weight from rounded count
+            const newSplitPalletWeight = isPalletized ? (newSplitPallets * 19.38) : 0;
+            newLpRow.dataset.palletWeight = String(fmt2(newSplitPalletWeight));
+            newLpRow.dataset.numberOfPallets = String(newSplitPallets);
+            const newPalletsInput = newLpRow.querySelector(".pallets-input");
+            if (newPalletsInput) newPalletsInput.value = newSplitPallets;
+            const newPwCell = newLpRow.querySelector(".pallet-weight");
+            if (newPwCell) newPwCell.textContent = fmt2(newSplitPalletWeight);
+            const ntl = newLpRow.querySelector(".total-liters"); if (ntl) { ntl.textContent = fmt2(origTotalLiters * splitRatio); ntl.dataset.manualOverride = "true"; }
+            const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(origNetWeight * splitRatio); nnw.dataset.manualOverride = "true"; }
+            const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(origGrossWeight * splitRatio); ngw.dataset.manualOverride = "true"; }
+
+            tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
+            await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
+
+            let newLpId = newLpRow.dataset.serverId;
+            let retryCount = 0;
+            while (!newLpId && retryCount < 5) {
+              await new Promise(resolve => setTimeout(resolve, 800));
+              const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
+              const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
+              const fetchUrl = `${DCL_LP_API}?$filter=_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and cr650_loadedquantity eq ${splitQty}&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
+              const fetchRes = await safeAjax({ type: "GET", url: fetchUrl, headers: { Accept: "application/json;odata.metadata=minimal" }, dataType: "json", _withLoader: false });
+              if (fetchRes?.value?.length > 0) { newLpId = fetchRes.value[0].cr650_dcl_loading_planid; newLpRow.dataset.serverId = newLpId; break; }
+              retryCount++;
+            }
+
+            if (!newLpId) throw new Error("Failed to get LP ID for split record");
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await createContainerItemOnServer(newLpId, splitQty, null, true);
+
+            await new Promise(resolve => setTimeout(resolve, 800));
+            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
+            DCL_CONTAINER_ITEMS_STATE = allContainerItems
+              .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
+              .map(mapContainerItemRowToState);
+
+            rebuildAssignmentTable();
+            renderContainerCards();
+            renderContainerSummaries();
+            refreshAIAnalysis();
+            recalcAllRows();
+            recomputeTotals();
+
+            showValidation("success", `Split successful! Original: ${remainingQty} units, New: ${splitQty} units`);
+          } catch (err) {
+            console.error("Split failed:", err);
+            showValidation("error", "Failed to split item: " + (err.message || err));
+          } finally {
+            setLoading(false);
+          }
+
+        } else if (result.mode === 'multiple') {
+          // Multi-way split: result.distribution is an array of quantities
+          const distribution = result.distribution;
+
+          const confirmed = confirm(
+            `Confirm ${distribution.length}-Record Split\n\n` +
+            distribution.map((qty, idx) => `Record ${idx + 1}: ${qty} units`).join('\n') +
+            `\n\nTotal: ${distribution.reduce((a, b) => a + b, 0)} units\n\n` +
+            `This will create ${distribution.length} separate loading plan records.\n` +
+            `You can assign each record to a container afterward.\n\n` +
+            `Continue?`
+          );
+
+          if (!confirmed) return;
+
+          try {
+            setLoading(true, `Creating ${distribution.length} split records...`);
+
+            // Capture original values BEFORE modifying for proportional split
+            const origOrderQtyM = asNum(tr.querySelector(".order-qty")?.textContent);
+            const origTotalLiters = asNum(tr.querySelector(".total-liters")?.textContent);
+            const origNetWeight = asNum(tr.querySelector(".net-weight")?.textContent);
+            const origGrossWeight = asNum(tr.querySelector(".gross-weight")?.textContent);
+            const origPalletWeight = asNum(tr.dataset.palletWeight);
+            const origNumPallets = asNum(tr.dataset.numberOfPallets);
+            const isPalletizedM = (tr.dataset.palletized || "No") === "Yes";
+            const totalQty = distribution.reduce((a, b) => a + b, 0);
+
+            // Pre-compute pallet distribution: round each split, give remainder to first row
+            let usedPallets = 0;
+            const palletDist = distribution.map((qty, idx) => {
+              if (idx === 0) return 0; // placeholder, computed after loop
+              const p = Math.round(origNumPallets * (qty / totalQty));
+              usedPallets += p;
+              return p;
+            });
+            palletDist[0] = origNumPallets - usedPallets; // first row gets remainder
+
+            // STEP 1: UPDATE ORIGINAL LP & CONTAINER ITEM with first split qty
+            const firstQty = distribution[0];
+            const firstRatio = firstQty / totalQty;
+            const originalLoadingQtyInput = tr.querySelector('.loading-qty');
+            if (originalLoadingQtyInput) originalLoadingQtyInput.value = firstQty;
+
+            // Split Order Qty proportionally
+            const mOrigOrderQtyCell = tr.querySelector(".order-qty");
+            if (mOrigOrderQtyCell) mOrigOrderQtyCell.textContent = fmt2(origOrderQtyM * firstRatio);
+
+            const firstPallets = palletDist[0];
+            const firstPalletWeight = isPalletizedM ? (firstPallets * 19.38) : 0;
+            tr.dataset.palletWeight = String(fmt2(firstPalletWeight));
+            tr.dataset.numberOfPallets = String(firstPallets);
+            const mOrigPalletsInput = tr.querySelector(".pallets-input");
+            if (mOrigPalletsInput) mOrigPalletsInput.value = firstPallets;
+            const mOrigPwCell = tr.querySelector(".pallet-weight");
+            if (mOrigPwCell) mOrigPwCell.textContent = fmt2(firstPalletWeight);
+            const origTLCell = tr.querySelector(".total-liters");
+            const origNWCell = tr.querySelector(".net-weight");
+            const origGWCell = tr.querySelector(".gross-weight");
+            if (origTLCell) { origTLCell.textContent = fmt2(origTotalLiters * firstRatio); origTLCell.dataset.manualOverride = "true"; }
+            if (origNWCell) { origNWCell.textContent = fmt2(origNetWeight * firstRatio); origNWCell.dataset.manualOverride = "true"; }
+            if (origGWCell) { origGWCell.textContent = fmt2(origGrossWeight * firstRatio); origGWCell.dataset.manualOverride = "true"; }
+
+            await updateServerRowFromTr(tr, CURRENT_DCL_ID);
+            await patchContainerItem(ci.id, { cr650_quantity: firstQty, cr650_issplititem: true });
+            ci.quantity = firstQty;
+            ci.isSplitItem = true;
+
+            // STEP 2: CREATE N-1 NEW LP RECORDS
+            for (let i = 1; i < distribution.length; i++) {
+              const qty = distribution[i];
+              const ratio = qty / totalQty;
+
+              const newLpRow = tr.cloneNode(true);
+              delete newLpRow.dataset.serverId;
+              delete newLpRow.dataset.containerItemId;
+              delete newLpRow.dataset.ciId;
+
+              const newLoadInput = newLpRow.querySelector('.loading-qty');
+              if (newLoadInput) newLoadInput.value = qty;
+
+              // Split Order Qty proportionally on new row
+              const mNewOrderQtyCell = newLpRow.querySelector(".order-qty");
+              if (mNewOrderQtyCell) mNewOrderQtyCell.textContent = fmt2(origOrderQtyM * ratio);
+
+              // Pallet count from pre-computed distribution; weight from rounded count × 19.38
+              const mNewPallets = palletDist[i];
+              const mNewPalletWeight = isPalletizedM ? (mNewPallets * 19.38) : 0;
+              newLpRow.dataset.palletWeight = String(fmt2(mNewPalletWeight));
+              newLpRow.dataset.numberOfPallets = String(mNewPallets);
+              const mNewPalletsInput = newLpRow.querySelector(".pallets-input");
+              if (mNewPalletsInput) mNewPalletsInput.value = mNewPallets;
+              const mNewPwCell = newLpRow.querySelector(".pallet-weight");
+              if (mNewPwCell) mNewPwCell.textContent = fmt2(mNewPalletWeight);
+              const newTLCell = newLpRow.querySelector(".total-liters"); if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
+              const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
+              const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
+
+              tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
+              await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
+
+              // Get new LP ID with retry
+              let newLpId = newLpRow.dataset.serverId;
+              let retryCount = 0;
+              while (!newLpId && retryCount < 5) {
+                await new Promise(resolve => setTimeout(resolve, 800));
+                const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
+                const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
+                const fetchUrl = `${DCL_LP_API}?$filter=_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and cr650_loadedquantity eq ${qty}&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
+                const fetchRes = await safeAjax({ type: "GET", url: fetchUrl, headers: { Accept: "application/json;odata.metadata=minimal" }, dataType: "json", _withLoader: false });
+                if (fetchRes?.value?.length > 0) { newLpId = fetchRes.value[0].cr650_dcl_loading_planid; newLpRow.dataset.serverId = newLpId; break; }
+                retryCount++;
+              }
+              if (!newLpId) throw new Error(`Failed to get LP ID for record ${i + 1}`);
+
+              await new Promise(resolve => setTimeout(resolve, 500));
+              await createContainerItemOnServer(newLpId, qty, null, true);
+            }
+
+            // STEP 3: REFRESH STATE & UI
+            await new Promise(resolve => setTimeout(resolve, 800));
+            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
+            DCL_CONTAINER_ITEMS_STATE = allContainerItems
+              .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
+              .map(mapContainerItemRowToState);
+
+            rebuildAssignmentTable();
+            renderContainerCards();
+            renderContainerSummaries();
+            refreshAIAnalysis();
+            recalcAllRows();
+            recomputeTotals();
+
+            showValidation('success',
+              `Split complete! Created ${distribution.length} loading plan records:\n` +
+              distribution.map((q, i) => `  Record ${i + 1}: ${q} units`).join('\n') +
+              `\n\nAssign each record to a container using the Container dropdown.`
+            );
+
+          } catch (err) {
+            console.error('Split failed:', err);
+            showValidation('error', 'Failed to split records: ' + err.message);
+          } finally {
+            setLoading(false);
+          }
+        }
+      }
     });
 
-    // ✅ UPDATED: Trigger recalc for Loading Qty, Unit Price, AND # Pallets
+    // Trigger recalc for Loading Qty, Unit Price, AND # Pallets
     tbody.addEventListener("input", (e) => {
       const row = e.target.closest("tr.lp-data-row");
       if (!row) return;
@@ -2037,9 +2343,8 @@
         recomputeTotals();
       }
 
-      // Handle loading qty and # pallets changes → clear downstream overrides
-      if (e.target.classList.contains("loading-qty") ||
-        (tdCE && tdCE.classList.contains("pallets"))) {
+      // Handle loading qty changes → clear downstream overrides
+      if (e.target.classList.contains("loading-qty")) {
         ["total-liters", "net-weight", "gross-weight"].forEach(cls => {
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
@@ -2047,23 +2352,153 @@
         recalcRow(row);
         recomputeTotals();
       }
+
+      // Handle # pallets input changes → recalc pallet weight + gross weight
+      if (e.target.classList.contains("pallets-input")) {
+        const numberOfPallets = asNum(e.target.value) || 0;
+        const palletized = (row.dataset.palletized || "No").trim();
+        const isPalletized = palletized === "Yes";
+        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+        row.dataset.numberOfPallets = String(numberOfPallets);
+        row.dataset.palletWeight = String(palletWeight);
+
+        const pwCell = row.querySelector(".pallet-weight");
+        if (pwCell) pwCell.textContent = fmt2(palletWeight);
+
+        const gw = row.querySelector(".gross-weight");
+        if (gw) delete gw.dataset.manualOverride;
+        recalcRow(row);
+        recomputeTotals();
+      }
     });
 
-    tbody.addEventListener("change", (e) => {
+    tbody.addEventListener("change", async (e) => {
       const row = e.target.closest("tr.lp-data-row");
       if (!row) return;
 
+      // === Container assignment dropdown change ===
+      if (e.target.classList.contains("assign-container")) {
+        // Update tooltip to show full selected container name
+        const selectedOption = e.target.options[e.target.selectedIndex];
+        e.target.title = selectedOption ? selectedOption.text : "";
+
+        const ciId = row.dataset.ciId;
+        const newGuid = (e.target.value || "").trim() || null;
+        const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
+
+        if (!ci) {
+          // No container item exists yet — revert dropdown and warn
+          e.target.value = "";
+          showValidation("warning", "No container item found for this row. Run 'Allocate Items' first.");
+          return;
+        }
+
+        try {
+          if (newGuid) {
+            await patchContainerItem(ciId, {
+              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${newGuid})`
+            });
+          } else {
+            await patchContainerItem(ciId, {
+              "cr650_dcl_number@odata.bind": null
+            });
+          }
+          ci.containerGuid = newGuid;
+
+          await refreshContainerItemsState();
+          recalcAllRows();
+          recomputeTotals();
+          rebuildAssignmentTable();
+          renderContainerCards();
+          renderContainerSummaries();
+          refreshAIAnalysis();
+        } catch (err) {
+          console.error("Failed to update container assignment", err);
+          showValidation("error", "Failed to update container assignment.");
+        }
+      }
+
+      // === Palletized select change ===
       if (e.target.classList.contains("palletized-select")) {
-        // Clear gross weight override since pallet status affects it
+        const newPalletized = e.target.value;
+        const numberOfPallets = asNum(row.dataset.numberOfPallets);
+        const isPalletized = newPalletized === "Yes";
+        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+        row.dataset.palletized = newPalletized;
+        row.dataset.palletWeight = String(palletWeight);
+
+        // Update pallet weight display
+        const pwCell = row.querySelector(".pallet-weight");
+        if (pwCell) pwCell.textContent = fmt2(palletWeight);
+
         const gw = row.querySelector(".gross-weight");
         if (gw) delete gw.dataset.manualOverride;
         recalcRow(row);
         recomputeTotals();
         handleCellChange(row, e.target);
+
+        // PATCH LP record in Dataverse
+        const serverId = row.dataset.serverId;
+        if (serverId && isGuid(serverId)) {
+          safeAjax({
+            type: "PATCH",
+            url: `${DCL_LP_API}(${serverId})`,
+            data: JSON.stringify({
+              cr650_ispalletized: isPalletized,
+              cr650_palletweight: palletWeight,
+              cr650_grossweightkg: asNum(row.querySelector(".gross-weight")?.textContent)
+            }),
+            contentType: "application/json; charset=utf-8",
+            headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+            dataType: "json",
+            _withLoader: false
+          }).catch(err => console.error("Failed to patch LP palletized:", err));
+        }
+
+        renderContainerSummaries();
       }
 
-      if (e.target.classList.contains("release-status-select")) {
+      // === Pallets input change ===
+      if (e.target.classList.contains("pallets-input")) {
+        const numberOfPallets = asNum(e.target.value) || 0;
+        const palletized = (row.dataset.palletized || "No").trim();
+        const isPalletized = palletized === "Yes";
+        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+        row.dataset.numberOfPallets = String(numberOfPallets);
+        row.dataset.palletWeight = String(palletWeight);
+
+        // Update pallet weight display
+        const pwCell = row.querySelector(".pallet-weight");
+        if (pwCell) pwCell.textContent = fmt2(palletWeight);
+
+        const gw = row.querySelector(".gross-weight");
+        if (gw) delete gw.dataset.manualOverride;
+        recalcRow(row);
+        recomputeTotals();
         handleCellChange(row, e.target);
+
+        // PATCH LP record in Dataverse
+        const serverId = row.dataset.serverId;
+        if (serverId && isGuid(serverId)) {
+          safeAjax({
+            type: "PATCH",
+            url: `${DCL_LP_API}(${serverId})`,
+            data: JSON.stringify({
+              cr650_palletcount: numberOfPallets,
+              cr650_palletweight: palletWeight,
+              cr650_grossweightkg: asNum(row.querySelector(".gross-weight")?.textContent)
+            }),
+            contentType: "application/json; charset=utf-8",
+            headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+            dataType: "json",
+            _withLoader: false
+          }).catch(err => console.error("Failed to patch LP pallets:", err));
+        }
+
+        renderContainerSummaries();
       }
 
       if (e.target.classList.contains("loading-qty")) {
@@ -2183,7 +2618,7 @@
     const orderNumber = (tr.querySelector(".order-no")?.textContent || "").trim();
     const itemCode = (tr.querySelector(".item-code")?.textContent || "").trim();
     const desc = (tr.querySelector(".description")?.textContent || "").trim();
-    const relStatusDisp = (tr.querySelector(".release-status-select")?.value || "N").trim();
+    const relStatusDisp = (tr.querySelector(".release-status-value")?.textContent || tr.querySelector(".release-status-select")?.value || "N").trim();
     const packaging = (tr.querySelector(".packaging")?.textContent || "").trim();
     const uomNumeric = (tr.querySelector(".uom")?.textContent || "").trim();
     const packType = (tr.querySelector(".pack")?.textContent || "").trim();
@@ -2196,10 +2631,12 @@
     const pendQty = getNumText(".pending-qty");
 
     // ─────────────────────────────────────
-    // PALLET & WEIGHT LOGIC (read from dataset attributes)
+    // PALLET & WEIGHT LOGIC (read from inline controls or dataset)
     // ─────────────────────────────────────
-    const palletizedSel = (tr.dataset.palletized || "No").trim();
-    const palletCount = asNum(tr.dataset.numberOfPallets);
+    const palletizedSelect = tr.querySelector(".palletized-select");
+    const palletizedSel = palletizedSelect ? palletizedSelect.value : (tr.dataset.palletized || "No").trim();
+    const palletsInput = tr.querySelector(".pallets-input");
+    const palletCount = palletsInput ? asNum(palletsInput.value) : asNum(tr.dataset.numberOfPallets);
     const palletWeight = asNum(tr.dataset.palletWeight);
 
     const totalVol = getNumText(".total-liters");
@@ -2615,20 +3052,6 @@
         tr.dataset.containerItemId = it._containerItemId;
       }
 
-      // ✅ Apply split item styling
-      if (it._isSplitContinuation) {
-        tr.classList.add("split-continuation-row");
-        tr.style.backgroundColor = "#fffbf0";
-        tr.style.borderLeft = "3px solid #ffc107";
-
-        // Add arrow prefix to serial number cell
-        const serialCell = tr.querySelector(".sn");  // ✅ FIXED class name
-        if (serialCell) {
-          const currentText = serialCell.textContent;
-          serialCell.innerHTML = `<span style="color:#999;margin-right:4px;">↳</span>${escapeHtml(currentText)}`;
-        }
-      }
-
       frag.appendChild(tr);
     });
 
@@ -2741,50 +3164,8 @@
   }
 
 
-  function rebuildAssignmentTableWithSync() {
-    // Call the original rebuild
-    rebuildAssignmentTable();
-
-    // ✅ After rebuilding assignment table, sync back to order items if needed
-    syncAssignmentToOrderItems();
-  }
-
-
   /**
-     * ✅ NEW: Sync assignment table changes back to order items table
-     */
-  function syncAssignmentToOrderItems() {
-    const lpIndex = buildLpRowIndex();
-
-    DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
-      const lpIdLower = (ci.lpId || "").toLowerCase();
-      const lpRow = lpIndex.get(lpIdLower);
-
-      if (!lpRow) return;
-
-      // Find corresponding order item row by container item ID
-      const orderItemRow = Q(`#itemsTableBody tr[data-container-item-id="${ci.id}"]`);
-      if (!orderItemRow) return;
-
-      // Update quantity if changed
-      const qtyInput = orderItemRow.querySelector(".loading-qty");
-      if (qtyInput && asNum(qtyInput.value) !== ci.quantity) {
-        qtyInput.value = ci.quantity;
-
-        // Trigger recalculation
-        recalcRow(orderItemRow);
-      }
-
-      // Update container assignment if changed
-      //const containerSelect = orderItemRow.querySelector(".container-no");
-
-    });
-
-    recomputeTotals();
-  }
-
-  /**
-   * ✅ NEW: Refresh order items display after assignment changes
+   * Refresh order items display after assignment changes
    */
   async function refreshOrderItemsDisplay() {
     if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return;
@@ -3027,234 +3408,6 @@
 
 
 
-  /**
-   * ✅ CORRECT: Logistics-grade split algorithm
-   * Based on weight/volume constraints, deterministic, auditable
-   */
-  function splitIntoContainers({
-    totalQty,
-    numContainers,
-    perUnitWeightKg,
-    perUnitVolumeM3 = null,
-    containerMaxWeightKg,
-    containerMaxVolumeM3 = null
-  }) {
-    if (totalQty <= 0 || numContainers < 1) {
-      throw new Error("Invalid input");
-    }
-
-    // STEP 1: Calculate max qty per container
-    const maxByWeight = Math.floor(containerMaxWeightKg / perUnitWeightKg);
-
-    const maxByVolume = perUnitVolumeM3 && containerMaxVolumeM3
-      ? Math.floor(containerMaxVolumeM3 / perUnitVolumeM3)
-      : Infinity;
-
-    const maxQtyPerContainer = Math.min(maxByWeight, maxByVolume);
-
-    if (maxQtyPerContainer <= 0) {
-      throw new Error("Item too heavy/large for container type");
-    }
-
-    // STEP 2: Feasibility check
-    const minRequiredContainers = Math.ceil(totalQty / maxQtyPerContainer);
-
-    if (minRequiredContainers > numContainers) {
-      return {
-        feasible: false,
-        minRequiredContainers,
-        maxQtyPerContainer,
-        message: `This quantity requires at least ${minRequiredContainers} containers (max ${maxQtyPerContainer} units per container). You selected ${numContainers}.`
-      };
-    }
-
-    // STEP 3: Balanced distribution
-    const baseQty = Math.floor(totalQty / numContainers);
-    const remainder = totalQty % numContainers;
-
-    const distribution = [];
-    for (let i = 0; i < numContainers; i++) {
-      distribution.push(
-        i === numContainers - 1
-          ? baseQty + remainder
-          : baseQty
-      );
-    }
-
-    return {
-      feasible: true,
-      distribution,
-      maxQtyPerContainer,
-      utilizationPercentages: distribution.map(qty =>
-        ((qty / maxQtyPerContainer) * 100).toFixed(1) + '%'
-      )
-    };
-  }
-
-  /**
-   * Get container capacity for an item from LP row data
-   */
-  function getContainerCapacityForItem(containerType, lpRow) {
-    const constraints = CONTAINER_CONSTRAINTS[containerType];
-    if (!constraints) {
-      throw new Error(`Unknown container type: ${containerType}`);
-    }
-
-    const containerMaxWeightKg = constraints.maxWeight || 25000;
-    const containerMaxVolumeM3 = constraints.maxVolume || null;
-
-    // Get per-unit weight and volume from LP row
-    const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
-    const totalLiters = asNum(lpRow.querySelector(".total-liters")?.textContent);
-    const loadingQty = asNum(lpRow.querySelector(".loading-qty")?.value);
-
-    if (loadingQty <= 0) {
-      throw new Error("Loading quantity must be greater than 0");
-    }
-
-    const perUnitWeightKg = totalGross / loadingQty;
-    const perUnitVolumeM3 = totalLiters > 0
-      ? (totalLiters / loadingQty) / 1000
-      : null;
-
-    return {
-      containerMaxWeightKg,
-      containerMaxVolumeM3,
-      perUnitWeightKg,
-      perUnitVolumeM3
-    };
-  }
-
-
-  /* =============================
-     VALIDATION HELPER
-     ============================= */
-
-  function validateContainerItemQuantities(lpId) {
-    const lpIndex = buildLpRowIndex();
-    const lpRow = lpIndex.get((lpId || "").toLowerCase());
-
-    if (!lpRow) {
-      console.warn(`LP row not found: ${lpId}`);
-      return false;
-    }
-
-    const lpTotal = asNum(lpRow.querySelector(".loading-qty")?.value);
-
-    const containerItems = DCL_CONTAINER_ITEMS_STATE.filter(
-      ci => ci.lpId && ci.lpId.toLowerCase() === lpId.toLowerCase()
-    );
-
-    const ciTotal = containerItems.reduce((sum, ci) => sum + (ci.quantity || 0), 0);
-
-    if (Math.abs(ciTotal - lpTotal) > 0.01) {
-      const difference = ciTotal - lpTotal;
-
-      console.error(`Quantity mismatch for LP ${lpId}:`, {
-        lpQuantity: lpTotal,
-        containerItemsTotal: ciTotal,
-        difference: difference
-      });
-
-      // ✅ ADD THIS - Show user-facing warning:
-      showValidation("error",
-        `Data integrity issue: LP row has ${lpTotal} units but container items total ${ciTotal} units. ` +
-        `Difference: ${difference.toFixed(2)} units.`
-      );
-
-      return false;
-    }
-
-    return true;
-  }
-  w.validateContainerItemQuantities = validateContainerItemQuantities;
-
-
-
-  /* =============================
-     MERGE SPLIT ITEMS
-     ============================= */
-
-  async function mergeContainerItems(itemIds) {
-    if (!itemIds || itemIds.length < 2) {
-      showValidation("warning", "Select at least 2 items to merge");
-      return;
-    }
-
-    // Get all items
-    const items = itemIds.map(id =>
-      DCL_CONTAINER_ITEMS_STATE.find(ci => ci.id === id)
-    ).filter(Boolean);
-
-    if (items.length < 2) {
-      showValidation("error", "Could not find all selected items");
-      return;
-    }
-
-    // Validate same LP row
-    const lpIds = new Set(items.map(i => i.lpId?.toLowerCase()));
-    if (lpIds.size > 1) {
-      showValidation("error", "Cannot merge items from different LP rows");
-      return;
-    }
-
-    const lpId = items[0].lpId;
-    const totalQty = items.reduce((sum, i) => sum + (i.quantity || 0), 0);
-    const keepItem = items[0];
-
-    try {
-      setLoading(true, "Merging items...");
-
-      // Update first item with total quantity
-      await patchContainerItem(keepItem.id, {
-        cr650_quantity: totalQty,
-        cr650_issplititem: false
-      });
-
-      keepItem.quantity = totalQty;
-      keepItem.isSplitItem = false;
-
-      // Delete other items
-      for (let i = 1; i < items.length; i++) {
-        await safeAjax({
-          type: "DELETE",
-          url: `${DCL_CONTAINER_ITEMS_API}(${items[i].id})`,
-          headers: {
-            Accept: "application/json;odata.metadata=minimal",
-            "If-Match": "*"
-          },
-          dataType: "json"
-        });
-
-        const idx = DCL_CONTAINER_ITEMS_STATE.findIndex(ci => ci.id === items[i].id);
-        if (idx >= 0) {
-          DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
-        }
-      }
-
-      // Refresh UI
-      await ensureContainerItemsForCurrentDcl();
-      rebuildAssignmentTable();
-      renderContainerCards();
-      renderContainerSummaries();
-      refreshAIAnalysis();
-
-
-      if (!validateContainerItemQuantities(lpId)) {
-        showValidation("warning", "Merge completed but quantities may not match. Please verify.");
-      } else {
-        showValidation("success", `Merged ${items.length} items into one (${totalQty} units)`);
-      }
-
-    } catch (err) {
-      console.error("Failed to merge items", err);
-      showValidation("error", "Failed to merge items");
-    } finally {
-      setLoading(false);
-    }
-  }
-  w.mergeContainerItems = mergeContainerItems;
-
   function descSimilarity(a, b) {
     if (!a || !b) return 0;
 
@@ -3362,11 +3515,22 @@
   function renderContainerCards() {
     const grid = Q("#containerCardsGrid");
     const countSpan = Q("#containerCount");
+    const bulkToolbar = Q("#containerBulkToolbar");
     if (!grid) return;
 
     if (countSpan) {
       countSpan.textContent = DCL_CONTAINERS_STATE.length;
     }
+
+    // Show/hide bulk toolbar based on whether containers exist
+    if (bulkToolbar) {
+      bulkToolbar.style.display = DCL_CONTAINERS_STATE.length ? "flex" : "none";
+    }
+
+    // Reset Select All checkbox when re-rendering
+    const selectAllCb = Q("#containerSelectAll");
+    if (selectAllCb) selectAllCb.checked = false;
+    updateBulkDeleteButton();
 
     if (!DCL_CONTAINERS_STATE.length) {
       grid.innerHTML = `
@@ -3670,7 +3834,10 @@
         }
 
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <strong style="color:#333;font-size:14px;">${escapeHtml(c.id)}</strong>
+            <label class="container-card-checkbox-label">
+              <input type="checkbox" class="container-select-cb" data-container-id="${escapeHtml(c.id)}" />
+            </label>
+            <strong style="color:#333;font-size:14px;flex:1;margin-left:6px;">${escapeHtml(c.id)}</strong>
             ${statusBadge}
           </div>
 
@@ -3734,13 +3901,6 @@
 
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#6c757d;margin-top:8px;padding-top:8px;border-top:1px solid #e9ecef;">
             <span>Total Items: <strong>${itemCount}</strong></span>
-            <button type="button"
-              class="delete-container-btn"
-              data-container-id="${escapeHtml(c.id)}"
-              style="background:#dc3545;color:white;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;"
-              title="Remove container">
-              Delete
-            </button>
           </div>
 
           ${(weightExceeded || volumeExceeded) ? `
@@ -3757,431 +3917,70 @@
       `;
     }).join("");
 
-    // Attach delete button event listeners (CSP-compliant - no inline handlers)
-    grid.querySelectorAll(".delete-container-btn").forEach(btn => {
-      btn.addEventListener("click", function() {
-        const containerId = this.dataset.containerId;
-        if (containerId) {
-          removeContainerCard(containerId);
-        }
-      });
-    });
+    // Attach checkbox event listeners for bulk selection
+    attachContainerSelectionEvents(grid);
 
+    // Keep bulk LP assign toolbar and dropdown in sync with containers
+    refreshBulkAssignToolbar();
+
+    // Keep toolbar buttons and status bar in sync with state
+    updateToolbarState();
+
+    // Update the container summary badge near order items table
+    updateContainerBadgeNearTable();
+  }
+
+  /**
+   * Renders a compact container summary strip near the order items table
+   * so users don't have to scroll back to the container section.
+   */
+  function updateContainerBadgeNearTable() {
+    const section = d.getElementById("orderItemsSection");
+    if (!section) return;
+
+    let badge = d.getElementById("containerBadgeStrip");
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+
+    if (!containers.length) {
+      if (badge) badge.remove();
+      return;
+    }
+
+    if (!badge) {
+      badge = d.createElement("div");
+      badge.id = "containerBadgeStrip";
+      badge.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;background:#f0f7ff;border:1px solid #bdd7ee;border-radius:6px;margin-bottom:8px;font-size:12px;color:#1a3e5c;";
+      // Insert at the top of the order items section
+      section.insertBefore(badge, section.firstChild);
+    }
+
+    // Count assigned vs total items
+    const totalItems = (DCL_CONTAINER_ITEMS_STATE || []).length;
+    const assignedItems = (DCL_CONTAINER_ITEMS_STATE || []).filter(ci => ci.containerGuid).length;
+    const unassigned = totalItems - assignedItems;
+
+    const chips = containers.map(c => {
+      const itemsInContainer = (DCL_CONTAINER_ITEMS_STATE || []).filter(
+        ci => ci.containerGuid && c.dataverseId && ci.containerGuid.toLowerCase() === c.dataverseId.toLowerCase()
+      ).length;
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#fff;border:1px solid #d0dbe7;border-radius:4px;font-size:11px;white-space:nowrap;">
+        <i class="fas fa-box" style="font-size:9px;color:#5b8db8;"></i>
+        ${escapeHtml(c.id || c.type)} <span style="color:#888;">(${itemsInContainer})</span>
+      </span>`;
+    }).join("");
+
+    badge.innerHTML = `
+      <span style="font-weight:600;margin-right:4px;"><i class="fas fa-boxes" style="margin-right:4px;"></i>Containers:</span>
+      ${chips}
+      ${unassigned > 0 ? `<span style="margin-left:auto;color:#b45309;font-weight:500;"><i class="fas fa-exclamation-circle" style="margin-right:3px;"></i>${unassigned} item${unassigned !== 1 ? 's' : ''} unassigned</span>` : `<span style="margin-left:auto;color:#15803d;font-weight:500;"><i class="fas fa-check-circle" style="margin-right:3px;"></i>All items assigned</span>`}
+    `;
   }
 
   window.renderContainerCards = renderContainerCards;
 
 
-  // Global variable to track current FG dimension request
-  let CURRENT_FG_DIMENSION_REQUEST = null;
+  // [FG Dimensions modal removed — not needed per stakeholder]
 
-  /**
-   * Show modal to collect FG Master dimensions
-   */
-  function showFgDimensionsModal(itemInfo, fgMatch = null) {
-    const modal = document.getElementById('fgDimensionsModal');
-    if (!modal) {
-      console.error('FG Dimensions modal not found in HTML');
-      return;
-    }
-
-    // Store the request context
-    CURRENT_FG_DIMENSION_REQUEST = {
-      itemInfo: itemInfo,
-      fgMatch: fgMatch,
-      timestamp: Date.now()
-    };
-
-    // Populate item info
-    document.getElementById('fgModalDescription').textContent = itemInfo.description || 'N/A';
-    document.getElementById('fgModalPackaging').textContent = itemInfo.packaging || 'N/A';
-
-    // Get weights from Loading Plan row
-    let grossWeight = 0;
-    let netWeight = 0;
-
-    if (itemInfo.lpId) {
-      const lpIndex = buildLpRowIndex();
-      const lpRow = lpIndex.get((itemInfo.lpId || "").toLowerCase());
-
-      if (lpRow) {
-        const totalGross = parseFloat(lpRow.querySelector(".gross-weight")?.textContent || "0");
-        const totalNet = parseFloat(lpRow.querySelector(".net-weight")?.textContent || "0");
-        const loadingQty = parseFloat(lpRow.querySelector(".loading-qty")?.value || "0");
-
-        if (loadingQty > 0) {
-          grossWeight = (totalGross / loadingQty);
-          netWeight = (totalNet / loadingQty);
-        }
-
-        console.log("📊 Calculated weights from LP:", {
-          totalGross,
-          totalNet,
-          loadingQty,
-          perCartonGross: grossWeight.toFixed(2),
-          perCartonNet: netWeight.toFixed(2)
-        });
-      }
-    }
-
-    // Get modal elements
-    const matchInfo = document.getElementById('fgModalMatchInfo');
-    const matchName = document.getElementById('fgModalMatchName');
-
-    // ✅ CORRECT LOGIC: Handle UPDATE vs CREATE cases
-    if (fgMatch) {
-      // Pre-populate ALL fields if editing existing FG record
-      document.getElementById('fgBrand').value = fgMatch.cr650_brand || '';
-      document.getElementById('fgLength').value = fgMatch.cr650_lengthmm || '';
-      document.getElementById('fgWidth').value = fgMatch.cr650_widthmm || '';
-      document.getElementById('fgHeight').value = fgMatch.cr650_heightmm || '';
-
-      const finalGross = fgMatch.cr650_grossweightpercartonkg || grossWeight;
-      const finalNet = fgMatch.cr650_netweightpercartonkg || netWeight;
-      document.getElementById('fgGrossWeight').value = finalGross.toFixed(4);
-      document.getElementById('fgNetWeight').value = finalNet.toFixed(4);
-
-      // Show FG match info
-      if (matchInfo && matchName) {
-        matchInfo.style.display = 'block';
-        matchName.textContent = fgMatch.cr650_fg_name || 'Unknown Product';
-      }
-
-    }
-
-
-    else {
-      // CASE 2: No FG match (CREATE NEW)
-      // Always use calculated weights from LP
-      document.getElementById('fgGrossWeight').value = grossWeight.toFixed(4);
-      document.getElementById('fgNetWeight').value = netWeight.toFixed(4);
-
-      // Hide FG match info
-      if (matchInfo) {
-        matchInfo.style.display = 'none';
-      }
-    }
-
-    // Don't clear if editing existing record with dimensions
-    if (fgMatch) {
-      document.getElementById('fgLength').value = fgMatch.cr650_lengthmm || '';
-      document.getElementById('fgWidth').value = fgMatch.cr650_widthmm || '';
-      document.getElementById('fgHeight').value = fgMatch.cr650_heightmm || '';
-    } else {
-      // Only clear for new records
-      document.getElementById('fgLength').value = '';
-      document.getElementById('fgWidth').value = '';
-      document.getElementById('fgHeight').value = '';
-    }
-
-    // Show modal
-    modal.style.display = 'flex';
-
-    // Focus first input
-    setTimeout(() => {
-      document.getElementById('fgLength').focus();
-    }, 100);
-  }
-  /**
-   * Close the FG dimensions modal
-   */
-  function closeFgDimensionsModal() {
-    const modal = document.getElementById('fgDimensionsModal');
-    if (modal) modal.style.display = 'none';
-    CURRENT_FG_DIMENSION_REQUEST = null;
-  }
-
-  /**
-   * Skip dimension entry and use estimate
-   */
-  function skipFgDimensions() {
-    console.log('⏭ User skipped FG dimension entry - using estimate');
-    closeFgDimensionsModal();
-
-    // The renderContainerCards function will use fallback estimate
-    // No action needed - just close modal
-  }
-
-
-  /**
- * Extract pack size in liters from packaging description
- */
-  function extractPackSizeFromPackaging(packaging) {
-    if (!packaging) return null;
-
-    const s = String(packaging).toLowerCase();
-
-    // Pattern: "4 x 5 liters" → 5
-    const m1 = s.match(/x\s*([\d\.]+)\s*l/i);
-    if (m1) {
-      return parseFloat(m1[1]);
-    }
-
-    // Pattern: "208 liter" → 208
-    const m2 = s.match(/([\d\.]+)\s*lit/i);
-    if (m2) {
-      return parseFloat(m2[1]);
-    }
-
-    // Pattern: "208" (standalone) → 208
-    const m3 = s.match(/^(\d+)$/);
-    if (m3) {
-      const num = parseFloat(m3[1]);
-      if (num >= 200 && num <= 210) {
-        return 208; // Normalize drum size
-      }
-    }
-
-    return null;
-  }
-
-
-
-  /**
-   * Clean product description for FG Master storage
-   * Same cleaning logic as matchFgForOutstanding
-   */
-  function cleanDescriptionForFgMaster(desc) {
-    if (!desc) return desc;
-
-    let cleaned = String(desc);
-
-    // Remove item code prefix (e.g., "120009001765, ")
-    cleaned = cleaned.replace(/^\d+,\s*/, '').trim();
-
-    // Remove trailing ": LTR" or ": LITER"
-    cleaned = cleaned.replace(/:\s*L(TR|ITER)?$/i, '').trim();
-
-    // Remove leading numbers/dashes
-    cleaned = cleaned.replace(/^[\d\s-]+/, '').trim();
-
-    // Remove trailing ", LTR" or ", LITER"
-    cleaned = cleaned.replace(/,?\s*L(TR|ITER)?$/i, '').trim();
-
-    // Normalize spec codes
-    cleaned = cleaned.replace(/CH-4/gi, 'CH4');
-
-    return cleaned;
-  }
-  /**
-   * Save FG dimensions to Dataverse
-   */
-  async function saveFgDimensions(event) {
-    event.preventDefault();
-
-    if (!CURRENT_FG_DIMENSION_REQUEST) {
-      console.error('No FG dimension request context found');
-      return;
-    }
-
-    const { itemInfo, fgMatch } = CURRENT_FG_DIMENSION_REQUEST;
-
-    // Get form values
-    const brand = document.getElementById('fgBrand').value;
-    const length = parseFloat(document.getElementById('fgLength').value);
-    const width = parseFloat(document.getElementById('fgWidth').value);
-    const height = parseFloat(document.getElementById('fgHeight').value);
-    const grossWeight = parseFloat(document.getElementById('fgGrossWeight').value);
-    const netWeight = parseFloat(document.getElementById('fgNetWeight').value);
-
-    // Validate
-    if (!brand || !length || !width || !height || !grossWeight) {
-      alert('Please fill all required fields');
-      return;
-    }
-
-    // Calculate
-    const volumeM3 = (length * width * height) / 1_000_000_000;
-    const cleanedDescription = cleanDescriptionForFgMaster(itemInfo.description);
-    const packSize = extractPackSizeFromPackaging(itemInfo.packaging);
-
-    try {
-      const hasFgId = fgMatch && fgMatch.cr650_productspecificationid;
-
-      // 1. Save to Dataverse
-      if (hasFgId) {
-        await updateFgMasterDimensions(
-          fgMatch.cr650_productspecificationid,
-          cleanedDescription,
-          brand,
-          length, width, height,
-          grossWeight, netWeight, volumeM3,
-          packSize
-        );
-
-        // ✅ UPDATE local cache immediately
-        const localFg = window.FG_MASTER.find(fg => fg.cr650_productspecificationid === fgMatch.cr650_productspecificationid);
-        if (localFg) {
-          localFg.cr650_lengthmm = length;
-          localFg.cr650_widthmm = width;
-          localFg.cr650_heightmm = height;
-          localFg.cr650_grossweightpercartonkg = grossWeight;
-          localFg.cr650_netweightpercartonkg = netWeight;
-          localFg.cr650_cartonvolumem3 = volumeM3;
-          console.log('✅ Updated local cache for existing record');
-        }
-
-      } else {
-        await createFgMasterRecord(
-          cleanedDescription,
-          itemInfo.packaging,
-          brand,
-          length, width, height,
-          grossWeight, netWeight, volumeM3,
-          packSize
-        );
-
-        // ✅ ADD to local cache immediately (prevent duplicate creation)
-        window.FG_MASTER.push({
-          cr650_productspecificationid: 'temp_' + Date.now(), // Temporary ID
-          cr650_fg_name: itemInfo.description,
-          cr650_packingdetails: itemInfo.packaging,
-          cr650_brand: brand,
-          cr650_lengthmm: length,
-          cr650_widthmm: width,
-          cr650_heightmm: height,
-          cr650_grossweightpercartonkg: grossWeight,
-          cr650_netweightpercartonkg: netWeight,
-          cr650_cartonvolumem3: volumeM3
-        });
-        console.log('✅ Added new record to local cache');
-      }
-
-      // 2. Close modal
-      closeFgDimensionsModal();
-
-      // 3. Update UI immediately with local cache
-      renderContainerCards();
-
-      // 4. Show success
-      showValidation('success', '✓ Saved! Click button for next item.');
-
-      // 5. Refresh from Dataverse in background (replace temp data with real)
-    } catch (e) {
-      console.warn('Background refresh failed:', e);
-      showValidation('warning', 'Data saved but refresh failed. Please reload page to see latest data.');
-    }
-  }
-
-  /**
-   * Update existing FG Master record with dimensions
-   */
-  async function updateFgMasterDimensions(fgId, cleanedDescription, brand, length, width, height, grossWeight, netWeight, volumeM3, packSize = null) {
-    const payload = {
-      cr650_brand: brand,
-      cr650_lengthmm: length,
-      cr650_widthmm: width,
-      cr650_heightmm: height,
-      cr650_grossweightpercartonkg: grossWeight,
-      cr650_netweightpercartonkg: netWeight,
-      cr650_cartonvolumem3: volumeM3
-    };
-
-    // ✅ Add pack size if extracted
-    if (packSize) {
-      payload.cr650_packsizeliters = packSize;
-    }
-
-    console.log("🔄 PATCH payload:", payload);
-
-    await safeAjax({
-      type: 'PATCH',
-      url: `/_api/cr650_productspecifications(${fgId})`,
-      data: JSON.stringify(payload),
-      contentType: 'application/json; charset=utf-8',
-      headers: {
-        'Accept': 'application/json;odata.metadata=minimal',
-        'If-Match': '*'
-      },
-      dataType: 'json',
-      _withLoader: true,
-      _loaderText: 'Updating FG Master...'
-    });
-  }
-
-  /**
-   * Create new FG Master record
-   */
-  async function createFgMasterRecord(description, packaging, brand, length, width, height, grossWeight, netWeight, volumeM3, packSize = null) {
-    console.log("🆕 Creating FG Master record");
-
-    const payload = {
-      cr650_fg_name: description,
-      cr650_packingdetails: packaging,
-      cr650_brand: brand,
-      cr650_lengthmm: length,
-      cr650_widthmm: width,
-      cr650_heightmm: height,
-      cr650_grossweightpercartonkg: grossWeight,
-      cr650_netweightpercartonkg: netWeight,
-      cr650_cartonvolumem3: volumeM3
-    };
-
-    if (packSize) {
-      payload.cr650_packsizeliters = packSize;
-    }
-
-    console.log("📤 POST payload:", payload);
-
-    await safeAjax({
-      type: 'POST',
-      url: '/_api/cr650_productspecifications',
-      data: JSON.stringify(payload),
-      contentType: 'application/json; charset=utf-8',
-      headers: {
-        'Accept': 'application/json;odata.metadata=minimal'
-      },
-      dataType: 'json',
-      _withLoader: true,
-      _loaderText: 'Creating FG Master record...'
-    });
-
-    return true;
-  }
-
-  /**
-   * Refresh FG_MASTER cache from Dataverse
-   */
-
-  async function refreshFgMasterCache() {
-    try {
-      console.log('🔄 Fetching fresh FG Master data...');
-
-      const url = `/_api/cr650_productspecifications?$select=cr650_productspecificationid,cr650_fg_name,cr650_packingdetails,cr650_lengthmm,cr650_widthmm,cr650_heightmm,cr650_grossweightpercartonkg,cr650_netweightpercartonkg,cr650_cartonvolumem3,cr650_brand&$top=5000&_t=${Date.now()}`;
-
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-
-      if (data && data.value) {
-        // Keep temp records that aren't in the fresh data yet
-        const tempRecords = window.FG_MASTER.filter(fg =>
-          String(fg.cr650_productspecificationid || "").startsWith('temp_')
-        );
-
-        window.FG_MASTER = [...data.value, ...tempRecords];
-        console.log('✅ FG_MASTER refreshed:', window.FG_MASTER.length, 'records (including', tempRecords.length, 'temp)');
-      }
-    } catch (error) {
-      console.error('❌ Failed to refresh FG_MASTER cache:', error);
-      throw error;
-    }
-  }
-  // Expose functions to window
-  window.showFgDimensionsModal = showFgDimensionsModal;
-  window.closeFgDimensionsModal = closeFgDimensionsModal;
-  window.skipFgDimensions = skipFgDimensions;
-  window.saveFgDimensions = saveFgDimensions;
 
   async function loadContainersForCurrentDcl(dclGuid) {
     if (!dclGuid || !isGuid(dclGuid)) {
@@ -4361,6 +4160,9 @@
     const cont = DCL_CONTAINERS_STATE[idx];
 
     if (cont.dataverseId) {
+      // Clean up container-items linked to this container (Dataverse + local)
+      await deleteContainerItemsByGuid(cont.dataverseId);
+
       try {
         await deleteContainerOnServer(cont.dataverseId);
       } catch (e) {
@@ -4376,6 +4178,378 @@
     refreshAIAnalysis();
   }
   w.removeContainerCard = removeContainerCard;
+
+  /**
+   * Delete all container-items linked to a given container GUID.
+   * Removes from Dataverse first, then from local state.
+   */
+  async function deleteContainerItemsByGuid(containerGuid) {
+    if (!containerGuid) return;
+    const guidLower = containerGuid.toLowerCase();
+
+    // Find all container-items pointing to this container
+    const orphans = DCL_CONTAINER_ITEMS_STATE.filter(
+      ci => ci.containerGuid && ci.containerGuid.toLowerCase() === guidLower
+    );
+
+    if (!orphans.length) return;
+
+    console.log(`[Cleanup] Removing ${orphans.length} container-item(s) for container ${containerGuid.substring(0, 8)}…`);
+
+    for (const ci of orphans) {
+      // Delete from Dataverse if the item has a server ID
+      if (ci.id) {
+        try {
+          await safeAjax({
+            type: "DELETE",
+            url: `${DCL_CONTAINER_ITEMS_API}(${ci.id})`,
+            headers: {
+              Accept: "application/json;odata.metadata=minimal",
+              "If-Match": "*"
+            },
+            dataType: "json"
+          });
+        } catch (e) {
+          console.error(`[Cleanup] Failed to delete container-item ${ci.id}`, e);
+        }
+      }
+
+      // Remove from local state
+      const localIdx = DCL_CONTAINER_ITEMS_STATE.findIndex(s => s === ci);
+      if (localIdx !== -1) DCL_CONTAINER_ITEMS_STATE.splice(localIdx, 1);
+    }
+  }
+
+  /* =============================
+     11A-BULK) BULK CONTAINER SELECTION & DELETE
+     ============================= */
+
+  /** Attach checkbox change events to all container cards in the grid */
+  function attachContainerSelectionEvents(grid) {
+    grid.querySelectorAll(".container-select-cb").forEach(cb => {
+      cb.addEventListener("change", function () {
+        // Toggle highlight class on the parent card
+        const card = this.closest(".mini-container-card");
+        if (card) card.classList.toggle("card-selected", this.checked);
+
+        updateBulkDeleteButton();
+        syncSelectAllCheckbox();
+      });
+    });
+  }
+
+  /** Count selected checkboxes and update the "Delete Selected (N)" button */
+  function updateBulkDeleteButton() {
+    const selected = QA("#containerCardsGrid .container-select-cb:checked");
+    const countSpan = Q("#selectedContainerCount");
+    const deleteBtn = Q("#deleteSelectedContainersBtn");
+    const count = selected ? selected.length : 0;
+
+    if (countSpan) countSpan.textContent = count;
+    if (deleteBtn) deleteBtn.disabled = count === 0;
+  }
+
+  /** Keep "Select All" checkbox in sync with individual checkboxes */
+  function syncSelectAllCheckbox() {
+    const allCbs = QA("#containerCardsGrid .container-select-cb");
+    const checkedCbs = QA("#containerCardsGrid .container-select-cb:checked");
+    const selectAllCb = Q("#containerSelectAll");
+    if (!selectAllCb || !allCbs.length) return;
+    selectAllCb.checked = allCbs.length === checkedCbs.length;
+  }
+
+  /** Toggle all container checkboxes when Select All is clicked */
+  function handleSelectAll(checked) {
+    QA("#containerCardsGrid .container-select-cb").forEach(cb => {
+      cb.checked = checked;
+      const card = cb.closest(".mini-container-card");
+      if (card) card.classList.toggle("card-selected", checked);
+    });
+    updateBulkDeleteButton();
+  }
+
+  /** Bulk delete all selected containers with progress feedback */
+  async function bulkDeleteSelectedContainers() {
+    const selectedCbs = QA("#containerCardsGrid .container-select-cb:checked");
+    const ids = Array.from(selectedCbs).map(cb => cb.dataset.containerId);
+    if (!ids.length) return;
+
+    const confirmed = confirm(
+      `Delete ${ids.length} container${ids.length > 1 ? "s" : ""}?\n\nThis will remove them from the shipment and cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setLoading(true, `Deleting ${ids.length} container${ids.length > 1 ? "s" : ""}…`);
+
+    let deleted = 0;
+    let failed = 0;
+
+    for (const id of ids) {
+      const idx = DCL_CONTAINERS_STATE.findIndex(c => c.id === id);
+      if (idx === -1) continue;
+
+      const cont = DCL_CONTAINERS_STATE[idx];
+
+      if (cont.dataverseId) {
+        try {
+          // First: clean up container-items linked to this container
+          await deleteContainerItemsByGuid(cont.dataverseId);
+
+          // Then: delete the container itself from Dataverse
+          await safeAjax({
+            type: "DELETE",
+            url: `${DCL_CONTAINERS_API}(${cont.dataverseId})`,
+            headers: {
+              Accept: "application/json;odata.metadata=minimal",
+              "If-Match": "*"
+            },
+            dataType: "json"
+          });
+        } catch (e) {
+          console.error(`[Bulk Delete] Failed to delete container ${id} from server`, e);
+          failed++;
+          continue; // Skip removing from state if server delete failed
+        }
+      }
+
+      // Remove from local state
+      DCL_CONTAINERS_STATE.splice(idx, 1);
+      deleted++;
+
+      // Update progress text
+      setLoading(true, `Deleting containers… ${deleted + failed}/${ids.length}`);
+    }
+
+    setLoading(false);
+
+    // Re-render everything
+    renderContainerCards();
+    renderContainerSummaries();
+    rebuildAssignmentTable();
+    refreshAIAnalysis();
+
+    // Show result
+    if (failed > 0) {
+      showValidation("warning", `Deleted ${deleted} container${deleted !== 1 ? "s" : ""}. ${failed} failed to delete from server.`);
+    } else {
+      showValidation("success", `Successfully deleted ${deleted} container${deleted !== 1 ? "s" : ""}.`);
+    }
+  }
+
+  /* =============================
+     11A-TOOLBAR) TOOLBAR STATE & ALLOCATION STATUS
+     ============================= */
+
+  /**
+   * Update toolbar button states based on current data.
+   * Disables buttons that don't make sense in the current workflow phase.
+   */
+  function updateToolbarState() {
+    const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+    const hasContainerItems = DCL_CONTAINER_ITEMS_STATE.length > 0;
+    const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
+
+    // Allocate Items — needs LP rows to exist
+    const allocateBtn = Q("#allocateItemsBtn");
+    if (allocateBtn) {
+      allocateBtn.disabled = lpRowCount === 0;
+      allocateBtn.title = lpRowCount === 0
+        ? "Add or import items first"
+        : hasContainerItems
+          ? "Sync changes (new items, quantity updates)"
+          : "Create container item allocations";
+    }
+
+    // Auto-Assign — needs both container items AND containers
+    const autoBtn = Q("#autoAssignBtn");
+    if (autoBtn) {
+      const canAutoAssign = hasContainerItems && hasContainers;
+      autoBtn.disabled = !canAutoAssign;
+      autoBtn.title = !hasContainerItems
+        ? "Run 'Allocate Items' first"
+        : !hasContainers
+          ? "Add containers first"
+          : "Auto-assign unassigned items to containers";
+    }
+
+    updateAllocationStatusBar();
+  }
+
+  /**
+   * Update the allocation status bar text between toolbar and table.
+   */
+  function updateAllocationStatusBar() {
+    const bar = Q("#allocationStatusBar");
+    const textEl = Q("#allocationStatusText");
+    if (!bar || !textEl) return;
+
+    const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+    const ciCount = DCL_CONTAINER_ITEMS_STATE.length;
+    const assignedCount = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
+    const unassignedCount = ciCount - assignedCount;
+    const containerCount = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length;
+
+    let text = "";
+    let barClass = "status-neutral";
+
+    if (lpRowCount === 0) {
+      text = "No items yet \u2014 Import from Oracle or Add Items";
+      barClass = "status-neutral";
+    } else if (ciCount === 0) {
+      text = `${lpRowCount} item${lpRowCount !== 1 ? "s" : ""} loaded \u2014 Click "Allocate Items" to begin`;
+      barClass = "status-action";
+    } else if (unassignedCount > 0) {
+      text = `${ciCount} allocated \u00b7 ${assignedCount} assigned \u00b7 ${unassignedCount} unassigned`;
+      if (containerCount > 0) {
+        text += ` \u00b7 ${containerCount} container${containerCount !== 1 ? "s" : ""}`;
+      }
+      barClass = "status-warning";
+    } else {
+      text = `${ciCount} item${ciCount !== 1 ? "s" : ""} \u00b7 All assigned to ${containerCount} container${containerCount !== 1 ? "s" : ""}`;
+      barClass = "status-good";
+    }
+
+    textEl.textContent = text;
+    bar.className = "allocation-status-bar " + barClass;
+  }
+
+  window.updateToolbarState = updateToolbarState;
+
+  /* =============================
+     11A-BULK-ASSIGN) BULK LP ROW ASSIGNMENT
+     ============================= */
+
+  /** Refresh the container options inside the bulk assign dropdown */
+  function refreshBulkAssignDropdown() {
+    const sel = Q("#bulkAssignContainerSelect");
+    if (!sel) return;
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+    sel.innerHTML = '<option value="">Choose container…</option>' +
+      containers.map(c =>
+        `<option value="${escapeHtml(c.dataverseId)}">${escapeHtml(c.id || c.type || "Container")}</option>`
+      ).join("");
+  }
+
+  /** Show/hide the bulk toolbar when container-items exist */
+  function refreshBulkAssignToolbar() {
+    const toolbar = Q("#lpRowBulkToolbar");
+    if (!toolbar) return;
+    const hasCI = DCL_CONTAINER_ITEMS_STATE.length > 0;
+    toolbar.style.display = hasCI ? "flex" : "none";
+    if (hasCI) refreshBulkAssignDropdown();
+  }
+
+  /** Update counter and disable/enable the Assign button */
+  function updateBulkAssignButton() {
+    const checked = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const countSpan = Q("#selectedRowCount");
+    const btn = Q("#bulkAssignBtn");
+    const count = checked ? checked.length : 0;
+    if (countSpan) countSpan.textContent = count;
+    if (btn) btn.disabled = count === 0 || !Q("#bulkAssignContainerSelect")?.value;
+  }
+
+  /** Keep header + toolbar Select All checkboxes in sync */
+  function syncLpRowSelectAll() {
+    const allCbs = QA("#itemsTableBody .lp-row-select-cb");
+    const checkedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const headerCb = Q("#lpRowSelectAllHeader");
+    const toolbarCb = Q("#lpRowSelectAll");
+    const allChecked = allCbs.length > 0 && allCbs.length === checkedCbs.length;
+    if (headerCb) headerCb.checked = allChecked;
+    if (toolbarCb) toolbarCb.checked = allChecked;
+  }
+
+  /** Toggle all row checkboxes */
+  function handleLpRowSelectAll(checked) {
+    QA("#itemsTableBody .lp-row-select-cb").forEach(cb => {
+      cb.checked = checked;
+      cb.closest("tr")?.classList.toggle("row-selected", checked);
+    });
+    updateBulkAssignButton();
+  }
+
+  /** Bulk assign all selected rows to the chosen container */
+  async function bulkAssignSelectedRows() {
+    const containerGuid = (Q("#bulkAssignContainerSelect")?.value || "").trim();
+    if (!containerGuid) {
+      showValidation("warning", "Please choose a container first.");
+      return;
+    }
+
+    const selectedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const rows = Array.from(selectedCbs).map(cb => cb.closest("tr.lp-data-row")).filter(Boolean);
+    if (!rows.length) return;
+
+    // Collect container-item IDs that need patching
+    const toPatch = [];
+    rows.forEach(tr => {
+      const ciId = tr.dataset.ciId;
+      if (!ciId) return;
+      const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
+      if (ci) toPatch.push({ ci, ciId, tr });
+    });
+
+    if (!toPatch.length) {
+      showValidation("warning", "Selected rows have no container items. Run 'Allocate Items' first.");
+      return;
+    }
+
+    setLoading(true, `Assigning ${toPatch.length} item${toPatch.length > 1 ? "s" : ""} to container…`);
+
+    let success = 0;
+    let failed = 0;
+
+    for (const { ci, ciId, tr } of toPatch) {
+      try {
+        await safeAjax({
+          type: "PATCH",
+          url: `${DCL_CONTAINER_ITEMS_API}(${ciId})`,
+          data: JSON.stringify({
+            "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${containerGuid})`
+          }),
+          contentType: "application/json; charset=utf-8",
+          headers: {
+            Accept: "application/json;odata.metadata=minimal",
+            "If-Match": "*"
+          },
+          dataType: "json"
+        });
+
+        // Update local state
+        ci.containerGuid = containerGuid;
+        success++;
+      } catch (e) {
+        console.error(`[Bulk Assign] Failed to assign row ${ciId}`, e);
+        failed++;
+      }
+
+      setLoading(true, `Assigning items… ${success + failed}/${toPatch.length}`);
+    }
+
+    setLoading(false);
+
+    // Deselect all rows
+    QA("#itemsTableBody .lp-row-select-cb:checked").forEach(cb => {
+      cb.checked = false;
+      cb.closest("tr")?.classList.remove("row-selected");
+    });
+    syncLpRowSelectAll();
+    updateBulkAssignButton();
+
+    // Refresh all UI
+    rebuildAssignmentTable();
+    renderContainerCards();
+    renderContainerSummaries();
+    refreshAIAnalysis();
+
+    if (failed > 0) {
+      showValidation("warning", `Assigned ${success} item${success !== 1 ? "s" : ""}. ${failed} failed.`);
+    } else {
+      const contLabel = DCL_CONTAINERS_STATE.find(c => c.dataverseId === containerGuid)?.id || "container";
+      showValidation("success", `Assigned ${success} item${success !== 1 ? "s" : ""} to ${contLabel}.`);
+    }
+  }
 
   /* =============================
      11B) CONTAINER SUMMARY BASED ON CONTAINER-ITEMS
@@ -4609,7 +4783,7 @@
 
             // Important: refresh assignment table so the new container appears
             rebuildAssignmentTable();
-            attachAssignmentEvents();
+
             refreshAIAnalysis();
           }
         })
@@ -4770,9 +4944,18 @@
 
       const orderDataResults = await Promise.all(orderDataPromises);
 
+      // Build a set of existing order+item keys to prevent duplicate imports
+      const existingKeys = new Set();
+      QA("#itemsTableBody tr.lp-data-row").forEach(r => {
+        const oNo = (r.querySelector(".order-no")?.textContent || "").trim();
+        const iCode = (r.querySelector(".item-code")?.textContent || "").trim();
+        if (oNo || iCode) existingKeys.add(`${oNo}|${iCode}`);
+      });
+
       // Collect all items from all orders first, then render + persist in one batch
       const allItems = [];
       const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
+      let skippedCount = 0;
 
       for (const orderData of orderDataResults) {
         if (!orderData || !orderData.raw || !orderData.raw.length) continue;
@@ -4785,7 +4968,17 @@
             orderData.shippedIndex
           )
         );
-        allItems.push(...items);
+
+        // Filter out items that already exist in the table
+        for (const item of items) {
+          const key = `${item.orderNo}|${item.itemCode}`;
+          if (existingKeys.has(key)) {
+            skippedCount++;
+            continue;
+          }
+          existingKeys.add(key); // prevent intra-batch duplicates too
+          allItems.push(item);
+        }
       }
 
       if (allItems.length) {
@@ -4793,6 +4986,12 @@
         if (tbody) {
           await appendAndPersistItems(allItems, tbody);
         }
+      }
+
+      if (skippedCount > 0 && allItems.length > 0) {
+        showValidation("info", `Imported ${allItems.length} new row(s). Skipped ${skippedCount} already-existing row(s).`);
+      } else if (skippedCount > 0 && allItems.length === 0) {
+        showValidation("info", `All ${skippedCount} row(s) already exist. Nothing new to import.`);
       }
 
       if (!QA("#itemsTableBody tr.lp-data-row").length) {
@@ -4823,962 +5022,89 @@
   }
 
   /* =============================
-     17) ASSIGN ITEMS TO CONTAINERS TABLE (STEP 2)
+     17) SYNC CONTAINER ASSIGNMENTS IN UNIFIED TABLE
      ============================= */
 
+  /**
+   * Syncs container dropdown selections and palletized data in the unified
+   * Order Items table based on DCL_CONTAINER_ITEMS_STATE.
+   * Replaces the old separate assignment table.
+   */
   function rebuildAssignmentTable() {
-    const tbody = Q("#assignmentTableBody");
-    if (!tbody) return;
+    const lpRows = QA("#itemsTableBody tr.lp-data-row");
+    if (!lpRows.length) return;
 
-    tbody.innerHTML = "";
-
-    if (!DCL_CONTAINER_ITEMS_STATE.length) {
-      const tr = d.createElement("tr");
-      tr.innerHTML = `
-      <td colspan="11" style="text-align:center;color:#666;font-size:12px;">
-        No items in loading plan yet.
-      </td>`;
-      tbody.appendChild(tr);
-      return;
-    }
-
-    const lpIndex = buildLpRowIndex();
     const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
 
-    // ✅ GROUP BY LP ROW
-    const groupedByLP = new Map();
+    // Build container options HTML for dropdowns
+    const containerOptionsHtml = containers.map(c => {
+      const guid = c.dataverseId;
+      if (!guid) return "";
+      const label = c.id || c.type || "Container";
+      return `<option value="${escapeHtml(guid)}" title="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
+    }).join("");
+
+    // Group container items by LP ID
+    const ciByLp = new Map();
     DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
       const lpIdLower = (ci.lpId || "").toLowerCase();
       if (!lpIdLower) return;
-      if (!groupedByLP.has(lpIdLower)) {
-        groupedByLP.set(lpIdLower, []);
-      }
-      groupedByLP.get(lpIdLower).push(ci);
+      if (!ciByLp.has(lpIdLower)) ciByLp.set(lpIdLower, []);
+      ciByLp.get(lpIdLower).push(ci);
     });
 
-    console.log("📊 Assignment Table Debug:");
-    console.log("  - Total LP groups:", groupedByLP.size);
+    // Update each LP row's container dropdown and store CI reference
+    lpRows.forEach(tr => {
+      const serverId = (tr.dataset.serverId || "").toLowerCase();
+      if (!serverId) return;
 
-    // ✅ RENDER with professional split styling
-    groupedByLP.forEach((items, lpIdLower) => {
-      const lpRow = lpIndex.get(lpIdLower);
-      if (!lpRow) {
-        console.warn("  ⚠️ No LP row found for:", lpIdLower);
-        return;
+      const containerSelect = tr.querySelector(".assign-container");
+      if (!containerSelect) return;
+
+      // Refresh options in case containers were added/removed
+      const currentVal = containerSelect.value;
+      containerSelect.innerHTML = `<option value="">--</option>${containerOptionsHtml}`;
+
+      const items = ciByLp.get(serverId) || [];
+      if (items.length > 0) {
+        // Use the first container item's assignment
+        const ci = items[0];
+        tr.dataset.ciId = ci.id || "";
+
+        if (ci.containerGuid) {
+          // Case-insensitive GUID match — Dataverse may return mixed case
+          const targetLower = ci.containerGuid.toLowerCase();
+          for (const opt of containerSelect.options) {
+            if (opt.value && opt.value.toLowerCase() === targetLower) {
+              containerSelect.value = opt.value;
+              break;
+            }
+          }
+        }
       }
 
-      const hasSplitItems = items.some(ci => ci.isSplitItem === true);
-      const totalItems = items.length;
+      // Set tooltip to show full selected container name
+      const selectedOpt = containerSelect.options[containerSelect.selectedIndex];
+      containerSelect.title = selectedOpt ? selectedOpt.text : "";
 
-      console.log(`  - LP ${lpIdLower.substring(0, 8)}... has ${items.length} items (hasSplitItems: ${hasSplitItems})`);
+      // Update palletized display
+      const palletized = (tr.dataset.palletized || "No").trim();
+      const numberOfPallets = asNum(tr.dataset.numberOfPallets);
+      const isPalletized = palletized === "Yes";
+      const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
 
-      const orderNo = (lpRow.querySelector(".order-no")?.textContent || "").trim();
-      const itemCode = (lpRow.querySelector(".item-code")?.textContent || "").trim();
-      const desc = (lpRow.querySelector(".description")?.textContent || "").trim();
-      const packaging = (lpRow.querySelector(".packaging")?.textContent || "").trim();
+      const palletizedSelect = tr.querySelector(".palletized-select");
+      if (palletizedSelect) palletizedSelect.value = palletized;
 
-      items.forEach((ci, idx) => {
-        const totalLoad = asNum(lpRow.querySelector(".loading-qty")?.value);
-        const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
-        const totalVol = asNum(lpRow.querySelector(".total-liters")?.textContent);
+      const palletsInput = tr.querySelector(".pallets-input");
+      if (palletsInput) palletsInput.value = fmt2(numberOfPallets);
 
-        const qty = ci.quantity;
-        let gross = qty;
-        let vol = qty;
-
-        if (totalLoad > 0) {
-          const ratio = qty / totalLoad;
-          gross = totalGross * ratio;
-          vol = totalVol * ratio;
-        }
-
-        // Check FG Master dimensions
-        let fg = null;
-        let hasDimensions = false;
-
-        if (desc || packaging) {
-          fg = matchFgForOutstanding({
-            cr650_product_name: desc,
-            cr650_pack_desc: packaging,
-            cr650_product_no: itemCode
-          });
-
-          if (fg) {
-            const L = parseFloat(fg.cr650_lengthmm) || 0;
-            const W = parseFloat(fg.cr650_widthmm) || 0;
-            const H = parseFloat(fg.cr650_heightmm) || 0;
-            hasDimensions = (L > 0 && W > 0 && H > 0);
-          }
-        }
-
-        // ✅ CREATE TR ELEMENT
-        const tr = d.createElement("tr");
-        tr.dataset.ciId = ci.id;
-        tr.dataset.lpId = ci.lpId || "";
-
-        const isSplitItem = ci.isSplitItem === true;
-
-        console.log(`    → Item ${idx + 1}/${items.length}: ${itemCode} (${qty} units) - isSplitItem: ${isSplitItem}`);
-
-        // ✅ PROFESSIONAL SPLIT STYLING
-        let splitBadge = "";
-        let rowPrefix = "";
-        let splitIndicator = "";
-
-        // ✅ Only show split styling when there are actually multiple items (2+)
-        if (hasSplitItems && totalItems > 1) {
-          // Professional badge - just "Split" text
-          splitBadge = `<span class="split-badge">Split</span>`;
-
-          if (idx > 0) {
-            // Continuation items - arrow prefix
-            rowPrefix = '<span class="split-arrow">↳</span>';
-          }
-        }
-
-        // Get palletized and # pallets from LP row (stored in cr650_dcl_loading_plans)
-        const palletized = (lpRow.dataset.palletized || "No").trim();
-        const numberOfPallets = asNum(lpRow.dataset.numberOfPallets);
-        const isPalletized = palletized === "Yes";
-
-        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
-        // NOTE: Do NOT add palletWeight to gross here — the LP row's .gross-weight
-        // (cr650_grossweightkg) already includes pallet weight from recalcRow.
-
-
-        // ✅ SET INNER HTML
-        tr.innerHTML = `
-        <td>${rowPrefix}${escapeHtml(orderNo)}</td>
-        <td>
-  ${escapeHtml(itemCode)}${splitBadge}
-</td>
-        <td>${escapeHtml(desc)}</td>
-        <td class="ce-num">
-          <input type="number" class="ci-quantity form-control" min="0"
-                value="${fmt2(qty)}" style="width:100px" />
-        </td>
-        <td class="palletized-cell">
-          <select class="palletized-select form-control" style="width:70px">
-            <option value="No" ${palletized === "No" ? "selected" : ""}>No</option>
-            <option value="Yes" ${palletized === "Yes" ? "selected" : ""}>Yes</option>
-          </select>
-        </td>
-        <td class="pallets-cell">
-          <input type="number" class="pallets-input form-control" min="0" value="${fmt2(numberOfPallets)}" style="width:70px" />
-        </td>
-        <td class="ce-num">${fmt2(palletWeight)}</td>
-        <td class="ce-num">${fmt2(gross)}</td>
-        <td class="ce-num">${fmt2(vol)}</td>
-        <td>
-          <select class="assign-container form-control">
-            <option value="">Not assigned</option>
-            ${containers.map(c => {
-          const guid = c.dataverseId;
-          if (!guid) return "";
-          const selected =
-            ci.containerGuid && guid &&
-              ci.containerGuid.toLowerCase() === guid.toLowerCase()
-              ? "selected"
-              : "";
-          return `<option value="${escapeHtml(guid)}" ${selected}>${escapeHtml(c.id || c.type || "Container")}</option>`;
-        }).join("")}
-          </select>
-        </td>
-        <td style="white-space:nowrap;">
-          <button type="button" class="btn btn-link btn-sm jump-to-lp">View</button>
-          <button type="button" class="btn btn-link btn-sm split-item">Split</button>
-          ${!hasDimensions ? `
-            <button type="button" class="btn btn-sm add-dims-btn"
-                    style="background:#1a7f37;color:white;border:none;padding:4px 8px;border-radius:6px;font-size:0.8rem;margin-left:4px;font-weight:500;"
-                    data-lp-id="${escapeHtml(ci.lpId || "")}"
-                    data-description="${escapeHtml(desc)}"
-                    data-packaging="${escapeHtml(packaging)}"
-                    data-item-code="${escapeHtml(itemCode)}">
-              <i class="fas fa-plus"></i> Add Dims
-            </button>
-          ` : `
-            <span style="color:#1a7f37;font-size:0.85rem;margin-left:8px;font-weight:600;">
-              <i class="fas fa-check-circle"></i> Complete
-            </span>
-          `}
-        </td>
-      `;
-
-        // ✅ APPLY PROFESSIONAL CSS CLASSES
-        if (hasSplitItems) {
-          if (idx === 0) {
-            tr.classList.add("split-item-first", "split-group-start");
-          } else {
-            tr.classList.add("split-continuation-row");
-          }
-
-          // Last item in group gets end marker
-          if (idx === totalItems - 1) {
-            tr.classList.add("split-group-end");
-          }
-
-          console.log(`    ✅ Applied professional split styling to row ${idx + 1}`);
-        }
-
-        tbody.appendChild(tr);
-
-        // Add inline dimension form if needed (same as before)
-        if (!hasDimensions) {
-          const formTr = d.createElement("tr");
-          formTr.className = "inline-dims-form-row";
-          formTr.style.display = "none";
-          formTr.dataset.lpId = ci.lpId || "";
-          formTr.innerHTML = `
-          <td colspan="11" style="background:linear-gradient(to right, #f8fdf9 0%, #ffffff 100%);padding:8px 12px;border-left:3px solid #006633;">
-            <form class="dims-inline-form" data-lp-id="${escapeHtml(ci.lpId || "")}" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-              <div style="flex:1;min-width:200px;font-size:0.85rem;color:#6b7280;">
-                <strong style="color:#2c3e50;">${escapeHtml(desc.substring(0, 50))}${desc.length > 50 ? '...' : ''}</strong>
-                <div style="color:#6b7280;font-size:0.75rem;">${escapeHtml(packaging)}</div>
-              </div>
-              <div style="width:110px;">
-                <select class="fg-brand-input form-control" required style="font-size:0.85rem;padding:6px 8px;border:2px solid #e0e0e0;border-radius:6px;background:white;">
-                  <option value="">Brand...</option>
-                  <option value="PETROMIN">PETROMIN</option>
-                  <option value="PETRONAS">PETRONAS</option>
-                  <option value="ADNOC">ADNOC</option>
-                  <option value="NATIONAL">NATIONAL</option>
-                  <option value="VOYAGER">VOYAGER</option>
-                  <option value="CROWN">CROWN</option>
-                  <option value="DUCKHAMS">DUCKHAMS</option>
-                  <option value="SPEEDX">SPEEDX</option>
-                  <option value="OTHER">Other</option>
-                </select>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" class="fg-length-input form-control" required placeholder="L" style="width:65px;font-size:0.85rem;padding:6px 8px;border:2px solid #e0e0e0;border-radius:6px;text-align:center;background:white;">
-                <span style="color:#9ca3af;font-size:0.85rem;font-weight:500;">×</span>
-                <input type="number" class="fg-width-input form-control" required placeholder="W" style="width:65px;font-size:0.85rem;padding:6px 8px;border:2px solid #e0e0e0;border-radius:6px;text-align:center;background:white;">
-                <span style="color:#9ca3af;font-size:0.85rem;font-weight:500;">×</span>
-                <input type="number" class="fg-height-input form-control" required placeholder="H" style="width:65px;font-size:0.85rem;padding:6px 8px;border:2px solid #e0e0e0;border-radius:6px;text-align:center;background:white;">
-                <span style="color:#6b7280;font-size:0.75rem;font-weight:500;">mm</span>
-              </div>
-              <div style="display:flex;gap:6px;margin-left:auto;">
-                <button type="button" class="skip-dims-btn" style="padding:6px 12px;font-size:0.8rem;background:#6b7280;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:500;">Skip</button>
-                <button type="submit" class="save-dims-btn" style="padding:6px 14px;font-size:0.8rem;background:#1a7f37;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600;"><i class="fas fa-save"></i> Save</button>
-                <button type="button" class="close-dims-form" style="padding:4px 10px;font-size:1.2rem;background:none;border:none;color:#9ca3af;cursor:pointer;line-height:1;">×</button>
-              </div>
-            </form>
-          </td>
-        `;
-          tbody.appendChild(formTr);
-        }
-      });
+      const palletWeightCell = tr.querySelector(".pallet-weight");
+      if (palletWeightCell) palletWeightCell.textContent = fmt2(palletWeight);
     });
 
-    console.log("✅ Assignment table rebuilt");
+    console.log("✅ Unified table container assignments synced");
   }
-
-  function attachAssignmentEvents() {
-    const tbody = Q("#assignmentTableBody");
-    if (!tbody || tbody._wired) return;
-    tbody._wired = true;
-
-    // Change events: container assignment + quantity change
-    tbody.addEventListener("change", async (e) => {
-      const tr = e.target.closest("tr");
-      if (!tr) return;
-      const ciId = tr.dataset.ciId;
-      const lpId = tr.dataset.lpId;
-
-      const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
-      if (!ci) return;
-
-      if (e.target.classList.contains("assign-container")) {
-        const newGuid = (e.target.value || "").trim() || null;
-
-        try {
-          // 1️⃣ Update Dataverse
-          if (newGuid) {
-            await patchContainerItem(ciId, {
-              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${newGuid})`
-            });
-          } else {
-            await patchContainerItem(ciId, {
-              "cr650_dcl_number@odata.bind": null
-            });
-          }
-
-          // 2️⃣ Update local object (instant UI consistency)
-          ci.containerGuid = newGuid;
-
-          // 3️⃣ FORCE refresh from Dataverse (this is the key fix)
-          await refreshContainerItemsState();
-
-          // 4️⃣ Refresh LP DOM (volume depends on this)
-          await refreshOrderItemsDisplay();
-          recalcAllRows();
-          recomputeTotals();
-
-          // 5️⃣ Now render (cards finally see correct volume)
-          rebuildAssignmentTable();
-          renderContainerCards();
-          renderContainerSummaries();
-          refreshAIAnalysis();
-
-        } catch (err) {
-          console.error("Failed to update container assignment", err);
-          showValidation("error", "Failed to update container assignment.");
-        }
-      }
-
-      // Handle palletized select change → update LP row in Dataverse + Order Items table
-      if (e.target.classList.contains("palletized-select")) {
-        const newPalletized = e.target.value; // "Yes" or "No"
-        const lpIndex = buildLpRowIndex();
-        const lpRow = lpIndex.get((lpId || "").toLowerCase());
-
-        if (lpRow) {
-          // Read current numberOfPallets from LP row
-          const numberOfPallets = asNum(lpRow.dataset.numberOfPallets);
-          const isPalletized = newPalletized === "Yes";
-          const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
-
-          // Update LP row dataset attributes
-          lpRow.dataset.palletized = newPalletized;
-          lpRow.dataset.palletWeight = String(palletWeight);
-
-          // Clear gross weight override so it recalculates with new pallet weight
-          const gwCell = lpRow.querySelector(".gross-weight");
-          if (gwCell) delete gwCell.dataset.manualOverride;
-          recalcRow(lpRow);
-          handleCellChange(lpRow, e.target);
-
-          // PATCH LP record in Dataverse
-          const serverId = lpRow.dataset.serverId;
-          if (serverId && isGuid(serverId)) {
-            safeAjax({
-              type: "PATCH",
-              url: `${DCL_LP_API}(${serverId})`,
-              data: JSON.stringify({
-                cr650_ispalletized: isPalletized,
-                cr650_palletweight: palletWeight,
-                cr650_grossweightkg: asNum(lpRow.querySelector(".gross-weight")?.textContent)
-              }),
-              contentType: "application/json; charset=utf-8",
-              headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
-              dataType: "json",
-              _withLoader: false
-            }).catch(err => console.error("Failed to patch LP palletized:", err));
-          }
-        }
-
-        // Refresh UI
-        rebuildAssignmentTable();
-        renderContainerSummaries();
-        recomputeTotals();
-      }
-
-      // Handle pallets input change → update LP row in Dataverse + Order Items table
-      if (e.target.classList.contains("pallets-input")) {
-        const numberOfPallets = asNum(e.target.value) || 0;
-        const lpIndex = buildLpRowIndex();
-        const lpRow = lpIndex.get((lpId || "").toLowerCase());
-
-        if (lpRow) {
-          const palletized = (lpRow.dataset.palletized || "No").trim();
-          const isPalletized = palletized === "Yes";
-          const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
-
-          // Update LP row dataset attributes
-          lpRow.dataset.numberOfPallets = String(numberOfPallets);
-          lpRow.dataset.palletWeight = String(palletWeight);
-
-          // Clear gross weight override so it recalculates with new pallet weight
-          const gwCell = lpRow.querySelector(".gross-weight");
-          if (gwCell) delete gwCell.dataset.manualOverride;
-          recalcRow(lpRow);
-          handleCellChange(lpRow, e.target);
-
-          // PATCH LP record in Dataverse
-          const serverId = lpRow.dataset.serverId;
-          if (serverId && isGuid(serverId)) {
-            safeAjax({
-              type: "PATCH",
-              url: `${DCL_LP_API}(${serverId})`,
-              data: JSON.stringify({
-                cr650_palletcount: numberOfPallets,
-                cr650_palletweight: palletWeight,
-                cr650_grossweightkg: asNum(lpRow.querySelector(".gross-weight")?.textContent)
-              }),
-              contentType: "application/json; charset=utf-8",
-              headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
-              dataType: "json",
-              _withLoader: false
-            }).catch(err => console.error("Failed to patch LP pallets:", err));
-          }
-        }
-
-        // Refresh UI
-        rebuildAssignmentTable();
-        renderContainerSummaries();
-        recomputeTotals();
-      }
-
-    });
-
-    // Click events: jump-to-lp + split
-    tbody.addEventListener("click", async (e) => {
-      const tr = e.target.closest("tr");
-      if (!tr) return;
-      const ciId = tr.dataset.ciId;
-      const lpId = tr.dataset.lpId;
-
-      if (e.target.classList.contains("jump-to-lp")) {
-        const lpIndex = buildLpRowIndex();
-        const lpRow = lpIndex.get((lpId || "").toLowerCase());
-        if (!lpRow) return;
-
-        lpRow.scrollIntoView({ behavior: "smooth", block: "center" });
-        lpRow.classList.add("lp-row-highlight");
-        setTimeout(() => lpRow.classList.remove("lp-row-highlight"), 1500);
-
-      } else if (e.target.classList.contains("split-item")) {
-        const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
-        if (!ci) return;
-        const originalQty = ci.quantity || 0;
-
-        // ✅ CHECK: Don't allow splitting already-split items
-        if (ci.isSplitItem) {
-          showValidation("info", "This item is already part of a split group and cannot be split further");
-          return;
-        }
-
-        // Validate minimum quantity
-        if (originalQty <= 1) {
-          showValidation("warning", "Cannot split: Quantity must be greater than 1");
-          return;
-        }
-
-        const maxQty = originalQty - 1;
-        const lpIndex = buildLpRowIndex();
-        const lpRow = lpIndex.get((ci.lpId || "").toLowerCase());
-        if (!lpRow) {
-          showValidation("error", "Could not find LP row");
-          return;
-        }
-
-        const result = await showSimpleSplitPrompt(originalQty, maxQty, lpRow);
-
-        if (result === null) return; // User cancelled
-
-        // ===== HANDLE SIMPLE 2-WAY SPLIT =====
-        if (result.mode === 'simple') {
-          const splitQty = parseFloat(result.value);
-
-          // Validation
-          if (isNaN(splitQty) || splitQty <= 0) {
-            showValidation("error", "Invalid input: Enter a number greater than 0");
-            return;
-          }
-
-          if (!Number.isInteger(splitQty)) {
-            showValidation("error", "Invalid input: Please enter a whole number");
-            return;
-          }
-
-          if (splitQty >= originalQty) {
-            showValidation("error", `Invalid input: Must be less than ${originalQty}`);
-            return;
-          }
-
-          const remainingQty = originalQty - splitQty;
-
-          const confirmed = confirm(
-            `Confirm Split\n\n` +
-            `New Loading Plan Record: ${splitQty} units\n` +
-            `Original Record (Updated): ${remainingQty} units\n\n` +
-            `This will:\n` +
-            `• Update original LP record to ${remainingQty} units\n` +
-            `• Create NEW LP record with ${splitQty} units\n` +
-            `• Create container items for both\n\n` +
-            `Continue?`
-          );
-
-          if (!confirmed) return;
-
-          try {
-            setLoading(true, "Creating split records...");
-
-            const lpIndex = buildLpRowIndex();
-            const originalLpRow = lpIndex.get((ci.lpId || "").toLowerCase());
-
-            if (!originalLpRow) {
-              showValidation("error", "Could not find original LP row");
-              return;
-            }
-
-            console.log("🔀 Starting 2-way split...");
-            console.log("   Split into:", splitQty, "+", remainingQty);
-
-            // Capture original values BEFORE modifying anything for proportional split
-            const origTotalLiters = asNum(originalLpRow.querySelector(".total-liters")?.textContent);
-            const origNetWeight = asNum(originalLpRow.querySelector(".net-weight")?.textContent);
-            const origGrossWeight = asNum(originalLpRow.querySelector(".gross-weight")?.textContent);
-            const origPalletWeight = asNum(originalLpRow.dataset.palletWeight);
-            const origNumPallets = asNum(originalLpRow.dataset.numberOfPallets);
-            const remainingRatio = remainingQty / originalQty;
-            const splitRatio = splitQty / originalQty;
-
-            // Update original LP with proportional values
-            const originalLoadingQtyInput = originalLpRow.querySelector(".loading-qty");
-            if (originalLoadingQtyInput) {
-              originalLoadingQtyInput.value = remainingQty;
-            }
-
-            // Set proportional values on original row (including pallet weight)
-            originalLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * remainingRatio));
-            originalLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * remainingRatio));
-            const origTLCell = originalLpRow.querySelector(".total-liters");
-            const origNWCell = originalLpRow.querySelector(".net-weight");
-            const origGWCell = originalLpRow.querySelector(".gross-weight");
-            if (origTLCell) { origTLCell.textContent = fmt2(origTotalLiters * remainingRatio); origTLCell.dataset.manualOverride = "true"; }
-            if (origNWCell) { origNWCell.textContent = fmt2(origNetWeight * remainingRatio); origNWCell.dataset.manualOverride = "true"; }
-            if (origGWCell) { origGWCell.textContent = fmt2(origGrossWeight * remainingRatio); origGWCell.dataset.manualOverride = "true"; }
-
-            await updateServerRowFromTr(originalLpRow, CURRENT_DCL_ID);
-
-            // Update original container item
-            await patchContainerItem(ci.id, {
-              cr650_quantity: remainingQty,
-              cr650_issplititem: true
-            });
-            ci.quantity = remainingQty;
-            ci.isSplitItem = true;
-
-            // Create new LP record
-            const newLpRow = originalLpRow.cloneNode(true);
-            delete newLpRow.dataset.serverId;
-            delete newLpRow.dataset.containerItemId;
-
-            const newLoadingQtyInput = newLpRow.querySelector(".loading-qty");
-            if (newLoadingQtyInput) {
-              newLoadingQtyInput.value = splitQty;
-            }
-
-            // Set proportional values on new row (including pallet weight)
-            newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * splitRatio));
-            newLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * splitRatio));
-            const newTLCell = newLpRow.querySelector(".total-liters");
-            const newNWCell = newLpRow.querySelector(".net-weight");
-            const newGWCell = newLpRow.querySelector(".gross-weight");
-            if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * splitRatio); newTLCell.dataset.manualOverride = "true"; }
-            if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * splitRatio); newNWCell.dataset.manualOverride = "true"; }
-            if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * splitRatio); newGWCell.dataset.manualOverride = "true"; }
-            originalLpRow.parentNode.insertBefore(newLpRow, originalLpRow.nextSibling);
-            await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
-
-            // Get new LP ID with retry
-            let newLpId = newLpRow.dataset.serverId;
-            let retryCount = 0;
-
-            while (!newLpId && retryCount < 5) {
-              await new Promise(resolve => setTimeout(resolve, 800));
-
-              const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
-              const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
-
-              const fetchUrl =
-                `${DCL_LP_API}?$filter=` +
-                `_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and ` +
-                `cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and ` +
-                `cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and ` +
-                `cr650_loadedquantity eq ${splitQty}` +
-                `&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
-
-              const fetchRes = await safeAjax({
-                type: "GET",
-                url: fetchUrl,
-                headers: { Accept: "application/json;odata.metadata=minimal" },
-                dataType: "json",
-                _withLoader: false
-              });
-
-              if (fetchRes?.value?.length > 0) {
-                newLpId = fetchRes.value[0].cr650_dcl_loading_planid;
-                newLpRow.dataset.serverId = newLpId;
-                break;
-              }
-
-              retryCount++;
-            }
-
-            if (!newLpId) {
-              throw new Error("Failed to get new LP record ID. Please refresh the page.");
-            }
-
-            // Create new container item
-            await new Promise(resolve => setTimeout(resolve, 500));
-            await createContainerItemOnServer(newLpId, splitQty, null, true);
-
-            // Refresh state
-            await new Promise(resolve => setTimeout(resolve, 800));
-            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-            DCL_CONTAINER_ITEMS_STATE = allContainerItems
-              .filter(item =>
-                item._cr650_dcl_master_number_value &&
-                item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase()
-              )
-              .map(mapContainerItemRowToState);
-
-            // Refresh UI
-            const tbody = Q("#itemsTableBody");
-            if (tbody) {
-              tbody._wired = false;
-              attachRowEvents(tbody);
-            }
-
-            rebuildAssignmentTable();
-            attachAssignmentEvents();
-            renderContainerCards();
-            renderContainerSummaries();
-            refreshAIAnalysis();
-            recalcAllRows();
-            recomputeTotals();
-
-            showValidation("success",
-              `✅ Split successful!\n\n` +
-              `Original record: ${remainingQty} units\n` +
-              `New record: ${splitQty} units`
-            );
-
-          } catch (err) {
-            console.error("❌ 2-way split failed:", err);
-            showValidation("error", "Failed to split item. Error: " + (err.message || err));
-          } finally {
-            setLoading(false);
-          }
-        }
-
-        // ===== CLEAN APPROACH: Split Handler (No Container Creation) =====
-
-        // This should be renamed from 'containers' to 'multiple' to match the new dialog
-        else if (result.mode === 'multiple') {
-          const distribution = result.distribution;
-
-          const confirmed = confirm(
-            `Confirm ${distribution.length}-Record Split\n\n` +
-            distribution.map((qty, idx) => `Record ${idx + 1}: ${qty} units`).join('\n') +
-            `\n\nTotal: ${distribution.reduce((a, b) => a + b, 0)} units\n\n` +
-            `This will create ${distribution.length} separate loading plan records.\n` +
-            `You can assign each record to a container afterward.\n\n` +
-            `Continue?`
-          );
-
-          if (!confirmed) return;
-
-          try {
-            setLoading(true, `Creating ${distribution.length} split records...`);
-
-            const lpIndex = buildLpRowIndex();
-            const originalLpRow = lpIndex.get((ci.lpId || "").toLowerCase());
-
-            if (!originalLpRow) {
-              showValidation("error", "Could not find original LP row");
-              return;
-            }
-
-            console.log(`🔀 Starting ${distribution.length}-record split...`);
-
-            // Capture original values BEFORE modifying anything for proportional split
-            const origTotalLiters = asNum(originalLpRow.querySelector(".total-liters")?.textContent);
-            const origNetWeight = asNum(originalLpRow.querySelector(".net-weight")?.textContent);
-            const origGrossWeight = asNum(originalLpRow.querySelector(".gross-weight")?.textContent);
-            const origPalletWeight = asNum(originalLpRow.dataset.palletWeight);
-            const origNumPallets = asNum(originalLpRow.dataset.numberOfPallets);
-            const totalQty = distribution.reduce((a, b) => a + b, 0);
-
-            // ===== STEP 1: UPDATE ORIGINAL LP & CONTAINER ITEM =====
-            const firstQty = distribution[0];
-            const firstRatio = firstQty / totalQty;
-            const originalLoadingQtyInput = originalLpRow.querySelector('.loading-qty');
-            if (originalLoadingQtyInput) {
-              originalLoadingQtyInput.value = firstQty;
-            }
-
-            // Set proportional values on original row (including pallet weight)
-            originalLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * firstRatio));
-            originalLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * firstRatio));
-            const origTLCell = originalLpRow.querySelector(".total-liters");
-            const origNWCell = originalLpRow.querySelector(".net-weight");
-            const origGWCell = originalLpRow.querySelector(".gross-weight");
-            if (origTLCell) { origTLCell.textContent = fmt2(origTotalLiters * firstRatio); origTLCell.dataset.manualOverride = "true"; }
-            if (origNWCell) { origNWCell.textContent = fmt2(origNetWeight * firstRatio); origNWCell.dataset.manualOverride = "true"; }
-            if (origGWCell) { origGWCell.textContent = fmt2(origGrossWeight * firstRatio); origGWCell.dataset.manualOverride = "true"; }
-
-            await updateServerRowFromTr(originalLpRow, CURRENT_DCL_ID);
-
-            // Update original container item quantity (NO container assignment)
-            await patchContainerItem(ci.id, {
-              cr650_quantity: firstQty,
-              cr650_issplititem: true
-            });
-
-            ci.quantity = firstQty;
-            ci.isSplitItem = true;
-            // Note: ci.containerGuid remains as-is (could be null or existing container)
-
-            console.log(`✅ Updated original record: ${firstQty} units`);
-
-            // ===== STEP 2: CREATE N-1 NEW LP RECORDS =====
-            for (let i = 1; i < distribution.length; i++) {
-              const qty = distribution[i];
-              const ratio = qty / totalQty;
-
-              console.log(`   Creating record ${i + 1}/${distribution.length}: ${qty} units`);
-
-              // Clone and create new LP row
-              const newLpRow = originalLpRow.cloneNode(true);
-              delete newLpRow.dataset.serverId;
-              delete newLpRow.dataset.containerItemId;
-
-              const newLoadingQtyInput = newLpRow.querySelector('.loading-qty');
-              if (newLoadingQtyInput) {
-                newLoadingQtyInput.value = qty;
-              }
-
-              // Set proportional values on new row (including pallet weight)
-              newLpRow.dataset.palletWeight = String(fmt2(origPalletWeight * ratio));
-              newLpRow.dataset.numberOfPallets = String(Math.round(origNumPallets * ratio));
-              const newTLCell = newLpRow.querySelector(".total-liters");
-              const newNWCell = newLpRow.querySelector(".net-weight");
-              const newGWCell = newLpRow.querySelector(".gross-weight");
-              if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
-              if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
-              if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
-              originalLpRow.parentNode.insertBefore(newLpRow, originalLpRow.nextSibling);
-              await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
-
-              // Get new LP ID with retry
-              let newLpId = newLpRow.dataset.serverId;
-              let retryCount = 0;
-
-              while (!newLpId && retryCount < 5) {
-                await new Promise(resolve => setTimeout(resolve, 800));
-
-                const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
-                const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
-
-                const fetchUrl =
-                  `${DCL_LP_API}?$filter=` +
-                  `_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and ` +
-                  `cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and ` +
-                  `cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and ` +
-                  `cr650_loadedquantity eq ${qty}` +
-                  `&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
-
-                const fetchRes = await safeAjax({
-                  type: "GET",
-                  url: fetchUrl,
-                  headers: { Accept: "application/json;odata.metadata=minimal" },
-                  dataType: "json",
-                  _withLoader: false
-                });
-
-                if (fetchRes?.value?.length > 0) {
-                  newLpId = fetchRes.value[0].cr650_dcl_loading_planid;
-                  newLpRow.dataset.serverId = newLpId;
-                  break;
-                }
-
-                retryCount++;
-              }
-
-              if (!newLpId) {
-                throw new Error(`Failed to get LP ID for record ${i + 1}`);
-              }
-
-              // Create container item WITHOUT container assignment (null)
-              await new Promise(resolve => setTimeout(resolve, 500));
-              await createContainerItemOnServer(newLpId, qty, null, true);
-
-              console.log(`   ✅ Created record ${i + 1}`);
-            }
-
-            // ===== STEP 3: REFRESH STATE & UI =====
-            await new Promise(resolve => setTimeout(resolve, 800));
-            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-            DCL_CONTAINER_ITEMS_STATE = allContainerItems
-              .filter(item =>
-                item._cr650_dcl_master_number_value &&
-                item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase()
-              )
-              .map(mapContainerItemRowToState);
-
-            // Refresh UI
-            const tbody = Q("#itemsTableBody");
-            if (tbody) {
-              tbody._wired = false;
-              attachRowEvents(tbody);
-            }
-
-            rebuildAssignmentTable();
-            attachAssignmentEvents();
-            renderContainerCards();
-            renderContainerSummaries();
-            refreshAIAnalysis();
-            recalcAllRows();
-            recomputeTotals();
-
-            // ===== STEP 4: SHOW SUCCESS & GUIDANCE =====
-            showValidation('success',
-              `✅ Split complete!\n\n` +
-              `Created ${distribution.length} loading plan records:\n` +
-              distribution.map((q, i) => `  Record ${i + 1}: ${q} units`).join('\n') +
-              `\n\n` +
-              `💡 Next step: Assign each record to a container in the Assignment Table below.`
-            );
-
-            console.log("✅ Multi-record split completed successfully");
-
-          } catch (err) {
-            console.error('❌ Split failed:', err);
-            showValidation('error', 'Failed to split records: ' + err.message);
-          } finally {
-            setLoading(false);
-          }
-        }
-      }
-      else if (e.target.classList.contains("add-dims-btn")) {
-        // Show inline dimension form
-        const formRow = tr.nextElementSibling;
-        if (formRow && formRow.classList.contains("inline-dims-form-row")) {
-          formRow.style.display = "";
-
-          // Auto-select brand if possible
-          const desc = e.target.dataset.description || "";
-          const brandSelect = formRow.querySelector(".fg-brand-input");
-
-          if (brandSelect) {
-            const descLower = desc.toLowerCase();
-            if (descLower.includes("petromin")) brandSelect.value = "PETROMIN";
-            else if (descLower.includes("petronas")) brandSelect.value = "PETRONAS";
-            else if (descLower.includes("adnoc")) brandSelect.value = "ADNOC";
-            else if (descLower.includes("voyager")) brandSelect.value = "VOYAGER";
-            else if (descLower.includes("national")) brandSelect.value = "NATIONAL";
-          }
-
-          // Focus first input
-          const firstInput = formRow.querySelector(".fg-length-input");
-          if (firstInput) setTimeout(() => firstInput.focus(), 100);
-        }
-
-      } else if (e.target.classList.contains("close-dims-form") || e.target.classList.contains("skip-dims-btn")) {
-        // Close inline form
-        const formRow = e.target.closest(".inline-dims-form-row");
-        if (formRow) formRow.style.display = "none";
-      }
-    });
-
-    // Handle form submissions for inline dimensions
-    tbody.addEventListener("submit", async (e) => {
-      if (!e.target.classList.contains("dims-inline-form")) return;
-
-      e.preventDefault();
-      const form = e.target;
-      const formRow = form.closest(".inline-dims-form-row");
-      const lpId = form.dataset.lpId;
-
-      // Get form values
-      const brand = form.querySelector(".fg-brand-input").value;
-      const length = parseFloat(form.querySelector(".fg-length-input").value);
-      const width = parseFloat(form.querySelector(".fg-width-input").value);
-      const height = parseFloat(form.querySelector(".fg-height-input").value);
-
-      if (!brand || !length || !width || !height) {
-        showValidation("error", "Please fill all required fields");
-        return;
-      }
-
-      // Get LP data for weight calculation
-      const lpIndex = buildLpRowIndex();
-      const lpRow = lpIndex.get(lpId.toLowerCase());
-      if (!lpRow) return;
-
-      const desc = (lpRow.querySelector(".description")?.textContent || "").trim();
-      const packaging = (lpRow.querySelector(".packaging")?.textContent || "").trim();
-      const itemCode = (lpRow.querySelector(".item-code")?.textContent || "").trim();
-      const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
-      const loadingQty = asNum(lpRow.querySelector(".loading-qty")?.value);
-
-      const grossWeight = loadingQty > 0 ? (totalGross / loadingQty) : 0;
-      const netWeight = grossWeight * 0.9; // Estimate
-      const volumeM3 = (length * width * height) / 1_000_000_000;
-      const packSize = extractPackSizeFromPackaging(packaging);
-
-      try {
-        // Check if FG Master already exists
-        const fg = matchFgForOutstanding({
-          cr650_product_name: desc,
-          cr650_pack_desc: packaging,
-          cr650_product_no: itemCode
-        });
-
-        if (fg && fg.cr650_productspecificationid) {
-          // Update existing
-          await updateFgMasterDimensions(
-            fg.cr650_productspecificationid,
-            desc,
-            brand,
-            length, width, height,
-            grossWeight, netWeight, volumeM3,
-            packSize
-          );
-
-          // Update local cache
-          fg.cr650_lengthmm = length;
-          fg.cr650_widthmm = width;
-          fg.cr650_heightmm = height;
-          fg.cr650_grossweightpercartonkg = grossWeight;
-          fg.cr650_brand = brand;
-
-        } else {
-          // Create new
-          await createFgMasterRecord(
-            desc,
-            packaging,
-            brand,
-            length, width, height,
-            grossWeight, netWeight, volumeM3,
-            packSize
-          );
-
-          // Add to local cache
-          window.FG_MASTER.push({
-            cr650_productspecificationid: 'temp_' + Date.now(),
-            cr650_fg_name: desc,
-            cr650_packingdetails: packaging,
-            cr650_brand: brand,
-            cr650_lengthmm: length,
-            cr650_widthmm: width,
-            cr650_heightmm: height,
-            cr650_grossweightpercartonkg: grossWeight,
-            cr650_netweightpercartonkg: netWeight,
-            cr650_cartonvolumem3: volumeM3
-          });
-        }
-
-        // Hide form
-        if (formRow) formRow.style.display = "none";
-
-        // Refresh UI
-        rebuildAssignmentTable();
-        renderContainerCards();
-        showValidation("success", "✓ Dimensions saved!");
-
-      } catch (err) {
-        console.error("Failed to save dimensions:", err);
-        showValidation("error", "Failed to save dimensions");
-      }
-    });
-  }
-
 
   // ===== RECOMMENDED: SIMPLIFIED SPLIT (No Container Creation) =====
   function showSimpleSplitPrompt(total, max, lpRow) {
@@ -6212,10 +5538,7 @@
         rebuildAssignmentTable();
         renderContainerCards();        // ✅ THIS IS THE KEY LINE
         renderContainerSummaries();    // ❌ no params
-        refreshAIAnalysis();           // ❌ no params
-
-        const resetBtn = Q("#resetAssignmentsBtn");
-        if (resetBtn) resetBtn.style.display = "inline-flex";
+        refreshAIAnalysis();
 
         const section = Q("#allocationStatusSection");
         const statusContent = Q("#statusContent");
@@ -6239,8 +5562,7 @@
   }
 
   function resetAllAssignments() {
-    const tbody = Q("#assignmentTableBody");
-    if (!tbody) return;
+    if (!DCL_CONTAINER_ITEMS_STATE.length) return;
 
     Promise.all(
       DCL_CONTAINER_ITEMS_STATE.map(ci =>
@@ -6261,9 +5583,6 @@
         renderContainerCards();       // ✅ REQUIRED
         renderContainerSummaries();
         refreshAIAnalysis();
-
-        const resetBtn = Q("#resetAssignmentsBtn");
-        if (resetBtn) resetBtn.style.display = "none";
       })
 
       .catch(err => {
@@ -6271,15 +5590,6 @@
         showValidation("error", "Failed to reset assignments.");
       });
   }
-
-  /* =============================
-     19) SAVE CONTAINER ALLOCATIONS STUB
-     ============================= */
-
-  async function saveContainerAllocationsToDataverse() {
-    showValidation("success", "Save Containers to Dataverse is not implemented yet, but the button works.");
-  }
-  w.saveContainerAllocationsToDataverse = saveContainerAllocationsToDataverse;
 
   const Qall = (sel) => Array.from(d.querySelectorAll(sel));
 
@@ -6303,88 +5613,15 @@
     return null;
   }
 
-  // Dev helper: validate LP ↔ Container-items consistency
-  function debugValidateAssignmentsDeep() {
-    const lpIndex = buildLpRowIndex();
-    const byLp = new Map();
-
-    // 1) Group container-items by lpId
-    DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
-      const lpId = (ci.lpId || "").toLowerCase();
-      if (!lpId) return;
-      if (!byLp.has(lpId)) {
-        byLp.set(lpId, { items: [], qty: 0, gross: 0, liters: 0 });
-      }
-      byLp.get(lpId).items.push(ci);
-    });
-
-    let issues = 0;
-
-    byLp.forEach((group, lpId) => {
-      const lpRow = lpIndex.get(lpId);
-      if (!lpRow) {
-        console.warn("❌ No LP row found for lpId:", lpId);
-        issues++;
-        return;
-      }
-
-      const totalLoad = asNum(lpRow.querySelector(".loading-qty")?.value);
-      const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
-      const totalLiters = asNum(lpRow.querySelector(".total-liters")?.textContent);
-
-      // Aggregate from container-items
-      let qtySum = 0;
-      let grossSum = 0;
-      let literSum = 0;
-
-      group.items.forEach(ci => {
-        const qty = ci.quantity || 0;
-        qtySum += qty;
-
-        if (totalLoad > 0) {
-          const ratio = qty / totalLoad;
-          grossSum += totalGross * ratio;
-          literSum += totalLiters * ratio;
-        }
-      });
-
-      const qDiff = Math.abs(qtySum - totalLoad);
-      const gDiff = Math.abs(grossSum - totalGross);
-      const lDiff = Math.abs(literSum - totalLiters);
-
-      if (qDiff > 0.01 || gDiff > 0.1 || lDiff > 0.1) {
-        issues++;
-        console.group(`❌ Mismatch for LP ${lpId}`);
-        console.log("LP:", {
-          loadingQty: totalLoad,
-          gross: totalGross,
-          liters: totalLiters
-        });
-        console.log("From container-items:", {
-          qtySum,
-          grossSum: grossSum.toFixed(3),
-          literSum: literSum.toFixed(3)
-        });
-        console.groupEnd();
-      }
-    });
-
-    if (!issues) {
-      console.log("✅ All LP ↔ container-items quantities, weights, and liters are consistent.");
-    } else {
-      console.warn(`⚠ Found ${issues} LP row(s) with mismatches.`);
-    }
-  }
-
-  // Expose for console
-  window.debugValidateAssignmentsDeep = debugValidateAssignmentsDeep;
-
-
   /* =============================
      20) BOOTSTRAP / PAGE INIT - COMPREHENSIVE VERSION
      ============================= */
 
   d.addEventListener("DOMContentLoaded", async () => {
+    // Prevent double-initialization if script is loaded multiple times
+    if (w.__LP_VIEW_INITIALIZED__) return;
+    w.__LP_VIEW_INITIALIZED__ = true;
+
     // Initialize item master cache
     const itemMaster = w.__ITEM_MASTER__ || {};
     ITEM_MASTER_CACHE = itemMaster;
@@ -6447,13 +5684,14 @@
       // Render everything after data is loaded
       renderContainerCards();
       rebuildAssignmentTable();
-      attachAssignmentEvents();
+
       renderContainerSummaries();
       refreshAIAnalysis();
     }
 
     // Initialize UI components
     populateContainerTypeDropdown();
+    updateToolbarState();
 
     const tbody = Q("#itemsTableBody");
     if (tbody) attachRowEvents(tbody);
@@ -6468,6 +5706,52 @@
     const clearContainersBtn = Q("#clearContainersBtn");
     if (clearContainersBtn) {
       clearContainersBtn.addEventListener("click", resetAllAssignments);
+    }
+
+    // Bulk container selection: Select All toggle
+    const selectAllCb = Q("#containerSelectAll");
+    if (selectAllCb) {
+      selectAllCb.addEventListener("change", function () {
+        handleSelectAll(this.checked);
+      });
+    }
+
+    // Bulk container selection: Delete Selected button
+    const deleteSelBtn = Q("#deleteSelectedContainersBtn");
+    if (deleteSelBtn) {
+      deleteSelBtn.addEventListener("click", bulkDeleteSelectedContainers);
+    }
+
+    // Bulk LP row assignment: Select All (toolbar checkbox)
+    const lpRowSelectAll = Q("#lpRowSelectAll");
+    if (lpRowSelectAll) {
+      lpRowSelectAll.addEventListener("change", function () {
+        handleLpRowSelectAll(this.checked);
+        const headerCb = Q("#lpRowSelectAllHeader");
+        if (headerCb) headerCb.checked = this.checked;
+      });
+    }
+
+    // Bulk LP row assignment: Select All (table header checkbox)
+    const lpRowSelectAllHeader = Q("#lpRowSelectAllHeader");
+    if (lpRowSelectAllHeader) {
+      lpRowSelectAllHeader.addEventListener("change", function () {
+        handleLpRowSelectAll(this.checked);
+        const toolbarCb = Q("#lpRowSelectAll");
+        if (toolbarCb) toolbarCb.checked = this.checked;
+      });
+    }
+
+    // Bulk LP row assignment: container dropdown change -> re-evaluate button state
+    const bulkContainerSel = Q("#bulkAssignContainerSelect");
+    if (bulkContainerSel) {
+      bulkContainerSel.addEventListener("change", updateBulkAssignButton);
+    }
+
+    // Bulk LP row assignment: Assign Selected button
+    const bulkAssignBtn = Q("#bulkAssignBtn");
+    if (bulkAssignBtn) {
+      bulkAssignBtn.addEventListener("click", bulkAssignSelectedRows);
     }
 
     // ===== STEP 2: ALLOCATION & ASSIGNMENT (ENHANCED) =====
@@ -6694,7 +5978,7 @@
 
           // Refresh UI
           rebuildAssignmentTable();
-          attachAssignmentEvents();
+    
           renderContainerCards();
           renderContainerSummaries();
           refreshAIAnalysis();
@@ -6987,82 +6271,55 @@
     }
 
 
-    // ✅ UPDATE BUTTON - Enhanced smart update
-    const updateAllocationBtn = Q("#updateAllocationBtn");
-    if (updateAllocationBtn) {
-      updateAllocationBtn.addEventListener("click", updateContainerItemsIncrementally);
-    }
-    const startAllocationBtn = Q("#startAllocationBtn");
-    if (startAllocationBtn) {
-      startAllocationBtn.addEventListener("click", async () => {
+    // Smart Allocate Items button — merges "Start Allocation" + "Update Items"
+    const allocateItemsBtn = Q("#allocateItemsBtn");
+    if (allocateItemsBtn) {
+      allocateItemsBtn.addEventListener("click", async () => {
         if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
           showValidation("error", "Missing or invalid DCL id in URL.");
           return;
         }
 
-        try {
-          setLoading(true, "Preparing allocation…");
+        const hasExisting = DCL_CONTAINER_ITEMS_STATE.length > 0;
 
-          console.log("=== START ALLOCATION CLICKED ===");
+        if (hasExisting) {
+          // Incremental update — preserves existing assignments
+          await updateContainerItemsIncrementally();
+        } else {
+          // First-time — full allocation from scratch
+          try {
+            setLoading(true, "Preparing allocation…");
+            await hydrateLpRowServerIds();
+            await deleteAllContainerItemsForCurrentDcl();
 
-          // ✅ Hydrate LP rows before anything else
-          await hydrateLpRowServerIds();
+            const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
+            await ensureContainerItemsForCurrentDcl(freshLpRows);
 
-          console.log("1. Current DCL ID:", CURRENT_DCL_ID);
-          console.log("2. Container items before delete:", DCL_CONTAINER_ITEMS_STATE.length);
+            rebuildAssignmentTable();
+            renderContainerCards();
+            renderContainerSummaries();
+            refreshAIAnalysis();
+            updateToolbarState();
 
-          await deleteAllContainerItemsForCurrentDcl();
-          console.log("3. Container items after delete:", DCL_CONTAINER_ITEMS_STATE.length);
-
-          const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
-          console.log("4. Fresh LP rows fetched:", freshLpRows.length);
-
-          await ensureContainerItemsForCurrentDcl(freshLpRows);
-          console.log("5. Container items after ensure:", DCL_CONTAINER_ITEMS_STATE.length);
-
-          const domLpRows = QA("#itemsTableBody tr.lp-data-row");
-          console.log("6. LP rows in DOM:", domLpRows.length);
-          console.log("   DOM LP IDs:", domLpRows.map(tr => tr.dataset.serverId).filter(Boolean));
-
-          const lpIndex = buildLpRowIndex();
-          console.log("7. LP Index size:", lpIndex.size);
-
-          // Force UI update
-          rebuildAssignmentTable();
-          attachAssignmentEvents();
-          renderContainerCards();
-          renderContainerSummaries();
-          refreshAIAnalysis();
-
-          console.log("=== START ALLOCATION COMPLETE ===");
-
-          showValidation(
-            "success",
-            `Allocation reset: ${DCL_CONTAINER_ITEMS_STATE.length} items loaded in container-items table.`
-          );
-
-        } catch (err) {
-          console.error("Start Allocation failed", err);
-          showValidation("error", "Failed to start allocation. Please try again.");
-        } finally {
-          setLoading(false);
+            showValidation(
+              "success",
+              `Allocation complete: ${DCL_CONTAINER_ITEMS_STATE.length} items ready for assignment.`
+            );
+          } catch (err) {
+            console.error("Allocate Items failed", err);
+            showValidation("error", "Failed to allocate items. Please try again.");
+          } finally {
+            setLoading(false);
+          }
         }
+
+        updateToolbarState();
       });
     }
 
     const autoAssignBtn = Q("#autoAssignBtn");
     if (autoAssignBtn) {
       autoAssignBtn.addEventListener("click", allocateItemsToContainers);
-    }
-
-    const allocateItemsBtn = Q("#allocateItemsBtn");
-    if (allocateItemsBtn) {
-      allocateItemsBtn.addEventListener("click", allocateItemsToContainers);
-    }
-
-    const resetAssignmentsBtn = Q("#resetAssignmentsBtn");
-    if (resetAssignmentsBtn) {
-      resetAssignmentsBtn.addEventListener("click", resetAllAssignments);
     }
 
     const optimizeBtn = Q("#optimizeBtn");
@@ -7122,7 +6379,7 @@
           importBtn.textContent = oldText || "Import from Oracle";
 
           rebuildAssignmentTable();
-          attachAssignmentEvents();
+    
           renderContainerCards();
           renderContainerSummaries();
           refreshAIAnalysis();
@@ -7309,183 +6566,6 @@
       updateLpCommentsCharCount();
       loadLpComments();
     }
-    // ===== SAVE ALL FUNCTION =====
-    async function saveAllChanges() {
-      let savedCount = 0;
-      const errors = [];
-      const verificationResults = [];
-
-      try {
-        if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
-          throw new Error("Invalid DCL ID");
-        }
-
-        // ===== 1. SAVE LP COMMENTS WITH VERIFICATION =====
-        if (lpCommentsField && lpCommentsField.value.trim()) {
-          try {
-            const commentText = lpCommentsField.value.trim();
-            const payload = { cr650_additionalco_lp: commentText };
-            
-            // Save
-            await safeAjax({
-              type: "PATCH",
-              url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})`,
-              data: JSON.stringify(payload),
-              contentType: "application/json; charset=utf-8",
-              headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
-              dataType: "json",
-              _withLoader: false
-            });
-
-            // ✅ VERIFY: Fetch back and compare
-            const verifyData = await safeAjax({
-              type: "GET",
-              url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})?$select=cr650_additionalco_lp`,
-              headers: { Accept: "application/json;odata.metadata=minimal" },
-              dataType: "json",
-              _withLoader: false
-            });
-
-            const savedComment = verifyData.cr650_additionalco_lp || "";
-            
-            if (savedComment === commentText) {
-              savedCount++;
-              verificationResults.push({
-                type: "comments",
-                verified: true,
-                message: "Comments verified in Dataverse"
-              });
-              console.log("✅ LP comments saved and verified");
-            } else {
-              throw new Error(`Verification failed: Saved "${savedComment}" but expected "${commentText}"`);
-            }
-
-          } catch (err) {
-            console.error("❌ LP comments failed:", err);
-            errors.push({
-              type: "Comments",
-              error: err.message,
-              verified: false
-            });
-          }
-        }
-
-        // ===== 2. SAVE EDITED ROWS WITH VERIFICATION =====
-        const editingRows = QA("#itemsTableBody tr.lp-data-row .row-save");
-        
-        if (editingRows.length > 0) {
-          for (const btn of editingRows) {
-            try {
-              const tr = btn.closest("tr");
-              const serverId = tr.dataset.serverId;
-              
-              // Get expected values BEFORE save
-              const expectedQty = asNum(tr.querySelector(".loading-qty")?.value);
-              const expectedItem = (tr.querySelector(".item-code")?.textContent || "").trim();
-              
-              // Save
-              await saveRowEdits(tr);
-              
-              // ✅ VERIFY: Fetch back and compare
-              if (serverId && isGuid(serverId)) {
-                const verifyData = await safeAjax({
-                  type: "GET",
-                  url: `${DCL_LP_API}(${serverId})?$select=cr650_loadedquantity,cr650_itemcode`,
-                  headers: { Accept: "application/json;odata.metadata=minimal" },
-                  dataType: "json",
-                  _withLoader: false
-                });
-
-                const savedQty = asNum(verifyData.cr650_loadedquantity);
-                const savedItem = (verifyData.cr650_itemcode || "").trim();
-
-                if (Math.abs(savedQty - expectedQty) < 0.01 && savedItem === expectedItem) {
-                  savedCount++;
-                  verificationResults.push({
-                    type: "row",
-                    item: expectedItem,
-                    verified: true,
-                    message: `Row verified: ${expectedItem} - ${expectedQty} units`
-                  });
-                  console.log(`✅ Row saved and verified: ${expectedItem}`);
-                } else {
-                  throw new Error(
-                    `Verification failed: Expected qty ${expectedQty}, got ${savedQty}. ` +
-                    `Expected item "${expectedItem}", got "${savedItem}"`
-                  );
-                }
-              } else {
-                // New row without ID yet - consider it saved if no error
-                savedCount++;
-                verificationResults.push({
-                  type: "row",
-                  verified: false,
-                  message: "New row created (ID not yet available for verification)"
-                });
-              }
-
-            } catch (err) {
-              console.error("❌ Row save failed:", err);
-              errors.push({
-                type: "Order item",
-                error: err.message,
-                verified: false
-              });
-            }
-          }
-        }
-
-        // ===== 3. BUILD DETAILED RESPONSE =====
-        const totalAttempted = (lpCommentsField?.value ? 1 : 0) + editingRows.length;
-        const totalFailed = errors.length;
-        const totalVerified = verificationResults.filter(r => r.verified).length;
-
-        let message = "";
-        if (savedCount > 0) {
-          message = `✅ Saved ${savedCount} item(s)`;
-          if (totalVerified > 0) {
-            message += ` (${totalVerified} verified in Dataverse)`;
-          }
-        }
-        
-        if (totalFailed > 0) {
-          message += `\n❌ Failed: ${totalFailed} item(s)`;
-          errors.forEach(e => {
-            message += `\n  • ${e.type}: ${e.error}`;
-          });
-        }
-
-        if (totalAttempted === 0) {
-          message = "No changes to save";
-        }
-
-        const success = totalAttempted > 0 && totalFailed === 0;
-
-        return {
-          success,
-          attempted: totalAttempted,
-          succeeded: savedCount,
-          failed: totalFailed,
-          verified: totalVerified,
-          message,
-          verificationResults,
-          errors
-        };
-
-      } catch (err) {
-        console.error("❌ Unexpected error:", err);
-        return {
-          success: false,
-          attempted: 0,
-          succeeded: 0,
-          failed: 0,
-          verified: 0,
-          message: "Critical error: " + err.message,
-          verificationResults: [],
-          errors: [{ type: "System", error: err.message }]
-        };
-      }
-    }
     // ===== "SAVE & NEXT" BUTTON =====
     const saveAndNextBtn = Q("#saveAndNextBtn");
     if (saveAndNextBtn) {
@@ -7605,6 +6685,143 @@
     // Don't call recalcAllRows() - preserve saved values from Dataverse (like manually set gross weight)
     recomputeTotals();
   });
+
+  // ===== SAVE ALL FUNCTION (IIFE level — accessible from initEnhancedOrderTable & keyboard shortcuts) =====
+  async function saveAllChanges() {
+    const lpCommentsField = Q("#lpAdditionalComments");
+    let savedCount = 0;
+    const errors = [];
+
+    try {
+      if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+        throw new Error("Invalid DCL ID");
+      }
+
+      setLoading(true, "Saving all changes…");
+
+      // ===== 1. SAVE LP COMMENTS =====
+      if (lpCommentsField && lpCommentsField.value.trim()) {
+        try {
+          const commentText = lpCommentsField.value.trim();
+          await safeAjax({
+            type: "PATCH",
+            url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})`,
+            data: JSON.stringify({ cr650_additionalco_lp: commentText }),
+            contentType: "application/json; charset=utf-8",
+            headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+            dataType: "json",
+            _withLoader: false
+          });
+          savedCount++;
+          console.log("✅ LP comments saved");
+        } catch (err) {
+          console.error("❌ LP comments failed:", err);
+          errors.push({ type: "Comments", error: err.message });
+        }
+      }
+
+      // ===== 2. SAVE ALL LP ROWS =====
+      // Save every row in the table — not just rows with .row-save buttons.
+      // Users edit cells directly (contenteditable + inputs) without
+      // entering Edit mode, so we must persist ALL rows.
+      const allLpRows = QA("#itemsTableBody tr.lp-data-row");
+
+      for (const tr of allLpRows) {
+        try {
+          const payload = buildPayloadFromRow(tr, CURRENT_DCL_ID);
+          let serverId = tr.dataset.serverId;
+
+          if (serverId && isGuid(serverId)) {
+            // UPDATE existing record
+            await safeAjax({
+              type: "PATCH",
+              url: `${DCL_LP_API}(${serverId})`,
+              data: JSON.stringify(payload),
+              contentType: "application/json; charset=utf-8",
+              headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+              dataType: "json",
+              _withLoader: false
+            });
+          } else {
+            // CREATE new record
+            const res = await safeAjax({
+              type: "POST",
+              url: DCL_LP_API,
+              data: JSON.stringify(payload),
+              contentType: "application/json; charset=utf-8",
+              headers: { Accept: "application/json;odata.metadata=minimal", Prefer: "return=representation" },
+              dataType: "json",
+              _withLoader: false
+            });
+            const newId = res && (res.cr650_dcl_loading_planid || res.id);
+            if (newId) tr.dataset.serverId = newId;
+          }
+
+          savedCount++;
+
+          // Clear modified visual state for this row
+          tr.classList.remove("row-modified");
+          tr.querySelectorAll(".cell-modified").forEach(c => c.classList.remove("cell-modified"));
+
+        } catch (err) {
+          const itemCode = (tr.querySelector(".item-code")?.textContent || "unknown").trim();
+          console.error(`❌ Row save failed (${itemCode}):`, err);
+          errors.push({ type: `Row ${itemCode}`, error: err.message });
+        }
+      }
+
+      // ===== 3. CLEAR MODIFIED TRACKING =====
+      MODIFIED_ROWS.clear();
+      ORIGINAL_ROW_DATA.clear();
+      updateModifiedIndicator();
+
+      // ===== 4. UPDATE DCL MASTER TOTALS =====
+      recomputeTotals();
+
+      // ===== 5. SYNC CONTAINER ITEMS =====
+      await ensureContainerItemsForCurrentDcl();
+      rebuildAssignmentTable();
+      renderContainerSummaries();
+
+      // ===== 6. BUILD RESULT =====
+      const totalAttempted = allLpRows.length + (lpCommentsField?.value ? 1 : 0);
+      const totalFailed = errors.length;
+
+      let message = "";
+      if (savedCount > 0) {
+        message = `Saved ${savedCount} item(s) to Dataverse`;
+      }
+      if (totalFailed > 0) {
+        message += `\nFailed: ${totalFailed} item(s)`;
+        errors.forEach(e => { message += `\n  - ${e.type}: ${e.error}`; });
+      }
+      if (totalAttempted === 0) {
+        message = "No changes to save";
+      }
+
+      const success = totalAttempted > 0 && totalFailed === 0;
+
+      if (success) {
+        showValidation("success", message);
+      } else if (totalFailed > 0 && savedCount > 0) {
+        showValidation("warning", message);
+      } else if (totalFailed > 0) {
+        showValidation("error", message);
+      }
+
+      return { success, attempted: totalAttempted, succeeded: savedCount, failed: totalFailed, message, errors };
+
+    } catch (err) {
+      console.error("❌ Unexpected error:", err);
+      showValidation("error", "Critical error: " + err.message);
+      return {
+        success: false, attempted: 0, succeeded: 0, failed: 0,
+        message: "Critical error: " + err.message, errors: [{ type: "System", error: err.message }]
+      };
+    } finally {
+      setLoading(false);
+    }
+  }
 
   // ============================================================
   // 🟢 UNRELEASED ORDERS CHECK - ADD THIS ENTIRE SECTION
@@ -7822,11 +7039,6 @@
       loadingQtyInput.addEventListener('input', () => handleCellChange(tr, loadingQtyInput));
     }
 
-    // Track release status select
-    const releaseSelect = tr.querySelector('.release-status-select');
-    if (releaseSelect) {
-      releaseSelect.addEventListener('change', () => handleCellChange(tr, releaseSelect));
-    }
   }
 
   // Handle cell change - mark row as modified
@@ -7938,76 +7150,13 @@
     }
   }
 
-  // Save All Changes
-  async function saveAllChanges() {
-    if (MODIFIED_ROWS.size === 0) {
-      showValidation("info", "No changes to save.");
-      return;
-    }
-
-    setLoading(true, `Saving ${MODIFIED_ROWS.size} rows...`);
-
-    try {
-      const rows = QA("#itemsTableBody tr.lp-data-row.row-modified");
-      let successCount = 0;
-      let errorCount = 0;
-
-      for (const tr of rows) {
-        try {
-          const serverId = tr.dataset.serverId;
-
-          if (serverId && isGuid(serverId)) {
-            await updateServerRowFromTr(tr, CURRENT_DCL_ID);
-          } else {
-            await createServerRowFromTr(tr, CURRENT_DCL_ID);
-          }
-
-          // Mark as saved - clean up classes
-          tr.classList.remove('row-modified');
-          tr.querySelectorAll('.cell-modified').forEach(c => c.classList.remove('cell-modified'));
-
-          // Update original values
-          tr.dataset.originalValues = JSON.stringify(getRowCurrentValues(tr));
-
-          successCount++;
-
-        } catch (err) {
-          console.error("Failed to save row:", err);
-          errorCount++;
-        }
-      }
-
-      // Clear modified tracking
-      MODIFIED_ROWS.clear();
-      updateModifiedIndicator();
-
-      // Refresh related data
-      await ensureContainerItemsForCurrentDcl();
-      rebuildAssignmentTable();
-      renderContainerSummaries();
-      refreshAIAnalysis();
-
-      if (errorCount === 0) {
-        showValidation("success", `Successfully saved ${successCount} rows.`);
-      } else {
-        showValidation("warning", `Saved ${successCount} rows. ${errorCount} failed.`);
-      }
-
-    } catch (err) {
-      console.error("Save all failed:", err);
-      showValidation("error", "Failed to save changes: " + err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   // Get current values from a row
   function getRowCurrentValues(tr) {
     return {
       orderNo: (tr.querySelector('.order-no')?.textContent || '').trim(),
       itemCode: (tr.querySelector('.item-code')?.textContent || '').trim(),
       description: (tr.querySelector('.description')?.textContent || '').trim(),
-      releaseStatus: tr.querySelector('.release-status-select')?.value || 'N',
+      releaseStatus: (tr.querySelector('.release-status-value')?.textContent || tr.querySelector('.release-status-select')?.value || 'N').trim(),
       packaging: (tr.querySelector('.packaging')?.textContent || '').trim(),
       uom: asNum(tr.querySelector('.uom')?.textContent),
       pack: (tr.querySelector('.pack')?.textContent || '').trim(),
@@ -8038,6 +7187,7 @@
       const orderNoCell = tr.querySelector('.order-no');
       const itemCodeCell = tr.querySelector('.item-code');
       const descCell = tr.querySelector('.description');
+      const releaseSpan = tr.querySelector('.release-status-value');
       const releaseSelect = tr.querySelector('.release-status-select');
       const packagingCell = tr.querySelector('.packaging');
       const uomCell = tr.querySelector('.uom');
@@ -8048,6 +7198,7 @@
       if (orderNoCell) orderNoCell.textContent = originalValues.orderNo || '';
       if (itemCodeCell) itemCodeCell.textContent = originalValues.itemCode || '';
       if (descCell) descCell.textContent = originalValues.description || '';
+      if (releaseSpan) releaseSpan.textContent = originalValues.releaseStatus || 'N';
       if (releaseSelect) releaseSelect.value = originalValues.releaseStatus || 'N';
       if (packagingCell) packagingCell.textContent = originalValues.packaging || '';
       if (uomCell) uomCell.textContent = fmt2(originalValues.uom || 0);
@@ -8131,12 +7282,10 @@
   // Global keyboard shortcuts
   function setupGlobalKeyboardShortcuts() {
     d.addEventListener('keydown', (e) => {
-      // Ctrl+S to save all
+      // Ctrl+S to save all (always prevent browser save dialog)
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        if (MODIFIED_ROWS.size > 0) {
-          e.preventDefault();
-          saveAllChanges();
-        }
+        e.preventDefault();
+        saveAllChanges();
       }
 
       // Ctrl+Z to discard (with confirmation)
