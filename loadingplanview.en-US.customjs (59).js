@@ -1689,7 +1689,8 @@
       ciByLp.get(lpIdLower).push(ci);
     });
 
-    // 2) Create missing container-item rows — use POST response ID directly
+    // 2) Create missing container-item rows
+    let createdCount = 0;
     const createdCIs = [];
     for (const lpRow of (lpRows || [])) {
       const lpId = lpRow.cr650_dcl_loading_planid;
@@ -1704,6 +1705,7 @@
 
       try {
         const newId = await createContainerItemOnServer(lpId, qty, null, false);
+        createdCount++;
         if (newId) {
           createdCIs.push({
             id: newId,
@@ -1719,16 +1721,25 @@
       }
     }
 
-    // 3) Build state from existing + newly created CIs (no re-fetch needed)
-    const existingState = (allCiBefore || [])
-      .filter(ci => {
-        const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
-        return masterLower === dclLower;
-      })
-      .map(mapContainerItemRowToState);
+    // 3) Build state: use POST response IDs when available, otherwise re-fetch
+    if (createdCount === 0 || createdCIs.length === createdCount) {
+      // Fast path: all IDs came back from POST (or nothing was created)
+      const existingState = (allCiBefore || [])
+        .filter(ci => {
+          const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
+          return masterLower === dclLower;
+        })
+        .map(mapContainerItemRowToState);
 
-    DCL_CONTAINER_ITEMS_STATE = existingState.concat(createdCIs);
-    console.log(`Container items ready: ${existingState.length} existing + ${createdCIs.length} created = ${DCL_CONTAINER_ITEMS_STATE.length} total`);
+      DCL_CONTAINER_ITEMS_STATE = existingState.concat(createdCIs);
+      console.log(`Container items ready (fast): ${existingState.length} existing + ${createdCIs.length} created = ${DCL_CONTAINER_ITEMS_STATE.length} total`);
+    } else {
+      // Fallback: some POSTs returned 204 without an ID — re-fetch from server
+      console.log(`${createdCount - createdCIs.length} of ${createdCount} POSTs returned no ID, re-fetching…`);
+      await new Promise(resolve => setTimeout(resolve, 600));
+      await refreshContainerItemsState();
+      console.log(`Container items ready (re-fetch): ${DCL_CONTAINER_ITEMS_STATE.length} total`);
+    }
   }
 
   async function refreshContainerItemsState() {
