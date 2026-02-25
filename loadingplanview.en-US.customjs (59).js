@@ -2346,6 +2346,27 @@
         }
       }
 
+      // === Loading qty change → sync CI quantity ===
+      if (e.target.classList.contains("loading-qty")) {
+        const ciId = row.dataset.ciId;
+        if (ciId) {
+          const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
+          if (ci) {
+            const newQty = asNum(e.target.value);
+            if (ci.quantity !== newQty && newQty > 0) {
+              try {
+                await patchContainerItem(ciId, { cr650_quantity: newQty });
+                ci.quantity = newQty;
+                renderContainerCards();
+                renderContainerSummaries();
+              } catch (err) {
+                console.error("Failed to sync CI quantity:", err);
+              }
+            }
+          }
+        }
+      }
+
       // === Palletized select change ===
       if (e.target.classList.contains("palletized-select")) {
         const newPalletized = e.target.value;
@@ -2884,6 +2905,15 @@
           baseItem.LoadingQuantity = ci.cr650_quantity || 0;
           baseItem.PendingQuantity = 0;
 
+          // ✅ Proportionally split order qty and pallets across CIs
+          const totalCiQtyForRatio = ciForThisLp.reduce((sum, c) => sum + asNum(c.cr650_quantity), 0);
+          if (totalCiQtyForRatio > 0) {
+            const ciRatio = (ci.cr650_quantity || 0) / totalCiQtyForRatio;
+            baseItem.OrderQuantity = round2(baseItem.OrderQuantity * ciRatio);
+            baseItem.numberOfPallets = Math.round(baseItem.numberOfPallets * ciRatio);
+            baseItem.palletsWeight = baseItem.palletized === "Yes" ? round2(baseItem.numberOfPallets * 19.38) : 0;
+          }
+
           // ✅ Override container with actual container from container item
           const containerGuid = ci._cr650_dcl_number_value;
           if (containerGuid) {
@@ -2894,11 +2924,13 @@
           }
 
           // ✅ Recalculate weights based on split ratio
-          const originalLoadedQty = asNum(lpRow.cr650_loadedquantity);
+          // Use sum of all CI quantities as denominator (not LP loadedquantity
+          // which may have been updated during split and no longer represents the total)
+          const totalCiQty = ciForThisLp.reduce((sum, c) => sum + asNum(c.cr650_quantity), 0);
           const splitQty = ci.cr650_quantity || 0;
 
-          if (originalLoadedQty > 0) {
-            const ratio = splitQty / originalLoadedQty;
+          if (totalCiQty > 0) {
+            const ratio = splitQty / totalCiQty;
 
             // ✅ FIXED: Use correct property names
             baseItem.grossWeight = round2(asNum(lpRow.cr650_grossweightkg) * ratio);
@@ -4948,8 +4980,14 @@
 
       const items = ciByLp.get(serverId) || [];
       if (items.length > 0) {
-        // Use the first container item's assignment
-        const ci = items[0];
+        // If the row already has a containerItemId (from reload/split), find that specific CI
+        const existingCiId = tr.dataset.containerItemId;
+        let ci;
+        if (existingCiId) {
+          ci = items.find(c => c.id === existingCiId) || items[0];
+        } else {
+          ci = items[0];
+        }
         tr.dataset.ciId = ci.id || "";
 
         if (ci.containerGuid) {
@@ -5242,12 +5280,12 @@
 
       // ========== Helper Functions ==========
 
-      // Split evenly into N parts (remainder goes to last)
+      // Split evenly into N parts (remainder goes to first — consistent with pallet distribution)
       function splitEvenly(total, n) {
         const base = Math.floor(total / n);
         const remainder = total % n;
         return Array.from({ length: n }, (_, i) =>
-          i === n - 1 ? base + remainder : base
+          i === 0 ? base + remainder : base
         );
       }
 
@@ -6622,6 +6660,24 @@
       recomputeTotals();
 
       // ===== 5. SYNC CONTAINER ITEMS =====
+      // Sync CI quantities to match DOM loading qty for every row that has a CI
+      for (const tr of allLpRows) {
+        const ciId = tr.dataset.ciId;
+        if (!ciId) continue;
+        const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
+        if (!ci) continue;
+        const domLoadQty = asNum(tr.querySelector(".loading-qty")?.value);
+        if (ci.quantity !== domLoadQty) {
+          try {
+            await patchContainerItem(ciId, { cr650_quantity: domLoadQty });
+            ci.quantity = domLoadQty;
+          } catch (err) {
+            console.error(`❌ CI qty sync failed for CI ${ciId}:`, err);
+            errors.push({ type: `CI sync ${ciId.substring(0, 8)}`, error: err.message });
+          }
+        }
+      }
+
       await ensureContainerItemsForCurrentDcl();
       rebuildAssignmentTable();
       renderContainerSummaries();
