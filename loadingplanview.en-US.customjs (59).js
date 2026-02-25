@@ -191,9 +191,8 @@
         "#addItemBtn, " +
         "#importFromOracleBtn, " +
         "#updateAllBtn, " +
-        "#allocateItemsBtn, " +
+        "#assignToContainersBtn, " +
         "#addContainerBtn, " +
-        "#autoAssignBtn, " +
         "#addDiscountChargeBtn, " +
         "#saveDiscountsBtn, " +
         "#loadDiscountsBtn, " +
@@ -1677,12 +1676,6 @@
     // MODE B: called from Start Allocation with the fresh LP rows
     const lpRows = freshLpRowsOpt;
 
-    const lpIdSet = new Set(
-      (lpRows || [])
-        .map(r => (r.cr650_dcl_loading_planid || "").toLowerCase())
-        .filter(Boolean)
-    );
-
     // 1) Load existing container-items for this DCL
     const allCiBefore = await fetchAllContainerItems(CURRENT_DCL_ID);
 
@@ -1696,8 +1689,8 @@
       ciByLp.get(lpIdLower).push(ci);
     });
 
-    // 2) Create missing container-item rows (one per LP row with loaded quantity)
-    let createdCount = 0;
+    // 2) Create missing container-item rows — use POST response ID directly
+    const createdCIs = [];
     for (const lpRow of (lpRows || [])) {
       const lpId = lpRow.cr650_dcl_loading_planid;
       if (!lpId) continue;
@@ -1710,56 +1703,32 @@
       if (!qty) continue;
 
       try {
-        await createContainerItemOnServer(lpId, qty, null, false);
-        createdCount++;
+        const newId = await createContainerItemOnServer(lpId, qty, null, false);
+        if (newId) {
+          createdCIs.push({
+            id: newId,
+            lpId: lpId,
+            quantity: qty,
+            containerGuid: null,
+            dclMasterGuid: CURRENT_DCL_ID,
+            isSplitItem: false
+          });
+        }
       } catch (err) {
         console.error("ensureContainerItemsForCurrentDcl: failed to create CI for LP", lpId, err);
       }
     }
 
-    // ✅ 3) Wait briefly if we created records, to allow server to commit
-    if (createdCount > 0) {
-      console.log(`Created ${createdCount} container items. Waiting for server commit...`);
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    // ✅ 4) Re-fetch with retry logic
-    let allCiAfter = [];
-    let retries = 3;
-
-    while (retries > 0) {
-      allCiAfter = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-      const relevantCiFinal = (allCiAfter || []).filter(ci => {
+    // 3) Build state from existing + newly created CIs (no re-fetch needed)
+    const existingState = (allCiBefore || [])
+      .filter(ci => {
         const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
-        const lpLower = String(ci._cr650_loadingplanitem_value || "").toLowerCase();
-        return masterLower === dclLower || (lpLower && lpIdSet.has(lpLower));
-      });
+        return masterLower === dclLower;
+      })
+      .map(mapContainerItemRowToState);
 
-      // ✅ Check if we got all expected container items
-      if (relevantCiFinal.length >= lpRows.length || createdCount === 0) {
-        DCL_CONTAINER_ITEMS_STATE = relevantCiFinal.map(mapContainerItemRowToState);
-        console.log(`Successfully loaded ${DCL_CONTAINER_ITEMS_STATE.length} container items into state`);
-        return;
-      }
-
-      // ✅ Not all items loaded yet, wait and retry
-      retries--;
-      if (retries > 0) {
-        console.log(`Only ${relevantCiFinal.length} of ${lpRows.length} items loaded. Retrying... (${retries} attempts left)`);
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    }
-
-    // ✅ Final attempt - use whatever we got
-    const relevantCiFinal = (allCiAfter || []).filter(ci => {
-      const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
-      const lpLower = String(ci._cr650_loadingplanitem_value || "").toLowerCase();
-      return masterLower === dclLower || (lpLower && lpIdSet.has(lpLower));
-    });
-
-    DCL_CONTAINER_ITEMS_STATE = relevantCiFinal.map(mapContainerItemRowToState);
-    console.log(`Loaded ${DCL_CONTAINER_ITEMS_STATE.length} container items into state (after retries)`);
+    DCL_CONTAINER_ITEMS_STATE = existingState.concat(createdCIs);
+    console.log(`Container items ready: ${existingState.length} existing + ${createdCIs.length} created = ${DCL_CONTAINER_ITEMS_STATE.length} total`);
   }
 
   async function refreshContainerItemsState() {
@@ -1999,7 +1968,7 @@
         const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
 
         if (!ci) {
-          showValidation("warning", "No container item found for this row. Run 'Allocate Items' first.");
+          showValidation("warning", "No container item found for this row. Run 'Assign to Containers' first.");
           return;
         }
 
@@ -2390,7 +2359,7 @@
         if (!ci) {
           // No container item exists yet — revert dropdown and warn
           e.target.value = "";
-          showValidation("warning", "No container item found for this row. Run 'Allocate Items' first.");
+          showValidation("warning", "No container item found for this row. Run 'Assign to Containers' first.");
           return;
         }
 
@@ -4349,27 +4318,18 @@
     const hasContainerItems = DCL_CONTAINER_ITEMS_STATE.length > 0;
     const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
 
-    // Allocate Items — needs LP rows to exist
-    const allocateBtn = Q("#allocateItemsBtn");
-    if (allocateBtn) {
-      allocateBtn.disabled = lpRowCount === 0;
-      allocateBtn.title = lpRowCount === 0
+    // Assign to Containers — needs LP rows and containers
+    const assignBtn = Q("#assignToContainersBtn");
+    if (assignBtn) {
+      const canAssign = lpRowCount > 0 && hasContainers;
+      assignBtn.disabled = !canAssign;
+      assignBtn.title = lpRowCount === 0
         ? "Add or import items first"
-        : hasContainerItems
-          ? "Sync changes (new items, quantity updates)"
-          : "Create container item allocations";
-    }
-
-    // Auto-Assign — needs both container items AND containers
-    const autoBtn = Q("#autoAssignBtn");
-    if (autoBtn) {
-      const canAutoAssign = hasContainerItems && hasContainers;
-      autoBtn.disabled = !canAutoAssign;
-      autoBtn.title = !hasContainerItems
-        ? "Run 'Allocate Items' first"
         : !hasContainers
           ? "Add containers first"
-          : "Auto-assign unassigned items to containers";
+          : hasContainerItems
+            ? "Sync changes and assign unassigned items"
+            : "Create allocations and assign to containers";
     }
 
     updateAllocationStatusBar();
@@ -4396,7 +4356,7 @@
       text = "No items yet \u2014 Import from Oracle or Add Items";
       barClass = "status-neutral";
     } else if (ciCount === 0) {
-      text = `${lpRowCount} item${lpRowCount !== 1 ? "s" : ""} loaded \u2014 Click "Allocate Items" to begin`;
+      text = `${lpRowCount} item${lpRowCount !== 1 ? "s" : ""} loaded \u2014 Click "Assign to Containers" to begin`;
       barClass = "status-action";
     } else if (unassignedCount > 0) {
       text = `${ciCount} allocated \u00b7 ${assignedCount} assigned \u00b7 ${unassignedCount} unassigned`;
@@ -4491,7 +4451,7 @@
     });
 
     if (!toPatch.length) {
-      showValidation("warning", "Selected rows have no container items. Run 'Allocate Items' first.");
+      showValidation("warning", "Selected rows have no container items. Run 'Assign to Containers' first.");
       return;
     }
 
@@ -5451,13 +5411,14 @@
      18) AUTOMATIC ALLOCATION — uses container-items
      ============================= */
 
-  function allocateItemsToContainers() {
-    if (!DCL_CONTAINER_ITEMS_STATE.length) {
-      showValidation("warning", "No container items to allocate. Import or add items first.");
-      return;
-    }
-
-    let containers = DCL_CONTAINERS_STATE
+  /**
+   * First-Fit Decreasing (FFD) algorithm — fills containers before moving to the next.
+   * Sorts unassigned items by weight (heaviest first), then assigns each to the
+   * first container that has enough remaining capacity.
+   * Returns the array of newly-assigned items for patching.
+   */
+  function assignItemsFFD(lpIndex) {
+    const containers = DCL_CONTAINERS_STATE
       .filter(c => c.dataverseId)
       .map(c => ({
         id: c.id,
@@ -5468,97 +5429,138 @@
         items: []
       }));
 
-    if (!containers.length) {
-      showValidation("warning", "No containers defined. Add containers before allocating items.");
-      return;
-    }
+    if (!containers.length) return { containers, assigned: [] };
 
-    const lpIndex = buildLpRowIndex();
-
-    // Calculate already-used capacity from existing assignments
+    // Pre-load existing assignments
     DCL_CONTAINER_ITEMS_STATE
-      .filter(ci => ci.containerGuid) // Items already assigned
+      .filter(ci => ci.containerGuid)
       .forEach(ci => {
         const container = containers.find(c => c.dataverseId === ci.containerGuid);
         if (container) {
-          const weight = computeContainerItemGrossWeight(ci, lpIndex);
-          container.usedKg += weight;
+          container.usedKg += computeContainerItemGrossWeight(ci, lpIndex);
         }
       });
 
-    // Only get UNASSIGNED items (items without a container)
-    const unassignedItems = DCL_CONTAINER_ITEMS_STATE
-      .filter(ci => ci.quantity > 0 && !ci.containerGuid) // ✅ Only unassigned items
-      .map(ci => {
-        const weight = computeContainerItemGrossWeight(ci, lpIndex);
-        return {
-          ci,
-          grossKg: weight
-        };
-      });
+    // Collect unassigned items with their weights
+    const unassigned = DCL_CONTAINER_ITEMS_STATE
+      .filter(ci => ci.quantity > 0 && !ci.containerGuid)
+      .map(ci => ({ ci, grossKg: computeContainerItemGrossWeight(ci, lpIndex) }));
 
-    if (!unassignedItems.length) {
-      showValidation("info", "All items are already assigned to containers.");
-      return;
-    }
+    if (!unassigned.length) return { containers, assigned: [] };
 
-    // Allocate only the unassigned items
-    unassignedItems.forEach(({ ci, grossKg }) => {
-      containers.sort((a, b) => {
-        const aRem = a.capacityKg - a.usedKg;
-        const bRem = b.capacityKg - b.usedKg;
-        return (aRem < bRem) ? 1 : -1;
-      });
+    // Sort heaviest first (First-Fit Decreasing)
+    unassigned.sort((a, b) => b.grossKg - a.grossKg);
 
-      const tgt = containers[0];
+    // Assign each item to the first container that fits
+    unassigned.forEach(({ ci, grossKg }) => {
+      const tgt = containers.find(c => (c.capacityKg - c.usedKg) >= grossKg)
+                  || containers[containers.length - 1]; // fallback: last container
       tgt.items.push(ci);
       tgt.usedKg += grossKg;
-
       ci.containerGuid = tgt.dataverseId || null;
     });
 
-    // Only patch the items that were newly assigned
-    Promise.all(
-      unassignedItems.map(({ ci }) => {
-        return patchContainerItem(ci.id, {
-          "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${ci.containerGuid})`
-        });
-      })
-    )
-      .then(async () => {
-        // 1️⃣ Refresh container-items from Dataverse (SOURCE OF TRUTH)
+    return { containers, assigned: unassigned };
+  }
+
+  /**
+   * Unified "Assign to Containers" — creates CIs if needed, then runs FFD.
+   * Called from the single toolbar button.
+   */
+  async function assignToContainers() {
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+      showValidation("error", "Missing or invalid DCL id in URL.");
+      return;
+    }
+
+    const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
+    if (!hasContainers) {
+      showValidation("warning", "Add containers first before assigning items.");
+      return;
+    }
+
+    const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+    if (!lpRowCount) {
+      showValidation("warning", "No items to assign. Import or add items first.");
+      return;
+    }
+
+    try {
+      setLoading(true, "Preparing assignment\u2026");
+
+      // STEP 1: Ensure all LP rows have server IDs
+      await hydrateLpRowServerIds();
+
+      // STEP 2: Ensure container items exist (create / sync)
+      const hasExistingCIs = DCL_CONTAINER_ITEMS_STATE.length > 0;
+
+      if (hasExistingCIs) {
+        // Incremental update (preserves existing assignments)
+        await syncContainerItemsIncrementally();
+      } else {
+        // First time: create CIs from LP rows
+        const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
+        await ensureContainerItemsForCurrentDcl(freshLpRows);
+      }
+
+      // STEP 3: Run FFD on any unassigned items
+      const lpIndex = buildLpRowIndex();
+      const unassignedCount = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.quantity > 0 && !ci.containerGuid).length;
+
+      if (unassignedCount > 0) {
+        setLoading(true, `Assigning ${unassignedCount} item(s) to containers\u2026`);
+
+        const { assigned } = assignItemsFFD(lpIndex);
+
+        // Patch all newly assigned items
+        await Promise.all(
+          assigned.map(({ ci }) =>
+            patchContainerItem(ci.id, {
+              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${ci.containerGuid})`
+            })
+          )
+        );
+
+        // Refresh state from server
         await refreshContainerItemsState();
+      }
 
-        // 2️⃣ Refresh LP DOM (needed for volume)
-        await refreshOrderItemsDisplay();
-        recalcAllRows();
-        recomputeTotals();
+      // STEP 4: Refresh all UI
+      await refreshOrderItemsDisplay();
+      recalcAllRows();
+      recomputeTotals();
+      rebuildAssignmentTable();
+      renderContainerCards();
+      renderContainerSummaries();
+      refreshAIAnalysis();
+      updateToolbarState();
 
-        // 3️⃣ Render everything from fresh state
-        rebuildAssignmentTable();
-        renderContainerCards();        // ✅ THIS IS THE KEY LINE
-        renderContainerSummaries();    // ❌ no params
-        refreshAIAnalysis();
+      // Show result
+      const totalAssigned = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
+      const totalCI = DCL_CONTAINER_ITEMS_STATE.length;
+      const stillUnassigned = totalCI - totalAssigned;
 
-        const section = Q("#allocationStatusSection");
-        const statusContent = Q("#statusContent");
-        if (section && statusContent) {
-          section.style.display = "block";
-          const alreadyAssigned = DCL_CONTAINER_ITEMS_STATE.length - unassignedItems.length;
-          statusContent.textContent = alreadyAssigned > 0
-            ? `Auto-assigned ${unassignedItems.length} unassigned item(s). ${alreadyAssigned} item(s) kept their existing assignment.`
-            : `Allocated ${unassignedItems.length} item(s) into ${DCL_CONTAINERS_STATE.length} container(s).`;
-        }
+      const section = Q("#allocationStatusSection");
+      const statusContent = Q("#statusContent");
+      if (section && statusContent) {
+        section.style.display = "block";
+        statusContent.textContent = stillUnassigned > 0
+          ? `${totalAssigned} of ${totalCI} item(s) assigned. ${stillUnassigned} could not fit.`
+          : `All ${totalCI} item(s) assigned to containers.`;
+      }
 
-        showValidation("success", `Auto-assigned ${unassignedItems.length} unassigned item(s) to containers.`);
-      })
+      if (stillUnassigned > 0) {
+        showValidation("warning", `${totalAssigned} item(s) assigned. ${stillUnassigned} item(s) did not fit \u2014 consider adding containers.`);
+      } else {
+        showValidation("success", `All ${totalCI} item(s) assigned to containers.`);
+      }
 
-
-
-      .catch(err => {
-        console.error("Failed auto-assign containers", err);
-        showValidation("error", "Failed to auto-assign items to containers.");
-      });
+    } catch (err) {
+      console.error("Assign to Containers failed", err);
+      showValidation("error", "Failed to assign items: " + (err.message || err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   function resetAllAssignments() {
@@ -5763,7 +5765,7 @@
      * - Items removed from Loading Plan
      * - Shows detailed notification of what changed
      */
-    async function updateContainerItemsIncrementally() {
+    async function syncContainerItemsIncrementally() {
       if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
         showValidation("error", "Missing or invalid DCL id in URL.");
         return;
@@ -5919,66 +5921,41 @@
           }
         }
 
-        // C) Remove orphaned CIs (optional - can be dangerous, so commented out by default)
-        // Uncomment if you want to auto-delete CIs when LP row is removed
-        /*
+        // C) Remove orphaned CIs (items whose LP row no longer exists)
         if (changes.removedItems.length > 0) {
-          setLoading(true, `Removing ${changes.removedItems.length} deleted item(s)...`);
-          
-          for (const item of changes.removedItems) {
-            for (const ci of item.cis) {
-              try {
-                await deleteContainerItem(ci.id);
-                deletedCount++;
-                console.log(`   ✅ Deleted orphaned CI: ${ci.id.substring(0, 8)}...`);
-              } catch (err) {
-                console.error(`   ❌ Failed to delete CI ${ci.id}:`, err);
+          const totalOrphaned = changes.removedItems.reduce((sum, item) => sum + item.ciCount, 0);
+          const doDelete = confirm(
+            `${totalOrphaned} orphaned container item(s) detected ` +
+            `(their loading plan row was removed).\n\n` +
+            `Delete these orphaned records?`
+          );
+
+          if (doDelete) {
+            setLoading(true, `Removing ${totalOrphaned} orphaned item(s)...`);
+
+            for (const item of changes.removedItems) {
+              for (const ci of item.cis) {
+                try {
+                  await deleteContainerItem(ci.id);
+                  deletedCount++;
+                  console.log(`   Deleted orphaned CI: ${ci.id.substring(0, 8)}...`);
+                } catch (err) {
+                  console.error(`   Failed to delete CI ${ci.id}:`, err);
+                }
               }
             }
           }
         }
-        */
 
         // ===== STEP 5: Refresh container items state =====
         if (createdCount > 0 || updatedCount > 0 || deletedCount > 0) {
           setLoading(true, "Refreshing assignment table...");
 
-          const expectedTotal = DCL_CONTAINER_ITEMS_STATE.length + createdCount - deletedCount;
-          let retryCount = 0;
-          let success = false;
-
-          while (retryCount < 5 && !success) {
-            await new Promise(resolve => setTimeout(resolve, retryCount === 0 ? 1200 : 800));
-
-            try {
-              const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
-              const fetchedItems = allContainerItems.filter(item =>
-                item._cr650_dcl_master_number_value &&
-                item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase()
-              );
-
-              console.log(`   Retry ${retryCount + 1}: Fetched ${fetchedItems.length} items (expected ~${expectedTotal})`);
-
-              if (fetchedItems.length >= expectedTotal - 1) { // Allow 1 item tolerance
-                DCL_CONTAINER_ITEMS_STATE = fetchedItems.map(mapContainerItemRowToState);
-                success = true;
-                console.log(`   ✅ State refreshed with ${DCL_CONTAINER_ITEMS_STATE.length} items`);
-                break;
-              }
-            } catch (fetchErr) {
-              console.error(`   ❌ Fetch error on retry ${retryCount + 1}:`, fetchErr);
-            }
-
-            retryCount++;
-          }
-
-          if (!success) {
-            console.warn(`   ⚠️ State refresh incomplete after ${retryCount} retries`);
-          }
+          // Single fetch — no retry loop needed
+          await refreshContainerItemsState();
 
           // Refresh UI
           rebuildAssignmentTable();
-    
           renderContainerCards();
           renderContainerSummaries();
           refreshAIAnalysis();
@@ -6271,55 +6248,10 @@
     }
 
 
-    // Smart Allocate Items button — merges "Start Allocation" + "Update Items"
-    const allocateItemsBtn = Q("#allocateItemsBtn");
-    if (allocateItemsBtn) {
-      allocateItemsBtn.addEventListener("click", async () => {
-        if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
-          showValidation("error", "Missing or invalid DCL id in URL.");
-          return;
-        }
-
-        const hasExisting = DCL_CONTAINER_ITEMS_STATE.length > 0;
-
-        if (hasExisting) {
-          // Incremental update — preserves existing assignments
-          await updateContainerItemsIncrementally();
-        } else {
-          // First-time — full allocation from scratch
-          try {
-            setLoading(true, "Preparing allocation…");
-            await hydrateLpRowServerIds();
-            await deleteAllContainerItemsForCurrentDcl();
-
-            const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
-            await ensureContainerItemsForCurrentDcl(freshLpRows);
-
-            rebuildAssignmentTable();
-            renderContainerCards();
-            renderContainerSummaries();
-            refreshAIAnalysis();
-            updateToolbarState();
-
-            showValidation(
-              "success",
-              `Allocation complete: ${DCL_CONTAINER_ITEMS_STATE.length} items ready for assignment.`
-            );
-          } catch (err) {
-            console.error("Allocate Items failed", err);
-            showValidation("error", "Failed to allocate items. Please try again.");
-          } finally {
-            setLoading(false);
-          }
-        }
-
-        updateToolbarState();
-      });
-    }
-
-    const autoAssignBtn = Q("#autoAssignBtn");
-    if (autoAssignBtn) {
-      autoAssignBtn.addEventListener("click", allocateItemsToContainers);
+    // Single "Assign to Containers" button — creates CIs + assigns via FFD
+    const assignToContainersBtn = Q("#assignToContainersBtn");
+    if (assignToContainersBtn) {
+      assignToContainersBtn.addEventListener("click", assignToContainers);
     }
 
     const optimizeBtn = Q("#optimizeBtn");
