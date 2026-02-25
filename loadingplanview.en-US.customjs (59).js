@@ -6308,7 +6308,10 @@
     async function loadPdfJs() {
       if (window.pdfjsLib) return window.pdfjsLib;
 
-      const cdnUrl = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      // Use pdf.js 2.x (last: 2.16.105) because it supports disableWorker: true.
+      // pdf.js 3.x removed that option and requires a separate worker file,
+      // which gets blocked by Power Pages worker-src CSP.
+      const cdnUrl = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js";
       const resp = await fetch(cdnUrl);
       if (!resp.ok) throw new Error("Failed to download pdf.js: " + resp.statusText);
       const code = await resp.text();
@@ -6317,9 +6320,6 @@
       (0, eval)(code);
 
       if (!window.pdfjsLib) throw new Error("pdf.js failed to initialize after eval.");
-
-      // Disable worker — avoids worker-src CSP issues, runs on main thread instead
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "";
 
       return window.pdfjsLib;
     }
@@ -6330,10 +6330,10 @@
     async function extractTextFromPdf(file) {
       const lib = await loadPdfJs();
       const arrayBuffer = await file.arrayBuffer();
+      // disableWorker: true — runs parsing on the main thread, no worker file needed
       const pdf = await lib.getDocument({
-        data: arrayBuffer,
-        useWorkerFetch: false,
-        isEvalSupported: true
+        data: new Uint8Array(arrayBuffer),
+        disableWorker: true
       }).promise;
 
       let fullText = "";
