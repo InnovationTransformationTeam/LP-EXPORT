@@ -1797,7 +1797,7 @@
       await ensureContainerItemsForCurrentDcl();
       rebuildAssignmentTable();
       renderContainerSummaries();
-      refreshAIAnalysis();
+
 
     } catch (e) {
       console.error("Save failed", e);
@@ -1911,7 +1911,7 @@
           rebuildAssignmentTable();
           renderContainerCards();
           renderContainerSummaries();
-          refreshAIAnalysis();
+    
 
         } catch (err) {
           console.error("DELETE failed", err);
@@ -2060,7 +2060,7 @@
             rebuildAssignmentTable();
             renderContainerCards();
             renderContainerSummaries();
-            refreshAIAnalysis();
+      
             recalcAllRows();
             recomputeTotals();
 
@@ -2201,7 +2201,7 @@
             rebuildAssignmentTable();
             renderContainerCards();
             renderContainerSummaries();
-            refreshAIAnalysis();
+      
             recalcAllRows();
             recomputeTotals();
 
@@ -2339,7 +2339,7 @@
           rebuildAssignmentTable();
           renderContainerCards();
           renderContainerSummaries();
-          refreshAIAnalysis();
+    
         } catch (err) {
           console.error("Failed to update container assignment", err);
           showValidation("error", "Failed to update container assignment.");
@@ -4102,7 +4102,7 @@
     renderContainerCards();
     renderContainerSummaries();
     rebuildAssignmentTable();
-    refreshAIAnalysis();
+
   }
   w.removeContainerCard = removeContainerCard;
 
@@ -4253,7 +4253,7 @@
     renderContainerCards();
     renderContainerSummaries();
     rebuildAssignmentTable();
-    refreshAIAnalysis();
+
 
     // Show result
     if (failed > 0) {
@@ -4459,7 +4459,7 @@
     rebuildAssignmentTable();
     renderContainerCards();
     renderContainerSummaries();
-    refreshAIAnalysis();
+
 
     if (failed > 0) {
       showValidation("warning", `Assigned ${success} item${success !== 1 ? "s" : ""}. ${failed} failed.`);
@@ -4702,7 +4702,7 @@
             // Important: refresh assignment table so the new container appears
             rebuildAssignmentTable();
 
-            refreshAIAnalysis();
+      
           }
         })
         .catch((e) => {
@@ -4799,20 +4799,6 @@
         );
       }
     });
-  }
-
-  /* =============================
-     13) AI PANEL (simplified demo)
-     ============================= */
-  function refreshAIAnalysis(perContOpt) {
-    const perCont = perContOpt || buildContainerSummaryFromContainerItems();
-    const cap = perCont.reduce((s, c) => s + (c.capacityKg || 0), 0);
-    const used = perCont.reduce((s, c) => s + (c.usedKg || 0), 0);
-    const util = cap ? Math.round((used / cap) * 100) : 0;
-
-    setText("#spaceUtilization", util + "%");
-    setText("#weightDistribution", Math.min(100, util + 7) + "%");
-    setText("#costEfficiency", Math.max(0, 100 - Math.abs(70 - util)) + "%");
   }
 
   /* =============================
@@ -4919,7 +4905,7 @@
       await ensureContainerItemsForCurrentDcl();
       rebuildAssignmentTable();
       renderContainerSummaries();
-      refreshAIAnalysis();
+
     } finally {
       setLoading(false);
     }
@@ -5390,7 +5376,7 @@
         rebuildAssignmentTable();
         renderContainerCards();       // ✅ REQUIRED
         renderContainerSummaries();
-        refreshAIAnalysis();
+  
       })
 
       .catch(err => {
@@ -5494,7 +5480,7 @@
       rebuildAssignmentTable();
 
       renderContainerSummaries();
-      refreshAIAnalysis();
+
     }
 
     // Initialize UI components
@@ -5764,7 +5750,7 @@
           rebuildAssignmentTable();
           renderContainerCards();
           renderContainerSummaries();
-          refreshAIAnalysis();
+    
         }
 
         // ===== STEP 6: Show smart notification =====
@@ -6174,22 +6160,13 @@
         rebuildAssignmentTable();
         renderContainerCards();
         renderContainerSummaries();
-        refreshAIAnalysis();
+  
         updateToolbarState();
 
         // Show result
         const totalAssigned = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
         const totalCI = DCL_CONTAINER_ITEMS_STATE.length;
         const stillUnassigned = totalCI - totalAssigned;
-
-        const section = Q("#allocationStatusSection");
-        const statusContent = Q("#statusContent");
-        if (section && statusContent) {
-          section.style.display = "block";
-          statusContent.textContent = stillUnassigned > 0
-            ? `${totalAssigned} of ${totalCI} item(s) assigned. ${stillUnassigned} could not fit.`
-            : `All ${totalCI} item(s) assigned to containers.`;
-        }
 
         if (stillUnassigned > 0) {
           showValidation("warning", `${totalAssigned} item(s) assigned. ${stillUnassigned} item(s) did not fit \u2014 consider adding containers.`);
@@ -6271,7 +6248,7 @@
     
           renderContainerCards();
           renderContainerSummaries();
-          refreshAIAnalysis();
+    
         }
       });
     }
