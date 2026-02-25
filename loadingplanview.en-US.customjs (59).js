@@ -1653,93 +1653,40 @@
   }
 
   async function ensureContainerItemsForCurrentDcl(freshLpRowsOpt) {
-    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
-      console.warn("ensureContainerItemsForCurrentDcl: no valid CURRENT_DCL_ID");
-      return;
-    }
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return;
 
-    const dclLower = CURRENT_DCL_ID.toLowerCase();
-
-    // MODE A: called with no LP rows => just load what exists for this DCL
+    // No LP rows provided — just load existing state
     if (!Array.isArray(freshLpRowsOpt) || !freshLpRowsOpt.length) {
-      const allCi = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-      const relevantCi = (allCi || []).filter(ci => {
-        const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
-        return masterLower === dclLower;
-      });
-
-      DCL_CONTAINER_ITEMS_STATE = relevantCi.map(mapContainerItemRowToState);
+      await refreshContainerItemsState();
       return;
     }
 
-    // MODE B: called from Start Allocation with the fresh LP rows
-    const lpRows = freshLpRowsOpt;
-
-    // 1) Load existing container-items for this DCL
-    const allCiBefore = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-    const ciByLp = new Map();
-    (allCiBefore || []).forEach(ci => {
-      const lpIdLower = String(ci._cr650_loadingplanitem_value || "").toLowerCase();
-      if (!lpIdLower) return;
-      if (!ciByLp.has(lpIdLower)) {
-        ciByLp.set(lpIdLower, []);
-      }
-      ciByLp.get(lpIdLower).push(ci);
+    // Find which LP rows already have container items
+    const existing = await fetchAllContainerItems(CURRENT_DCL_ID);
+    const hasCI = new Set();
+    (existing || []).forEach(ci => {
+      const lpId = (ci._cr650_loadingplanitem_value || "").toLowerCase();
+      if (lpId) hasCI.add(lpId);
     });
 
-    // 2) Create missing container-item rows
-    let createdCount = 0;
-    const createdCIs = [];
-    for (const lpRow of (lpRows || [])) {
-      const lpId = lpRow.cr650_dcl_loading_planid;
-      if (!lpId) continue;
-      const lpIdLower = lpId.toLowerCase();
-
-      const existingForLp = ciByLp.get(lpIdLower) || [];
-      if (existingForLp.length) continue;
-
-      const qty = asNum(lpRow.cr650_loadedquantity);
+    // Create container items for LP rows that don't have one
+    let created = 0;
+    for (const lp of freshLpRowsOpt) {
+      const lpId = lp.cr650_dcl_loading_planid;
+      if (!lpId || hasCI.has(lpId.toLowerCase())) continue;
+      const qty = asNum(lp.cr650_loadedquantity);
       if (!qty) continue;
-
       try {
-        const newId = await createContainerItemOnServer(lpId, qty, null, false);
-        createdCount++;
-        if (newId) {
-          createdCIs.push({
-            id: newId,
-            lpId: lpId,
-            quantity: qty,
-            containerGuid: null,
-            dclMasterGuid: CURRENT_DCL_ID,
-            isSplitItem: false
-          });
-        }
+        await createContainerItemOnServer(lpId, qty, null, false);
+        created++;
       } catch (err) {
-        console.error("ensureContainerItemsForCurrentDcl: failed to create CI for LP", lpId, err);
+        console.error("Failed to create CI for LP", lpId, err);
       }
     }
 
-    // 3) Build state: use POST response IDs when available, otherwise re-fetch
-    if (createdCount === 0 || createdCIs.length === createdCount) {
-      // Fast path: all IDs came back from POST (or nothing was created)
-      const existingState = (allCiBefore || [])
-        .filter(ci => {
-          const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
-          return masterLower === dclLower;
-        })
-        .map(mapContainerItemRowToState);
-
-      DCL_CONTAINER_ITEMS_STATE = existingState.concat(createdCIs);
-      console.log(`Container items ready (fast): ${existingState.length} existing + ${createdCIs.length} created = ${DCL_CONTAINER_ITEMS_STATE.length} total`);
-    } else {
-      // Fallback: some POSTs returned 204 without an ID — re-fetch from server
-      console.log(`${createdCount - createdCIs.length} of ${createdCount} POSTs returned no ID, re-fetching…`);
-      await new Promise(resolve => setTimeout(resolve, 600));
-      await refreshContainerItemsState();
-      console.log(`Container items ready (re-fetch): ${DCL_CONTAINER_ITEMS_STATE.length} total`);
-    }
+    // Fetch authoritative state (wait briefly if records were just created)
+    if (created > 0) await new Promise(r => setTimeout(r, 500));
+    await refreshContainerItemsState();
   }
 
   async function refreshContainerItemsState() {
@@ -6218,9 +6165,6 @@
             )
           );
 
-          // NOTE: Do NOT call refreshContainerItemsState() here.
-          // Local state is already correct (POST IDs + FFD assignments).
-          // A server re-fetch may return stale data due to Dataverse eventual consistency.
         }
 
         // STEP 4: Refresh all UI from current local state
