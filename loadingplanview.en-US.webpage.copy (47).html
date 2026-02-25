@@ -59,39 +59,82 @@
       <div class="items-section" id="orderItemsSection">
         <h3 class="section-title">Order Items</h3>
 
-        <!-- Enhanced Toolbar -->
+        <!-- Toolbar — grouped by workflow phase -->
         <div class="items-toolbar">
-          <div class="toolbar-left">
-            <button type="button" id="addItemBtn" class="btn btn-primary">
-              <i class="fas fa-plus"></i> Add Item
-            </button>
-            <button type="button" id="importFromOracleBtn" class="btn btn-outline">
-              <i class="fas fa-file-import"></i> Import from Oracle
-            </button>
+          <!-- Phase 1: Items -->
+          <div class="toolbar-group">
+            <span class="toolbar-group-label">Items</span>
+            <div class="toolbar-group-buttons">
+              <button type="button" id="addItemBtn" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Add Item
+              </button>
+              <button type="button" id="importFromOracleBtn" class="btn btn-outline">
+                <i class="fas fa-file-import"></i> Import from Oracle
+              </button>
+            </div>
           </div>
+
+          <!-- Phase 2: Allocation -->
+          <div class="toolbar-group">
+            <span class="toolbar-group-label">Allocation</span>
+            <div class="toolbar-group-buttons">
+              <button type="button" id="allocateItemsBtn" class="btn btn-outline" title="Create or update container item allocations">
+                <i class="fas fa-boxes"></i> Allocate Items
+              </button>
+              <button type="button" id="autoAssignBtn" class="btn btn-outline" disabled title="Run 'Allocate Items' first">
+                <i class="fas fa-magic"></i> Auto-Assign
+              </button>
+            </div>
+          </div>
+
+          <!-- Center: Status -->
           <div class="toolbar-center">
             <div id="modifiedIndicator" class="modified-indicator" style="display:none;">
               <i class="fas fa-circle"></i>
               <span id="modifiedCount">0</span> modified rows
             </div>
           </div>
-          <div class="toolbar-right">
-            <button type="button" id="saveAllChangesBtn" class="btn btn-success" style="display:none;">
-              <i class="fas fa-save"></i> Save All Changes
-            </button>
-            <button type="button" id="discardChangesBtn" class="btn btn-outline-danger" style="display:none;">
-              <i class="fas fa-undo"></i> Discard
-            </button>
-            <button type="button" id="fullscreenTableBtn" class="btn btn-outline" title="Toggle Fullscreen">
-              <i class="fas fa-expand"></i>
-            </button>
+
+          <!-- Phase 3: Save -->
+          <div class="toolbar-group toolbar-group-right">
+            <div class="toolbar-group-buttons">
+              <button type="button" id="saveAllChangesBtn" class="btn btn-success" style="display:none;">
+                <i class="fas fa-save"></i> Save All Changes
+              </button>
+              <button type="button" id="discardChangesBtn" class="btn btn-outline-danger" style="display:none;">
+                <i class="fas fa-undo"></i> Discard
+              </button>
+              <button type="button" id="fullscreenTableBtn" class="btn btn-outline" title="Toggle Fullscreen">
+                <i class="fas fa-expand"></i>
+              </button>
+            </div>
           </div>
+        </div>
+
+        <!-- Allocation Status Bar -->
+        <div id="allocationStatusBar" class="allocation-status-bar">
+          <span id="allocationStatusText">No items yet — Import from Oracle or Add Items</span>
+        </div>
+
+        <!-- Bulk Assign Toolbar (shown when rows have container items) -->
+        <div id="lpRowBulkToolbar" class="lp-bulk-toolbar" style="display:none;">
+          <label class="bulk-select-all-label">
+            <input type="checkbox" id="lpRowSelectAll" />
+            Select All
+          </label>
+          <select id="bulkAssignContainerSelect" class="bulk-assign-dropdown">
+            <option value="">Choose container…</option>
+          </select>
+          <button type="button" id="bulkAssignBtn" class="btn-bulk-assign" disabled>
+            Assign Selected (<span id="selectedRowCount">0</span>)
+          </button>
         </div>
 
         <div class="items-table-container" id="itemsTableContainer">
           <table id="itemsTable" class="items-table">
             <thead>
               <tr>
+                <th align="center" class="th-checkbox"><input type="checkbox" id="lpRowSelectAllHeader" title="Select all rows" /></th>
                 <th align="center">S/N</th>
                 <th align="center">Order #</th>
                 <th align="center">Item Code</th>
@@ -106,6 +149,10 @@
                 <th align="center">Total L/Kgs</th>
                 <th align="center">Net Weight (Kgs)</th>
                 <th align="center">Gross Weight (Kgs)</th>
+                <th align="center">Palletized</th>
+                <th align="center"># Pallets</th>
+                <th align="center">Pallet Wt (Kgs)</th>
+                <th align="center">Container</th>
                 <th align="center">Actions</th>
               </tr>
             </thead>
@@ -130,6 +177,14 @@
           <div class="summary-item">
             <span class="summary-label">Total Loading Qty:</span>
             <span id="totalLoadingQty" class="summary-value">0</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Total Pending Qty:</span>
+            <span id="totalPendingQty" class="summary-value">0</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Total L/Kgs:</span>
+            <span id="totalLiters" class="summary-value">0</span>
           </div>
           <div class="summary-item">
             <span class="summary-label">Total Net Weight:</span>
@@ -197,6 +252,18 @@
             <h4 class="subsection-title">
               Current Containers (<span id="containerCount">0</span>)
             </h4>
+
+            <!-- Bulk Actions Toolbar -->
+            <div id="containerBulkToolbar" class="container-bulk-toolbar" style="display:none;">
+              <label class="bulk-select-all-label">
+                <input type="checkbox" id="containerSelectAll" />
+                Select All
+              </label>
+              <button type="button" id="deleteSelectedContainersBtn" class="btn-delete-selected" disabled>
+                Delete Selected (<span id="selectedContainerCount">0</span>)
+              </button>
+            </div>
+
             <div id="containerCardsGrid" class="container-cards-grid">
               <div class="empty-state">
                 <i class="fas fa-inbox"></i>
@@ -207,161 +274,7 @@
         </div>
       </div>
 
-      <!-- STEP 2: Assign Items to Containers -->
-      <div class="wizard-step" id="step2Assignment">
-        <div class="step-header">
-          <div class="step-number">2</div>
-          <div class="step-info">
-            <h3 class="step-title">Assign Items to Containers</h3>
-            <p class="step-description">Manually assign each item or use auto-assignment</p>
-          </div>
-        </div>
-
-
-        <!-- FG Master Dimensions Modal -->
-        <div id="fgDimensionsModal" class="modal" style="display:none;">
-          <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-              <h3>Complete FG Master Data</h3>
-              <button type="button" class="close-btn" onclick="closeFgDimensionsModal()">&times;</button>
-            </div>
-
-            <div class="modal-body">
-              <!-- Item Info -->
-              <div style="background:#f8f9fa;padding:12px;border-radius:4px;margin-bottom:16px;">
-                <div style="margin-bottom:8px;">
-                  <strong>Product:</strong>
-                  <div id="fgModalDescription" style="color:#666;font-size:14px;"></div>
-                </div>
-                <div>
-                  <strong>Packaging:</strong>
-                  <div id="fgModalPackaging" style="color:#666;font-size:14px;"></div>
-                </div>
-              </div>
-
-              <!-- FG Match Info (shown only when updating existing FG) -->
-              <div id="fgModalMatchInfo"
-                style="display:none;background:#d1f2eb;padding:10px;border-radius:4px;margin-bottom:16px;">
-                <strong style="color:#0c5460;">Updating Existing FG Master:</strong>
-                <div id="fgModalMatchName" style="color:#155724;font-size:14px;margin-top:4px;"></div>
-              </div>
-
-              <form onsubmit="saveFgDimensions(event)">
-                <!-- ✅ NEW: Brand Field -->
-                <div style="margin-bottom: 16px;">
-                  <label style="display:block;margin-bottom:4px;font-weight:500;">
-                    Brand <span style="color:red;">*</span>
-                  </label>
-                  <select id="fgBrand" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;">
-                    <option value="">Select brand...</option>
-                    <option value="PETROMIN">PETROMIN</option>
-                    <option value="PETRONAS">PETRONAS</option>
-                    <option value="ADNOC">ADNOC</option>
-                    <option value="NATIONAL">NATIONAL</option>
-                    <option value="VOYAGER">VOYAGER</option>
-                    <option value="CROWN">CROWN</option>
-                    <option value="DUCKHAMS">DUCKHAMS</option>
-                    <option value="SPEEDX">SPEEDX</option>
-                    <option value="OTHER">Other</option>
-                  </select>
-                </div>
-
-                <!-- Dimensions -->
-                <div style="margin-bottom: 16px;">
-                  <label style="display:block;margin-bottom:4px;font-weight:500;">
-                    Carton Dimensions (mm) <span style="color:red;">*</span>
-                  </label>
-                  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
-                    <input type="number" id="fgLength" required placeholder="Length"
-                      style="padding:8px;border:1px solid #ddd;border-radius:4px;">
-                    <input type="number" id="fgWidth" required placeholder="Width"
-                      style="padding:8px;border:1px solid #ddd;border-radius:4px;">
-                    <input type="number" id="fgHeight" required placeholder="Height"
-                      style="padding:8px;border:1px solid #ddd;border-radius:4px;">
-                  </div>
-                  <div style="font-size:11px;color:#666;margin-top:4px;">
-                    Enter L × W × H in millimeters
-                  </div>
-                </div>
-
-                <!-- Hidden Weight Fields (auto-calculated) -->
-                <input type="hidden" id="fgGrossWeight">
-                <input type="hidden" id="fgNetWeight">
-
-                <!-- Info Message -->
-                <div style="background:#e7f3ff;padding:10px;border-radius:4px;margin-bottom:16px;">
-                  <div style="font-size:12px;color:#004085;">
-                    <i class="fas fa-info-circle"></i>
-                    Weights are auto-calculated from Loading Plan data. Enter brand and carton dimensions only.
-                  </div>
-                </div>
-
-                <!-- Action Buttons -->
-                <div style="display:flex;gap:8px;justify-content:flex-end;">
-                  <button type="button" onclick="skipFgDimensions()"
-                    style="padding:10px 20px;background:#6c757d;color:white;border:none;border-radius:4px;cursor:pointer;">
-                    Skip (Use Estimate)
-                  </button>
-                  <button type="submit"
-                    style="padding:10px 20px;background:#28a745;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:500;">
-                    <i class="fas fa-save"></i> Save FG Master Data
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-
-
-        <div class="step-content">
-          <!-- Action Buttons -->
-          <div class="assignment-actions">
-            <!-- Start from scratch (DESTRUCTIVE) -->
-            <button type="button" id="startAllocationBtn" class="btn-wizard-primary">
-              <i class="fas fa-play"></i> Start Allocation
-            </button>
-
-            <!-- Auto-assign unassigned items to containers -->
-            <button type="button" id="autoAssignBtn" class="btn-wizard-primary">
-              <i class="fas fa-magic"></i> Auto-Assign Unassigned
-            </button>
-
-            <!-- ✅ UPDATE BUTTON - Add missing items (NON-DESTRUCTIVE) -->
-            <button type="button" id="updateAllocationBtn" class="btn-wizard-primary">
-              <i class="fas fa-sync-alt"></i> Update Items
-            </button>
-
-            <!-- Reset assignments (hidden by default) -->
-            <button type="button" id="resetAssignmentsBtn" class="btn-wizard-secondary" style="display: none;">
-              <i class="fas fa-undo"></i> Reset All Assignments
-            </button>
-          </div>
-
-          <!-- Assignment Table -->
-          <div class="assignment-table-container">
-            <table id="assignmentTable" class="assignment-table">
-              <thead>
-                <tr>
-                  <th>Order #</th>
-                  <th>Item Code</th>
-                  <th>Description</th>
-                  <th>Loading Qty</th>
-                  <th>Palletized</th>
-                  <th># Pallets</th>
-                  <th>Pallet Weight (kg)</th>
-                  <th>Gross Weight (kg)</th>
-                  <th>Volume (L)</th>
-                  <th>Assign To Container</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="assignmentTableBody">
-                <!-- Populated by JS -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <!-- [FG Dimensions Modal removed — not needed per stakeholder] -->
 
 
 
