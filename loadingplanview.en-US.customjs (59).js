@@ -3707,7 +3707,6 @@
       const usedWeight = usage.weight;
       const usedVolume = usage.volume;
       const itemCount = usage.itemCount;
-      const fgMatchRate = itemCount > 0 ? Math.round((usage.fgMatched / itemCount) * 100) : 0;
 
       // Calculate utilization percentages
       const weightUtil = maxWeight > 0 ? ((usedWeight / maxWeight) * 100) : 0;
@@ -3733,18 +3732,6 @@
       // Determine if weight or volume is exceeded
       const weightExceeded = weightUtil > 100;
       const volumeExceeded = volumeUtil > 100;
-
-      // FG Master match indicator
-      let fgMatchBadge = "";
-      if (itemCount > 0) {
-        if (fgMatchRate === 100) {
-          fgMatchBadge = '<span style="background:#28a745;color:white;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:4px;" title="All items matched to FG Master">✓ 100% FG Matched</span>';
-        } else if (fgMatchRate > 0) {
-          fgMatchBadge = `<span style="background:#ffc107;color:#333;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:4px;" title="${usage.fgMatched} of ${itemCount} items matched to FG Master">⚠ ${fgMatchRate}% FG Matched</span>`;
-        } else {
-          fgMatchBadge = '<span style="background:#dc3545;color:white;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:4px;" title="No FG Master matches - using estimates">⚠ No FG Match</span>';
-        }
-      }
 
       return `
         <div class="mini-container-card" data-container-id="${escapeHtml(c.id)}" style="
@@ -3773,21 +3760,11 @@
             <span style="color:${statusColor};font-weight:bold;margin-left:8px;">${statusText}</span>
           </div>
 
-          <!-- FG Master Match Status -->
           ${itemCount > 0 ? `
             <div style="margin-bottom:8px;padding:6px;background:#f8f9fa;border-radius:4px;">
               <div style="font-size:11px;color:#666;">
                 Items: <strong>${itemCount}</strong>
-                ${fgMatchBadge}
               </div>
-          ${usage.fgMissing > 0 ? `
-            <div style="margin-top:6px;padding:6px;background:#fff3cd;border-radius:4px;">
-              <div style="font-size:11px;color:#856404;">
-                <i class="fas fa-exclamation-triangle"></i>
-                ${usage.fgMissing} of ${itemCount} item${usage.fgMissing > 1 ? 's' : ''} missing dimensions
-              </div>
-            </div>
-          ` : ''}
             </div>
           ` : `
             <div style="margin-bottom:8px;padding:6px;background:#f8f9fa;border-radius:4px;text-align:center;">
