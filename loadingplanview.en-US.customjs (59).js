@@ -6300,50 +6300,112 @@
     // ===== IMPORT FROM PDF =====
 
     /**
-     * Loads the pdf.js library from CDN (lazy, once).
-     * Uses fetch + eval to bypass CSP script-src restrictions.
-     * Power Pages CSP allows 'unsafe-eval' but blocks external <script> tags.
-     * The worker is disabled so everything runs on the main thread (fine for small order PDFs).
+     * Built-in PDF text extractor — zero external dependencies.
+     * Parses PDF content streams directly, decompresses FlateDecode streams
+     * via the native DecompressionStream API, and extracts text from PDF
+     * text operators (Tj, TJ). Works for Oracle Order Document PDFs which
+     * use standard text encoding.
      */
-    async function loadPdfJs() {
-      if (window.pdfjsLib) return window.pdfjsLib;
 
-      // Use pdf.js 2.x (last: 2.16.105) because it supports disableWorker: true.
-      // pdf.js 3.x removed that option and requires a separate worker file,
-      // which gets blocked by Power Pages worker-src CSP.
-      const cdnUrl = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js";
-      const resp = await fetch(cdnUrl);
-      if (!resp.ok) throw new Error("Failed to download pdf.js: " + resp.statusText);
-      const code = await resp.text();
+    /** Decompress a FlateDecode (zlib/deflate) byte stream. */
+    async function inflatePdfStream(bytes) {
+      const ds = new DecompressionStream("deflate");
+      const writer = ds.writable.getWriter();
+      writer.write(bytes);
+      writer.close();
+      const reader = ds.readable.getReader();
+      const chunks = [];
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const total = chunks.reduce((s, c) => s + c.length, 0);
+      const result = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { result.set(c, off); off += c.length; }
+      return new TextDecoder("latin1").decode(result);
+    }
 
-      // Indirect eval executes in global scope so pdfjsLib attaches to window
-      (0, eval)(code);
+    /** Un-escape a PDF literal string: \\n, \\(, octal codes, etc. */
+    function unescapePdfStr(s) {
+      return s
+        .replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t")
+        .replace(/\\\(/g, "(").replace(/\\\)/g, ")")
+        .replace(/\\\\/g, "\\")
+        .replace(/\\(\d{1,3})/g, function (_, oct) { return String.fromCharCode(parseInt(oct, 8)); });
+    }
 
-      if (!window.pdfjsLib) throw new Error("pdf.js failed to initialize after eval.");
-
-      return window.pdfjsLib;
+    /** Extract human-readable text strings from a single PDF content stream. */
+    function extractTextFromStream(content) {
+      const parts = [];
+      // Match BT … ET text object blocks.
+      // Use \b word boundaries so "ET" inside words like "PETROMIN" or "FLEET" is ignored.
+      var btRe = /\bBT\b([\s\S]*?)\bET\b/g;
+      var bm;
+      while ((bm = btRe.exec(content)) !== null) {
+        var block = bm[1];
+        // (string) Tj  — show text
+        var tjRe = /\(((?:[^()\\]|\\.)*)\)\s*Tj/g;
+        var m;
+        while ((m = tjRe.exec(block)) !== null) parts.push(unescapePdfStr(m[1]));
+        // [ (str) num (str) … ] TJ — show text with kerning
+        var tjArrRe = /\[([^\]]*)\]\s*TJ/g;
+        while ((m = tjArrRe.exec(block)) !== null) {
+          var inner = m[1];
+          var strRe = /\(((?:[^()\\]|\\.)*)\)/g;
+          var s2, line = "";
+          while ((s2 = strRe.exec(inner)) !== null) line += unescapePdfStr(s2[1]);
+          if (line) parts.push(line);
+        }
+      }
+      return parts;
     }
 
     /**
-     * Extracts all text from every page of a PDF file, returning one string.
+     * Extracts all text from a PDF file (no external libraries).
+     * Finds every stream/endstream pair, decompresses FlateDecode streams,
+     * and extracts text via PDF operators.
      */
     async function extractTextFromPdf(file) {
-      const lib = await loadPdfJs();
-      const arrayBuffer = await file.arrayBuffer();
-      // disableWorker: true — runs parsing on the main thread, no worker file needed
-      const pdf = await lib.getDocument({
-        data: new Uint8Array(arrayBuffer),
-        disableWorker: true
-      }).promise;
+      var buffer = await file.arrayBuffer();
+      var bytes = new Uint8Array(buffer);
+      var raw = new TextDecoder("latin1").decode(bytes);
 
-      let fullText = "";
-      for (let p = 1; p <= pdf.numPages; p++) {
-        const page = await pdf.getPage(p);
-        const content = await page.getTextContent();
-        const pageText = content.items.map(item => item.str).join("\n");
-        fullText += pageText + "\n";
+      var allText = [];
+      var streamRe = /stream\r?\n/g;
+      var sm;
+      while ((sm = streamRe.exec(raw)) !== null) {
+        var dataStart = sm.index + sm[0].length;
+        var endIdx = raw.indexOf("endstream", dataStart);
+        if (endIdx < 0) continue;
+
+        // Check the object dictionary (up to 1 KB before "stream") for FlateDecode
+        var dictSlice = raw.substring(Math.max(0, sm.index - 1024), sm.index);
+        var isFlate = /\/FlateDecode/.test(dictSlice);
+
+        // Extract stream bytes — trim trailing newline before "endstream"
+        var streamLen = endIdx - dataStart;
+        if (raw.charCodeAt(dataStart + streamLen - 1) === 10) streamLen--;
+        if (streamLen > 0 && raw.charCodeAt(dataStart + streamLen - 1) === 13) streamLen--;
+        var streamBytes = bytes.slice(dataStart, dataStart + streamLen);
+
+        var decoded;
+        if (isFlate) {
+          try { decoded = await inflatePdfStream(streamBytes); }
+          catch (e) { continue; }
+        } else {
+          decoded = new TextDecoder("latin1").decode(streamBytes);
+        }
+
+        // Only process streams that contain text operators
+        if (decoded.indexOf("Tj") < 0 && decoded.indexOf("TJ") < 0) continue;
+
+        var parts = extractTextFromStream(decoded);
+        if (parts.length) allText.push.apply(allText, parts);
       }
-      return fullText;
+
+      return allText.join("\n");
     }
 
     /**
