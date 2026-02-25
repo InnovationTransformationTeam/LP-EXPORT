@@ -6301,20 +6301,27 @@
 
     /**
      * Loads the pdf.js library from CDN (lazy, once).
+     * Uses fetch + eval to bypass CSP script-src restrictions.
+     * Power Pages CSP allows 'unsafe-eval' but blocks external <script> tags.
+     * The worker is disabled so everything runs on the main thread (fine for small order PDFs).
      */
-    function loadPdfJs() {
-      return new Promise((resolve, reject) => {
-        if (window.pdfjsLib) return resolve(window.pdfjsLib);
-        const script = document.createElement("script");
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-        script.onload = () => {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-          resolve(window.pdfjsLib);
-        };
-        script.onerror = () => reject(new Error("Failed to load pdf.js library."));
-        document.head.appendChild(script);
-      });
+    async function loadPdfJs() {
+      if (window.pdfjsLib) return window.pdfjsLib;
+
+      const cdnUrl = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      const resp = await fetch(cdnUrl);
+      if (!resp.ok) throw new Error("Failed to download pdf.js: " + resp.statusText);
+      const code = await resp.text();
+
+      // Indirect eval executes in global scope so pdfjsLib attaches to window
+      (0, eval)(code);
+
+      if (!window.pdfjsLib) throw new Error("pdf.js failed to initialize after eval.");
+
+      // Disable worker — avoids worker-src CSP issues, runs on main thread instead
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+
+      return window.pdfjsLib;
     }
 
     /**
@@ -6323,7 +6330,11 @@
     async function extractTextFromPdf(file) {
       const lib = await loadPdfJs();
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await lib.getDocument({ data: arrayBuffer }).promise;
+      const pdf = await lib.getDocument({
+        data: arrayBuffer,
+        useWorkerFetch: false,
+        isEvalSupported: true
+      }).promise;
 
       let fullText = "";
       for (let p = 1; p <= pdf.numPages; p++) {
