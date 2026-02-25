@@ -5411,158 +5411,6 @@
      18) AUTOMATIC ALLOCATION — uses container-items
      ============================= */
 
-  /**
-   * First-Fit Decreasing (FFD) algorithm — fills containers before moving to the next.
-   * Sorts unassigned items by weight (heaviest first), then assigns each to the
-   * first container that has enough remaining capacity.
-   * Returns the array of newly-assigned items for patching.
-   */
-  function assignItemsFFD(lpIndex) {
-    const containers = DCL_CONTAINERS_STATE
-      .filter(c => c.dataverseId)
-      .map(c => ({
-        id: c.id,
-        dataverseId: c.dataverseId,
-        type: c.type,
-        capacityKg: c.maxWeight || (CONTAINER_CAPACITY_KG[c.type] || 25000),
-        usedKg: 0,
-        items: []
-      }));
-
-    if (!containers.length) return { containers, assigned: [] };
-
-    // Pre-load existing assignments
-    DCL_CONTAINER_ITEMS_STATE
-      .filter(ci => ci.containerGuid)
-      .forEach(ci => {
-        const container = containers.find(c => c.dataverseId === ci.containerGuid);
-        if (container) {
-          container.usedKg += computeContainerItemGrossWeight(ci, lpIndex);
-        }
-      });
-
-    // Collect unassigned items with their weights
-    const unassigned = DCL_CONTAINER_ITEMS_STATE
-      .filter(ci => ci.quantity > 0 && !ci.containerGuid)
-      .map(ci => ({ ci, grossKg: computeContainerItemGrossWeight(ci, lpIndex) }));
-
-    if (!unassigned.length) return { containers, assigned: [] };
-
-    // Sort heaviest first (First-Fit Decreasing)
-    unassigned.sort((a, b) => b.grossKg - a.grossKg);
-
-    // Assign each item to the first container that fits
-    unassigned.forEach(({ ci, grossKg }) => {
-      const tgt = containers.find(c => (c.capacityKg - c.usedKg) >= grossKg)
-                  || containers[containers.length - 1]; // fallback: last container
-      tgt.items.push(ci);
-      tgt.usedKg += grossKg;
-      ci.containerGuid = tgt.dataverseId || null;
-    });
-
-    return { containers, assigned: unassigned };
-  }
-
-  /**
-   * Unified "Assign to Containers" — creates CIs if needed, then runs FFD.
-   * Called from the single toolbar button.
-   */
-  async function assignToContainers() {
-    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
-      showValidation("error", "Missing or invalid DCL id in URL.");
-      return;
-    }
-
-    const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
-    if (!hasContainers) {
-      showValidation("warning", "Add containers first before assigning items.");
-      return;
-    }
-
-    const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
-    if (!lpRowCount) {
-      showValidation("warning", "No items to assign. Import or add items first.");
-      return;
-    }
-
-    try {
-      setLoading(true, "Preparing assignment\u2026");
-
-      // STEP 1: Ensure all LP rows have server IDs
-      await hydrateLpRowServerIds();
-
-      // STEP 2: Ensure container items exist (create / sync)
-      const hasExistingCIs = DCL_CONTAINER_ITEMS_STATE.length > 0;
-
-      if (hasExistingCIs) {
-        // Incremental update (preserves existing assignments)
-        await syncContainerItemsIncrementally();
-      } else {
-        // First time: create CIs from LP rows
-        const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
-        await ensureContainerItemsForCurrentDcl(freshLpRows);
-      }
-
-      // STEP 3: Run FFD on any unassigned items
-      const lpIndex = buildLpRowIndex();
-      const unassignedCount = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.quantity > 0 && !ci.containerGuid).length;
-
-      if (unassignedCount > 0) {
-        setLoading(true, `Assigning ${unassignedCount} item(s) to containers\u2026`);
-
-        const { assigned } = assignItemsFFD(lpIndex);
-
-        // Patch all newly assigned items
-        await Promise.all(
-          assigned.map(({ ci }) =>
-            patchContainerItem(ci.id, {
-              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${ci.containerGuid})`
-            })
-          )
-        );
-
-        // Refresh state from server
-        await refreshContainerItemsState();
-      }
-
-      // STEP 4: Refresh all UI
-      await refreshOrderItemsDisplay();
-      recalcAllRows();
-      recomputeTotals();
-      rebuildAssignmentTable();
-      renderContainerCards();
-      renderContainerSummaries();
-      refreshAIAnalysis();
-      updateToolbarState();
-
-      // Show result
-      const totalAssigned = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
-      const totalCI = DCL_CONTAINER_ITEMS_STATE.length;
-      const stillUnassigned = totalCI - totalAssigned;
-
-      const section = Q("#allocationStatusSection");
-      const statusContent = Q("#statusContent");
-      if (section && statusContent) {
-        section.style.display = "block";
-        statusContent.textContent = stillUnassigned > 0
-          ? `${totalAssigned} of ${totalCI} item(s) assigned. ${stillUnassigned} could not fit.`
-          : `All ${totalCI} item(s) assigned to containers.`;
-      }
-
-      if (stillUnassigned > 0) {
-        showValidation("warning", `${totalAssigned} item(s) assigned. ${stillUnassigned} item(s) did not fit \u2014 consider adding containers.`);
-      } else {
-        showValidation("success", `All ${totalCI} item(s) assigned to containers.`);
-      }
-
-    } catch (err) {
-      console.error("Assign to Containers failed", err);
-      showValidation("error", "Failed to assign items: " + (err.message || err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
   function resetAllAssignments() {
     if (!DCL_CONTAINER_ITEMS_STATE.length) return;
 
@@ -6248,7 +6096,161 @@
     }
 
 
-    // Single "Assign to Containers" button — creates CIs + assigns via FFD
+    // ===== FFD + Assign to Containers (must be inside DOMContentLoaded for syncContainerItemsIncrementally access) =====
+
+    /**
+     * First-Fit Decreasing (FFD) algorithm — fills containers before moving to the next.
+     * Sorts unassigned items by weight (heaviest first), then assigns each to the
+     * first container that has enough remaining capacity.
+     */
+    function assignItemsFFD(lpIndex) {
+      const containers = DCL_CONTAINERS_STATE
+        .filter(c => c.dataverseId)
+        .map(c => ({
+          id: c.id,
+          dataverseId: c.dataverseId,
+          type: c.type,
+          capacityKg: c.maxWeight || (CONTAINER_CAPACITY_KG[c.type] || 25000),
+          usedKg: 0,
+          items: []
+        }));
+
+      if (!containers.length) return { containers, assigned: [] };
+
+      // Pre-load existing assignments
+      DCL_CONTAINER_ITEMS_STATE
+        .filter(ci => ci.containerGuid)
+        .forEach(ci => {
+          const container = containers.find(c => c.dataverseId === ci.containerGuid);
+          if (container) {
+            container.usedKg += computeContainerItemGrossWeight(ci, lpIndex);
+          }
+        });
+
+      // Collect unassigned items with their weights
+      const unassigned = DCL_CONTAINER_ITEMS_STATE
+        .filter(ci => ci.quantity > 0 && !ci.containerGuid)
+        .map(ci => ({ ci, grossKg: computeContainerItemGrossWeight(ci, lpIndex) }));
+
+      if (!unassigned.length) return { containers, assigned: [] };
+
+      // Sort heaviest first (First-Fit Decreasing)
+      unassigned.sort((a, b) => b.grossKg - a.grossKg);
+
+      // Assign each item to the first container that fits
+      unassigned.forEach(({ ci, grossKg }) => {
+        const tgt = containers.find(c => (c.capacityKg - c.usedKg) >= grossKg)
+                    || containers[containers.length - 1]; // fallback: last container
+        tgt.items.push(ci);
+        tgt.usedKg += grossKg;
+        ci.containerGuid = tgt.dataverseId || null;
+      });
+
+      return { containers, assigned: unassigned };
+    }
+
+    /**
+     * Unified "Assign to Containers" — creates CIs if needed, then runs FFD.
+     * Single-click flow: ensure CIs exist → sync changes → assign unassigned → refresh UI.
+     */
+    async function assignToContainers() {
+      if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+        showValidation("error", "Missing or invalid DCL id in URL.");
+        return;
+      }
+
+      const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
+      if (!hasContainers) {
+        showValidation("warning", "Add containers first before assigning items.");
+        return;
+      }
+
+      const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+      if (!lpRowCount) {
+        showValidation("warning", "No items to assign. Import or add items first.");
+        return;
+      }
+
+      try {
+        setLoading(true, "Preparing assignment\u2026");
+
+        // STEP 1: Ensure all LP rows have server IDs
+        await hydrateLpRowServerIds();
+
+        // STEP 2: Ensure container items exist (create / sync)
+        const hasExistingCIs = DCL_CONTAINER_ITEMS_STATE.length > 0;
+
+        if (hasExistingCIs) {
+          // Incremental update — detects new items, qty changes, orphans
+          await syncContainerItemsIncrementally();
+        } else {
+          // First time: create CIs from LP rows
+          const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
+          await ensureContainerItemsForCurrentDcl(freshLpRows);
+        }
+
+        // STEP 3: Run FFD on any unassigned items
+        const lpIndex = buildLpRowIndex();
+        const unassignedCount = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.quantity > 0 && !ci.containerGuid).length;
+
+        if (unassignedCount > 0) {
+          setLoading(true, `Assigning ${unassignedCount} item(s) to containers\u2026`);
+
+          const { assigned } = assignItemsFFD(lpIndex);
+
+          // Patch all newly assigned items on the server
+          await Promise.all(
+            assigned.map(({ ci }) =>
+              patchContainerItem(ci.id, {
+                "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${ci.containerGuid})`
+              })
+            )
+          );
+
+          // NOTE: Do NOT call refreshContainerItemsState() here.
+          // Local state is already correct (POST IDs + FFD assignments).
+          // A server re-fetch may return stale data due to Dataverse eventual consistency.
+        }
+
+        // STEP 4: Refresh all UI from current local state
+        await refreshOrderItemsDisplay();
+        recalcAllRows();
+        recomputeTotals();
+        rebuildAssignmentTable();
+        renderContainerCards();
+        renderContainerSummaries();
+        refreshAIAnalysis();
+        updateToolbarState();
+
+        // Show result
+        const totalAssigned = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
+        const totalCI = DCL_CONTAINER_ITEMS_STATE.length;
+        const stillUnassigned = totalCI - totalAssigned;
+
+        const section = Q("#allocationStatusSection");
+        const statusContent = Q("#statusContent");
+        if (section && statusContent) {
+          section.style.display = "block";
+          statusContent.textContent = stillUnassigned > 0
+            ? `${totalAssigned} of ${totalCI} item(s) assigned. ${stillUnassigned} could not fit.`
+            : `All ${totalCI} item(s) assigned to containers.`;
+        }
+
+        if (stillUnassigned > 0) {
+          showValidation("warning", `${totalAssigned} item(s) assigned. ${stillUnassigned} item(s) did not fit \u2014 consider adding containers.`);
+        } else {
+          showValidation("success", `All ${totalCI} item(s) assigned to containers.`);
+        }
+
+      } catch (err) {
+        console.error("Assign to Containers failed", err);
+        showValidation("error", "Failed to assign items: " + (err.message || err));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // Single "Assign to Containers" button
     const assignToContainersBtn = Q("#assignToContainersBtn");
     if (assignToContainersBtn) {
       assignToContainersBtn.addEventListener("click", assignToContainers);
