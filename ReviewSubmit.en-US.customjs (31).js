@@ -32,31 +32,43 @@ const STATE = {
   customerMandatoryDocs: [] // Loaded from customer's cr650_mandatorydocuments field
 };
 
-// Mapping from Customer Management checkbox values → Review & Submit checklist names
-// Used to translate cr650_mandatorydocuments short codes into system document types
-const MANDATORY_DOC_MAPPING = {
-  'PI': 'Proforma Invoice (PI)',
-  'CI': 'Commercial Invoice (CI)',
-  'PL': 'Packing List (PL)',
-  'DNs': 'Delivery Note (DN)',
-  'System Invoices': 'System Invoice (SI)',
-  'COO': 'Certificate of Origin (Dubai Chamber)',
-  'Shahada Mansha': 'Shahada Mansha (Ministry of Economy)',
-  'MOFA': 'MOFA Document',
-  'Inspection Certificate': 'Inspection Certificate',
-  'Insurance Certificate': 'Insurance Certificate',
-  'ED': 'Customs Export Declaration (ED) / Bayan Jumrki',
-  'Cust. Exit/Entry Cert.': 'Original Customs Exit / Entry Certificate',
-  'BL/TCN/Main.': 'BL / TCN / Manifest / Local',
-  'AWB Receipt by DHL/Email/WATSAPP/BANK': 'BL / TCN / Manifest / Local',
-  'Finance Submission For Vendor Freight Invoice': 'Invoice Submission To Finance',
-  'Vendor Freight Invoice': 'Vendor Invoice (Freight / Inspection / Others)',
-  'Oracle Freight PO': 'Oracle PO (Freight / Inspection / Others)',
-  'Inspection Invoice': 'Vendor Invoice (Freight / Inspection / Others)',
-  'Oracle Inspection PO': 'Oracle PO (Freight / Inspection / Others)',
-  'Documentation Charges': 'Documentation Charges',
-  'Finance Submission': 'Invoice Submission To Finance'
+// Customer mandatory doc codes → { label, search terms to match cr650_doc_type directly }
+// search: array of keywords matched against cr650_doc_type in cr650_dcl_documents
+const MANDATORY_DOC_CONFIG = {
+  'PI':                                       { label: 'Proforma Invoice (PI)',               search: ['proforma invoice'] },
+  'CI':                                       { label: 'Commercial Invoice (CI)',              search: ['commercial invoice'] },
+  'PL':                                       { label: 'Packing List (PL)',                    search: ['packing list'] },
+  'DNs':                                      { label: 'Delivery Note (DN)',                   search: ['delivery note'] },
+  'System Invoices':                          { label: 'System Invoice (SI)',                  search: ['system invoice'] },
+  'COO':                                      { label: 'Certificate of Origin',               search: ['certificate of origin', 'coo'] },
+  'Shahada Mansha':                           { label: 'Shahada Mansha',                      search: ['shahada mansha', 'shahada'] },
+  'MOFA':                                     { label: 'MOFA Document',                       search: ['mofa'] },
+  'Inspection Certificate':                   { label: 'Inspection Certificate',              search: ['inspection certificate'] },
+  'Insurance Certificate':                    { label: 'Insurance Certificate',               search: ['insurance certificate'] },
+  'ED':                                       { label: 'Customs Export Declaration (ED)',      search: ['customs export', 'export declaration', 'bayan'] },
+  'Cust. Exit/Entry Cert.':                   { label: 'Customs Exit / Entry Certificate',    search: ['customs exit', 'entry certificate'] },
+  'BL/TCN/Main.':                             { label: 'BL / TCN / Manifest',                 search: ['bl', 'tcn', 'manifest', 'bill of lading'] },
+  'AWB Receipt by DHL/Email/WATSAPP/BANK':    { label: 'AWB Receipt',                         search: ['awb'] },
+  'Finance Submission For Vendor Freight Invoice': { label: 'Finance Submission (Vendor Freight)', search: ['finance submission', 'invoice submission'] },
+  'Vendor Freight Invoice':                   { label: 'Vendor Freight Invoice',              search: ['vendor freight', 'vendor invoice'] },
+  'Oracle Freight PO':                        { label: 'Oracle Freight PO',                   search: ['oracle freight', 'oracle po'] },
+  'Inspection Invoice':                       { label: 'Inspection Invoice',                  search: ['inspection invoice'] },
+  'Oracle Inspection PO':                     { label: 'Oracle Inspection PO',                search: ['oracle inspection'] },
+  'Documentation Charges':                    { label: 'Documentation Charges',               search: ['documentation charges'] },
+  'Finance Submission':                       { label: 'Finance Submission',                  search: ['finance submission', 'invoice submission'] }
 };
+
+/**
+ * Checks if a mandatory document is present in the DCL's uploaded documents.
+ * Matches search terms against cr650_doc_type in cr650_dcl_documents directly.
+ */
+function isMandatoryDocPresent(searchTerms) {
+  return STATE.allDocuments.some(doc => {
+    const docType = (doc.cr650_doc_type || '').toLowerCase();
+    if (docType === 'merged pdf' || docType === 'merged dcl package') return false;
+    return searchTerms.some(term => docType.includes(term.toLowerCase()));
+  });
+}
 
 
 // ============================================================================
@@ -344,11 +356,13 @@ async function loadCustomerMandatoryDocs() {
     STATE.customerMandatoryDocs = rawDocs.map(code => {
       if (code.startsWith('Others:') || code === 'Others') {
         const customText = code.startsWith('Others:') ? code.substring(7).trim() : '';
-        return { code: code, fullName: customText || 'Other Document', isOther: true };
+        return { code: code, label: customText || 'Other Document', search: ['other'], isOther: true };
       }
+      const config = MANDATORY_DOC_CONFIG[code];
       return {
         code: code,
-        fullName: MANDATORY_DOC_MAPPING[code] || code,
+        label: config ? config.label : code,
+        search: config ? config.search : [code.toLowerCase()],
         isOther: false
       };
     });
@@ -1004,25 +1018,12 @@ function renderMandatoryDocsChecklist() {
 
   const customerName = STATE.dclMasterData?.cr650_customername || 'Customer';
 
-  // Check each mandatory doc against uploaded documents
+  // Check each mandatory doc against uploaded documents (cr650_dcl_documents)
   let uploadedCount = 0;
   const totalRequired = STATE.customerMandatoryDocs.length;
   const docItems = STATE.customerMandatoryDocs.map(doc => {
-    let isUploaded = false;
-
-    if (doc.isOther) {
-      // "Others" items — check for any doc with "Other" in its type
-      isUploaded = STATE.allDocuments.some(d => {
-        const t = (d.cr650_doc_type || '').toLowerCase();
-        return t.includes('other') && t !== 'merged pdf';
-      });
-    } else {
-      // Standard docs — use existing getDocumentStatus()
-      isUploaded = getDocumentStatus(doc.fullName) === 'Yes';
-    }
-
+    const isUploaded = isMandatoryDocPresent(doc.search);
     if (isUploaded) uploadedCount++;
-
     return { ...doc, isUploaded };
   });
 
@@ -1064,8 +1065,8 @@ function renderMandatoryDocsChecklist() {
       : '<span style="background: #fef2f2; color: #dc2626; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Missing</span>';
 
     const displayName = doc.isOther
-      ? `Other: ${escapeHtml(doc.fullName)}`
-      : escapeHtml(doc.fullName);
+      ? `Other: ${escapeHtml(doc.label)}`
+      : escapeHtml(doc.label);
 
     const shortCode = doc.isOther ? '' : `<span style="color: #9ca3af; font-size: 0.8rem; margin-left: 0.5rem;">(${escapeHtml(doc.code)})</span>`;
 
@@ -1220,18 +1221,8 @@ function validateMandatoryDocuments() {
   const missing = [];
 
   for (const doc of STATE.customerMandatoryDocs) {
-    if (doc.isOther) {
-      // "Others" items — check for any doc with "Other" in its type
-      const hasOther = STATE.allDocuments.some(d => {
-        const t = (d.cr650_doc_type || '').toLowerCase();
-        return t.includes('other') && t !== 'merged pdf';
-      });
-      if (!hasOther) missing.push(doc.fullName);
-    } else {
-      const status = getDocumentStatus(doc.fullName);
-      if (status !== "Yes") {
-        missing.push(doc.fullName);
-      }
+    if (!isMandatoryDocPresent(doc.search)) {
+      missing.push(doc.label);
     }
   }
 
@@ -1379,20 +1370,12 @@ function showEnhancedConfirmation(selectedDocs, deselectedDocs) {
     }).join('')
     : '';
 
-  // Check if any deselected docs are mandatory (using customer-specific list)
-  const customerMandatoryNames = (STATE.customerMandatoryDocs || [])
-    .filter(d => !d.isOther)
-    .map(d => d.fullName);
-
+  // Check if any deselected docs are mandatory (using customer-specific search terms)
   const deselectedMandatory = deselectedDocs.filter(doc => {
-    const raw = doc.cr650_doc_type || '';
-    return customerMandatoryNames.some(md => {
-      if (normalize(raw) === normalize(md)) return true;
-      for (const key in DOC_TYPE_MAPPING) {
-        if (raw.toLowerCase().includes(key.toLowerCase()) && normalize(DOC_TYPE_MAPPING[key]) === normalize(md)) return true;
-      }
-      return false;
-    });
+    const docType = (doc.cr650_doc_type || '').toLowerCase();
+    return (STATE.customerMandatoryDocs || []).some(md =>
+      md.search.some(term => docType.includes(term.toLowerCase()))
+    );
   });
 
   const mandatoryWarningHTML = deselectedMandatory.length > 0
