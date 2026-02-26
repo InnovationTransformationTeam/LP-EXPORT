@@ -296,17 +296,28 @@ async function loadDclMasterData() {
 }
 
 async function loadCustomerMandatoryDocs() {
+  const customerCode = STATE.dclMasterData?.cr650_customercodes;
   const customerName = STATE.dclMasterData?.cr650_customername;
-  if (!customerName) {
-    console.log('ℹ️ No customer name on DCL — skipping mandatory docs lookup');
+
+  if (!customerCode && !customerName) {
+    console.log('ℹ️ No customer code or name on DCL — skipping mandatory docs lookup');
     STATE.customerMandatoryDocs = [];
     return;
   }
 
   try {
-    // Escape single quotes for OData filter
-    const safeName = customerName.replace(/'/g, "''");
-    const url = `/_api/cr650_updated_dcl_customers?$filter=cr650_customername eq '${safeName}'&$select=cr650_mandatorydocuments&$top=1`;
+    let url;
+
+    // Prefer customer code (unique) over customer name
+    if (customerCode) {
+      const safeCode = customerCode.replace(/'/g, "''");
+      url = `/_api/cr650_updated_dcl_customers?$filter=cr650_customercodes eq '${safeCode}'&$select=cr650_mandatorydocuments&$top=1`;
+      console.log(`🔍 Looking up customer by code: ${customerCode}`);
+    } else {
+      const safeName = customerName.replace(/'/g, "''");
+      url = `/_api/cr650_updated_dcl_customers?$filter=cr650_customername eq '${safeName}'&$select=cr650_mandatorydocuments&$top=1`;
+      console.log(`🔍 Looking up customer by name: ${customerName}`);
+    }
 
     const response = await fetch(url, {
       headers: { 'Accept': 'application/json', 'OData-Version': '4.0' }
@@ -322,7 +333,7 @@ async function loadCustomerMandatoryDocs() {
     const customer = (data.value || [])[0];
 
     if (!customer || !customer.cr650_mandatorydocuments) {
-      console.log('ℹ️ No mandatory documents configured for customer:', customerName);
+      console.log('ℹ️ No mandatory documents configured for customer:', customerCode || customerName);
       STATE.customerMandatoryDocs = [];
       return;
     }
@@ -342,7 +353,7 @@ async function loadCustomerMandatoryDocs() {
       };
     });
 
-    console.log(`✅ Loaded ${STATE.customerMandatoryDocs.length} mandatory docs for ${customerName}:`, STATE.customerMandatoryDocs);
+    console.log(`✅ Loaded ${STATE.customerMandatoryDocs.length} mandatory docs for ${customerCode || customerName}:`, STATE.customerMandatoryDocs);
 
   } catch (error) {
     console.error('❌ Error loading customer mandatory docs:', error);
