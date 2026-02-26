@@ -44,17 +44,38 @@ const CONFIG = {
     virtualScrollThreshold: 50  // Rows before virtual scroll
 };
 
-// Correct column definitions based on stakeholder Excel
+// ============================================================================
+// CURRENCY CONVERSION RATES (to AED)
+// ============================================================================
+const AED_RATES = {
+    'AED': 1,
+    'USD': 3.6725,
+    'SAR': 0.9793,
+    'EUR': 4.02,
+    'GBP': 4.65
+};
+
+function toAED(amount, currency) {
+    if (!amount || isNaN(amount)) return 0;
+    const cur = (currency || 'USD').toUpperCase().trim();
+    const rate = AED_RATES[cur] || AED_RATES['USD'];
+    return amount * rate;
+}
+
+// ============================================================================
+// FULL COLUMN DEFINITIONS (Summary Accruals uses all)
+// ============================================================================
 const COLUMN_DEFINITIONS = [
     // System Generated from DCL Masters
     { key: 'dclNumber', header: 'DCL #', source: 'cr650_dcl_masters', field: 'cr650_dclnumber', width: 120, type: 'text' },
+    { key: 'ciNumber', header: 'CI Number', source: 'cr650_dcl_masters', field: 'cr650_ci_number', width: 140, type: 'text' },
     { key: 'status', header: 'Status', source: 'cr650_dcl_masters', field: 'cr650_status', width: 100, type: 'text' },
     { key: 'businessUnit', header: 'Business Unit', source: 'cr650_dcl_ar_reports', field: 'cr650_businessunit', width: 150, type: 'text' },
     { key: 'salesperson', header: 'Salesperson', source: 'cr650_dcl_ar_reports', field: 'cr650_salesperson', width: 150, type: 'text' },
-    
+
     // Manual Entry Fields
     { key: 'exportExecutive', header: 'Export Executive', source: 'cr650_dcl_masters', field: 'cr650_submitter_name', width: 150, type: 'text', editable: true },
-    
+
     // System Generated
     { key: 'customerPO', header: 'Customer PO Number', source: 'cr650_dcl_ar_reports', field: 'cr650_customerponumber', width: 150, type: 'text' },
     { key: 'shipmentMonth', header: 'Shipment Month', source: 'cr650_dcl_shipped_orderses', field: 'cr650_shipment_date', width: 120, type: 'month', transform: 'toMonth' },
@@ -63,19 +84,19 @@ const COLUMN_DEFINITIONS = [
     { key: 'customerNumber', header: 'Customer Number', source: 'cr650_dcl_ar_reports', field: 'cr650_customernumber', width: 140, type: 'text' },
     { key: 'customerName', header: 'Customer Name', source: 'cr650_dcl_ar_reports', field: 'cr650_customername', width: 200, type: 'text' },
     { key: 'country', header: 'Country', source: 'cr650_dcl_ar_reports', field: 'cr650_country', width: 120, type: 'text' },
-    
+
     // Quantities
     { key: 'qtyLtrs', header: 'Qty ltrs.', source: 'cr650_dcl_ar_reports', field: 'cr650_qty', width: 120, type: 'number', decimals: 2, editable: true },
     { key: 'qtyBBL', header: 'QTY BBL', source: 'cr650_dcl_ar_reports', field: 'cr650_qtybbl', width: 120, type: 'number', decimals: 2 },
     { key: 'qtyMT', header: 'Qty MT', source: 'cr650_dcl_ar_reports', field: 'cr650_qtymt', width: 120, type: 'number', decimals: 2 },
-    
+
     // Manual Entries
     { key: 'incoterms', header: 'Incoterms', source: 'cr650_dcl_masters', field: 'cr650_incoterms', width: 100, type: 'text', editable: true },
     { key: 'containerType', header: 'Container Type', source: 'cr650_dcl_masters', field: 'calculated', width: 180, type: 'text', transform: 'buildContainer' },
-    
+
     // Pricing
     { key: 'unitPIFreight', header: 'Unit PI Freight', source: 'cr650_dcl_ar_reports', field: 'cr650_price', width: 130, type: 'currency', decimals: 2 },
-    
+
     // Charges (from Documents table)
     { key: 'cooCharges', header: 'COO Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount', width: 120, type: 'currency', decimals: 2, docType: 'Customer Exit/Entry Certificate', editable: true },
     { key: 'mofaCharges', header: 'MOFA Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount', width: 120, type: 'currency', decimals: 2, docType: 'MOFA', editable: true },
@@ -89,10 +110,10 @@ const COLUMN_DEFINITIONS = [
     // Critical Missing Fields - Now Included
     { key: 'unitActualFreight', header: 'Unit Actual Freight', source: 'manual', field: 'N/A', width: 150, type: 'currency', decimals: 2, editable: true },
     { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports', field: 'cr650_qty', width: 100, type: 'number', decimals: 0 },
-    
+
     // Formula Fields
     { key: 'totalFreight', header: 'Total Freight', source: 'formula', field: 'Qty * Unit Actual Freight', width: 140, type: 'currency', decimals: 2, formula: (row) => (row.qty || 0) * (row.unitActualFreight || 0) },
-    
+
     // Additional System Fields
     { key: 'supplier', header: 'Supplier', source: 'manual', field: 'N/A', width: 150, type: 'text', editable: true },
     { key: 'shippingLine', header: 'Shipping Line', source: 'cr650_dcl_shipped_orderses', field: 'cr650_shippingline', width: 150, type: 'text', editable: true },
@@ -100,11 +121,54 @@ const COLUMN_DEFINITIONS = [
     { key: 'vendorInvoiceDate', header: 'Vendor Invoice Receive Date', source: 'cr650_dcl_documents', field: 'cr650_invoice_date', width: 180, type: 'date', editable: true },
     { key: 'blNumber', header: 'BL No.', source: 'cr650_dcl_shipped_orderses', field: 'cr650_blnumber', width: 150, type: 'text' },
     { key: 'oraclePO', header: 'Oracle P.O No.', source: 'cr650_dcl_ar_reports', field: 'cr650_salesordernumber', width: 150, type: 'text' },
-    
+
     // Cost Calculations (AED conversion)
     { key: 'perLtrCost', header: 'Per Ltr. Cost (AED)', source: 'formula', field: '(Total Freight / Qty ltrs) * 3.675', width: 160, type: 'currency', decimals: 2, formula: (row) => row.qtyLtrs > 0 ? ((row.totalFreight || 0) / row.qtyLtrs) * 3.675 : 0 },
     { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: '(Total Freight / Qty MT) * 3.675', width: 160, type: 'currency', decimals: 2, formula: (row) => row.qtyMT > 0 ? ((row.totalFreight || 0) / row.qtyMT) * 3.675 : 0 }
 ];
+
+// ============================================================================
+// REPORT VIEW DEFINITIONS
+// ============================================================================
+// Expense Accruals Report: simplified view per stakeholder
+const EXPENSE_REPORT_KEYS = [
+    'businessUnit', 'exportExecutive', 'shipmentMonth', 'customerClass',
+    'customerNumber', 'customerName', 'containerType', 'qty',
+    'unitPIFreight', 'cooCharges', 'mofaCharges', 'docCharges',
+    'insuranceCharges', 'inspectionCharges', 'unitActualFreight',
+    'totalFreight', 'perLtrCost', 'perMTCost'
+];
+
+// Summary Accruals Report: all columns
+function getActiveColumns() {
+    if (state.activeReport === 'expense') {
+        return COLUMN_DEFINITIONS.filter(col => EXPENSE_REPORT_KEYS.includes(col.key));
+    }
+    return COLUMN_DEFINITIONS;
+}
+
+function switchReport(reportType) {
+    state.activeReport = reportType;
+    state.currentPage = 1;
+
+    // Update tab UI
+    document.querySelectorAll('.report-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.report === reportType);
+    });
+
+    // Update table title
+    const titleEl = document.getElementById('tableTitle');
+    if (titleEl) {
+        titleEl.textContent = reportType === 'expense'
+            ? 'Expense Accruals Report'
+            : 'Summary Accruals Report';
+    }
+
+    initializeTableHeaders();
+    calculatePagination();
+    renderTable();
+    updateStats();
+}
 
 /* -------------------------------------------------
    2) GLOBAL STATE & CACHE
@@ -133,6 +197,9 @@ const state = {
         data: null
     },
     
+    // Active report view
+    activeReport: 'summary', // 'expense' or 'summary'
+
     // Sorting
     sortColumn: null,
     sortDirection: 'asc',
@@ -146,12 +213,21 @@ const state = {
    3) INITIALIZATION
 ---------------------------------------------------*/
 document.addEventListener("DOMContentLoaded", async () => {
+    initializeReportTabs();
     initializeTableHeaders();
     await loadAllData();
     populateFilters();
     applyFilters();
     initializeEventListeners();
 });
+
+function initializeReportTabs() {
+    document.querySelectorAll('.report-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            switchReport(tab.dataset.report);
+        });
+    });
+}
 
 function initializeEventListeners() {
     // Debounced filter application
@@ -180,9 +256,10 @@ function initializeEventListeners() {
 ---------------------------------------------------*/
 function initializeTableHeaders() {
     const thead = document.querySelector('#expenseTable thead tr');
-    thead.innerHTML = COLUMN_DEFINITIONS.map(col => `
-        <th 
-            data-key="${col.key}" 
+    const cols = getActiveColumns();
+    thead.innerHTML = cols.map(col => `
+        <th
+            data-key="${col.key}"
             data-sortable="true"
             title="${col.source} - ${col.field}"
             style="min-width: ${col.width}px; cursor: pointer;"
@@ -392,6 +469,7 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges) {
 
         // System generated from DCL Master + AR
         dclNumber: dcl?.cr650_dclnumber || "N/A",
+        ciNumber: dcl?.cr650_ci_number || dcl?.cr650_autonumber_ic || "N/A",
         businessUnit: ar?.cr650_businessunit || "N/A",
         salesperson: ar?.cr650_salesperson || "N/A",
         customerPO: ar?.cr650_customerponumber || dcl?.cr650_pinumber || dcl?.cr650_po_customer_number || "N/A",
@@ -446,7 +524,8 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges) {
         // Metadata
         _arId: ar?.cr650_dcl_ar_reportid,
         _dclId: dcl?.cr650_dcl_masterid,
-        _shippedId: shipped?.cr650_dcl_shipped_ordersid
+        _shippedId: shipped?.cr650_dcl_shipped_ordersid,
+        _currency: dcl?.cr650_currencycode || dcl?.cr650_currency || 'USD'
     };
 }
 
@@ -644,6 +723,7 @@ function applyFilters() {
         if (filters.search) {
             const searchable = [
                 record.dclNumber,
+                record.ciNumber,
                 record.status,
                 record.customerPO,
                 record.customerName,
@@ -770,11 +850,12 @@ function updateSortIndicators() {
 ---------------------------------------------------*/
 function renderTable() {
     const tbody = document.getElementById("tableBody");
-    
+    const cols = getActiveColumns();
+
     if (!state.displayData.length) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="${COLUMN_DEFINITIONS.length}" style="text-align: center; padding: 3rem;">
+                <td colspan="${cols.length}" style="text-align: center; padding: 3rem;">
                     <div class="empty-state">
                         <i class="fas fa-inbox fa-3x" style="color: #ccc; margin-bottom: 1rem;"></i>
                         <h3>No Records Found</h3>
@@ -785,50 +866,59 @@ function renderTable() {
         document.getElementById("recordCount").textContent = "0 records";
         return;
     }
-    
-    // Efficient rendering with document fragment
+
     const fragment = document.createDocumentFragment();
-    
+
     state.displayData.forEach(record => {
         const tr = document.createElement('tr');
         tr.className = 'data-row';
-        
-        const cells = COLUMN_DEFINITIONS.map(col => {
+
+        const cells = cols.map(col => {
             const value = record[col.key];
             const isNA = value === "N/A" || value === null || value === undefined;
-            const isFormula = col.type === 'formula';
             const isNumber = col.type === 'number' || col.type === 'currency';
-            
+
             let displayValue = value;
             if (isNumber && !isNA) {
                 displayValue = typeof value === 'number' ? value.toFixed(col.decimals || 2) : value;
             }
-            if (col.type === 'currency' && !isNA) {
-                displayValue = `USD ${displayValue}`;
+
+            // Status badge rendering
+            if (col.key === 'status' && !isNA) {
+                const statusLower = String(value).toLowerCase();
+                const badgeClass = statusLower === 'submitted' ? 'badge-success'
+                    : statusLower === 'draft' ? 'badge-warning'
+                    : 'badge-info';
+                displayValue = `<span class="badge ${badgeClass}">${value}</span>`;
+                return `<td data-key="${col.key}">${displayValue}</td>`;
             }
-            
+
+            if (col.type === 'currency' && !isNA && typeof displayValue === 'number') {
+                const cur = record._currency || 'USD';
+                displayValue = `${cur} ${parseFloat(displayValue).toFixed(col.decimals || 2)}`;
+            }
+
             const cssClass = [
                 isNA ? 'missing' : '',
-                isFormula ? 'calculated' : '',
+                col.source === 'formula' ? 'calculated' : '',
                 col.editable ? 'editable' : ''
             ].filter(Boolean).join(' ');
-            
-            return `<td class="${cssClass}" data-key="${col.key}">${displayValue}</td>`;
+
+            return `<td class="${cssClass}" data-key="${col.key}">${isNA ? 'N/A' : displayValue}</td>`;
         }).join('');
-        
+
         tr.innerHTML = cells;
         fragment.appendChild(tr);
     });
-    
+
     tbody.innerHTML = '';
     tbody.appendChild(fragment);
-    
-    // Update record count
+
     const startRecord = (state.currentPage - 1) * CONFIG.pageSize + 1;
     const endRecord = Math.min(state.currentPage * CONFIG.pageSize, state.filteredData.length);
-    document.getElementById("recordCount").textContent = 
+    document.getElementById("recordCount").textContent =
         `Showing ${startRecord}-${endRecord} of ${state.filteredData.length} records`;
-    
+
     updatePaginationUI();
 }
 
@@ -857,74 +947,79 @@ function updateStats() {
 
 function exportToExcel() {
     if (state.isExporting) return;
-    
-    showLoading(true, "Generating CSV file...");
+
+    const reportLabel = state.activeReport === 'expense' ? 'Expense_Accruals' : 'Summary_Accruals';
+    showLoading(true, `Generating ${reportLabel} CSV (all values in AED)...`);
     state.isExporting = true;
-    
+
     try {
+        const cols = getActiveColumns();
         const rows = [];
-        
-        // ============================================================================
-        // HEADER ROW ONLY
-        // ============================================================================
-        rows.push(
-            COLUMN_DEFINITIONS.map(c => `"${c.header}"`).join(',')
+
+        // Currency fields that need AED conversion
+        const currencyKeys = new Set(
+            cols.filter(c => c.type === 'currency').map(c => c.key)
         );
-        
-        // ============================================================================
-        // DATA ROWS
-        // ============================================================================
+
+        // Header row - append "(AED)" to currency column headers
+        rows.push(
+            cols.map(c => {
+                let header = c.header;
+                if (c.type === 'currency' && !header.includes('AED')) {
+                    header += ' (AED)';
+                }
+                return `"${header}"`;
+            }).join(',')
+        );
+
+        // Data rows with AED conversion
         state.filteredData.forEach(record => {
-            const row = COLUMN_DEFINITIONS.map(col => {
+            const row = cols.map(col => {
                 let value = record[col.key];
-                
-                // Handle null/undefined/N/A
+
                 if (value === null || value === undefined || value === "N/A") {
                     value = '';
                 }
-                
-                // Format currency values
+
+                // Convert currency values to AED
                 if (col.type === 'currency' && value !== '' && value !== 0) {
-                    value = `USD ${parseFloat(value).toFixed(col.decimals || 2)}`;
+                    const numVal = parseFloat(value);
+                    if (!isNaN(numVal)) {
+                        const aedVal = toAED(numVal, record._currency);
+                        value = aedVal.toFixed(col.decimals || 2);
+                    }
                 }
-                
+
                 // Format numbers with decimals
                 if (col.type === 'number' && value !== '') {
                     value = parseFloat(value).toFixed(col.decimals || 2);
                 }
-                
-                // Escape quotes for CSV
+
                 value = String(value).replace(/"/g, '""');
                 return `"${value}"`;
             });
             rows.push(row.join(','));
         });
-        
-        // ============================================================================
-        // CREATE CSV WITH UTF-8 BOM (for Excel compatibility)
-        // ============================================================================
+
+        // CSV with UTF-8 BOM
         const csvContent = '\uFEFF' + rows.join('\r\n');
-        
-        // ============================================================================
-        // DOWNLOAD FILE
-        // ============================================================================
-        const blob = new Blob([csvContent], { 
-            type: 'text/csv;charset=utf-8;' 
+
+        const blob = new Blob([csvContent], {
+            type: 'text/csv;charset=utf-8;'
         });
-        
+
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `Monthly_Expense_Accruals_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = `${reportLabel}_${new Date().toISOString().slice(0, 10)}.csv`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
-        // Show success message with Excel formatting tips
-        showSuccess("CSV downloaded! In Excel: Select all → Format as Table for colors.");
-        console.log(`✓ Exported ${state.filteredData.length} records`);
-        
+
+        showSuccess(`${reportLabel} downloaded! All currency values converted to AED.`);
+        console.log(`Exported ${state.filteredData.length} records as ${reportLabel} (AED)`);
+
     } catch (error) {
         console.error("CSV export error:", error);
         showError("Failed to export: " + error.message);

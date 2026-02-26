@@ -9,7 +9,7 @@
       <i class="fas fa-file-invoice-dollar" style="font-size: 1.75rem;"></i>
       Monthly Expense Accruals Report
     </h1>
-    <p style="font-size: 1rem; color: var(--neutral-gray); position: relative; z-index: 1;">Comprehensive expense accrual tracking with dynamic filtering, sorting, and Excel export capabilities</p>
+    <p style="font-size: 1rem; color: var(--neutral-gray); position: relative; z-index: 1;">Dual-view reporting: Expense Accruals &amp; Summary Accruals with AED-converted Excel export</p>
   </div>
   <!-- Filters Section -->
   <div class="filters-section" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; margin-bottom: 2rem; box-shadow: var(--shadow-md);">
@@ -83,8 +83,17 @@
     </div>
     <!-- Action Buttons -->
     <div class="filter-actions" style="display: flex; justify-content: flex-end; row-gap: 1rem; column-gap: 1rem; flex-wrap: wrap;">
-      <button onclick="applyFilters()" class="btn btn-primary" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--white); box-shadow: var(--shadow-sm);"><i class="fas fa-search" style="font-size: 1rem;"></i> Apply Filters</button><button onclick="exportToExcel()" class="btn btn-success" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--white); box-shadow: var(--shadow-sm);"><i class="fas fa-file-excel" style="font-size: 1rem;"></i> Export to Excel</button>
+      <button onclick="applyFilters()" class="btn btn-primary" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--white); box-shadow: var(--shadow-sm);"><i class="fas fa-search" style="font-size: 1rem;"></i> Apply Filters</button><button onclick="exportToExcel()" class="btn btn-success" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--white); box-shadow: var(--shadow-sm);"><i class="fas fa-file-excel" style="font-size: 1rem;"></i> Download Accruals (AED)</button>
     </div>
+  </div>
+  <!-- Report Tab Switcher -->
+  <div class="report-tabs-container" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; background: var(--white); padding: 0.5rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); border: 1px solid var(--border-color);">
+    <button class="report-tab active" data-report="summary" style="flex: 1; padding: 0.875rem 1.5rem; border: none; border-radius: var(--radius-md); font-weight: 600; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-family: inherit; transition: all 0.2s ease;">
+      <i class="fas fa-table"></i> Summary Accruals
+    </button>
+    <button class="report-tab" data-report="expense" style="flex: 1; padding: 0.875rem 1.5rem; border: none; border-radius: var(--radius-md); font-weight: 600; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-family: inherit; transition: all 0.2s ease;">
+      <i class="fas fa-file-invoice-dollar"></i> Expense Accruals Report
+    </button>
   </div>
   <!-- Statistics Cards -->
   <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); row-gap: 1rem; column-gap: 1rem; margin-bottom: 2rem;">
@@ -108,7 +117,7 @@
   <!-- Data Table -->
   <div class="table-section" style="box-shadow: var(--shadow-md); overflow-x: hidden; overflow-y: hidden;">
     <div class="table-header" style="color: var(--white); padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; row-gap: 1rem; column-gap: 1rem;">
-      <h2 style="font-size: 1.25rem; font-weight: 600; display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem;"><i class="fas fa-table"></i> Expense Accruals Data</h2>
+      <h2 id="tableTitle" style="font-size: 1.25rem; font-weight: 600; display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem;"><i class="fas fa-table"></i> Summary Accruals Report</h2>
       <span id="recordCount" style="font-size: 0.95rem; opacity: 0.9;">0 records</span>
     </div>
     <div class="table-container" style="max-height: 600px; overflow-x: auto; overflow-y: auto; position: relative;">
@@ -155,13 +164,26 @@
   <details style="background: var(--white); padding: 1.5rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-md);">
     <summary style="cursor: pointer; font-weight: 600; color: var(--primary-green); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-info-circle"></i> User Guide &amp; Field Definitions</summary>
     <div style="margin-top: 1rem; color: var(--dark-gray); line-height: 1.8;">
-      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">How to Use This Report:</h3>
+      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">Report Views:</h3>
       <ul style="margin-left: 1.5rem; margin-bottom: 1rem;">
-        <li><strong>Filtering:</strong> Use the dropdown filters to narrow down records by specific criteria</li>
-        <li><strong>Search:</strong> Use the global search to find records by DCL#, Customer PO, Customer Name, etc.</li>
-        <li><strong>Sorting:</strong> Click on any column header to sort by that column (click again to reverse order)</li>
-        <li><strong>Export:</strong> Click "Export to Excel" to download the current filtered data</li>
-        <li><strong>Pagination:</strong> Navigate through pages using the controls at the bottom of the table</li>
+        <li><strong>Summary Accruals:</strong> Full report with all columns including DCL #, CI Number, Status, and all details</li>
+        <li><strong>Expense Accruals Report:</strong> Simplified view with 18 key columns focused on costs and charges</li>
+        <li>Switch between views using the tabs above the statistics cards</li>
+      </ul>
+      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">How to Use:</h3>
+      <ul style="margin-left: 1.5rem; margin-bottom: 1rem;">
+        <li><strong>Filtering:</strong> Use the dropdown filters to narrow down records by Status, Executive, Month, etc.</li>
+        <li><strong>Search:</strong> Use global search to find records by DCL#, CI Number, Customer PO, Customer Name, etc.</li>
+        <li><strong>Sorting:</strong> Click any column header to sort (click again to reverse)</li>
+        <li><strong>Export:</strong> Click "Download Accruals (AED)" to export - <strong>all currency values are automatically converted to AED</strong></li>
+      </ul>
+      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">Currency Conversion (Export):</h3>
+      <ul style="margin-left: 1.5rem; margin-bottom: 1rem;">
+        <li><strong>USD &rarr; AED:</strong> Rate 3.6725</li>
+        <li><strong>SAR &rarr; AED:</strong> Rate 0.9793</li>
+        <li><strong>EUR &rarr; AED:</strong> Rate 4.02</li>
+        <li><strong>GBP &rarr; AED:</strong> Rate 4.65</li>
+        <li>All charge columns (COO, MOFA, Insurance, Freight, etc.) are converted in the exported file</li>
       </ul>
       <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">Field Definitions:</h3>
       <ul style="margin-left: 1.5rem;">
@@ -171,13 +193,6 @@
         <li><strong>S = System Generated:</strong> Automatically populated from Oracle/Dataverse</li>
         <li><strong>M = Manual Entry:</strong> Requires user input</li>
         <li><strong>Formula:</strong> Calculated based on other fields</li>
-      </ul>
-      <h3 style="color: var(--primary-green); margin-top: 1rem; margin-bottom: 0.5rem;">Important Notes:</h3>
-      <ul style="margin-left: 1.5rem;">
-        <li><strong>Unit Actual Freight</strong> must be entered manually for accurate cost calculations</li>
-        <li><strong>Currency conversions</strong> to AED use a rate of 3.675 (as per stakeholder requirement)</li>
-        <li><strong>Shipment Month</strong> is derived from Shipped Orders, not DCL Master sailing date</li>
-        <li>Data refreshes every 5 minutes automatically</li>
       </ul>
     </div>
   </details>
