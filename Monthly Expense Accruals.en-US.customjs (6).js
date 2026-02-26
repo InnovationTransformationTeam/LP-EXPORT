@@ -70,7 +70,7 @@ function toAED(amount, currency, conversionRate) {
 const COLUMN_DEFINITIONS = [
     // From DCL Masters (cr650_dcl_masters)
     { key: 'dclNumber', header: 'DCL #', source: 'cr650_dcl_masters', field: 'cr650_dclnumber', width: 120, type: 'text' },
-    { key: 'ciNumber', header: 'CI Number', source: 'cr650_dcl_masters', field: 'cr650_ci_number', width: 140, type: 'text' },
+    { key: 'ciNumber', header: 'CI Number', source: 'cr650_dcl_masters + cr650_dcl_orders', field: 'cr650_ci_number', width: 140, type: 'text' },
     { key: 'status', header: 'Status', source: 'cr650_dcl_masters', field: 'cr650_status', width: 100, type: 'text' },
     { key: 'businessUnit', header: 'Business Unit', source: 'cr650_dcl_masters + cr650_dcl_ar_reports', field: 'cr650_businessunit', width: 150, type: 'text' },
     { key: 'salesperson', header: 'Salesperson', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_salesperson / cr650_salesrepresentativename', width: 150, type: 'text' },
@@ -92,11 +92,11 @@ const COLUMN_DEFINITIONS = [
 
     // From DCL Masters
     { key: 'incoterms', header: 'Incoterms', source: 'cr650_dcl_masters', field: 'cr650_incoterms', width: 100, type: 'text' },
-    { key: 'containerType', header: 'Container Type', source: 'cr650_dcl_masters', field: 'cr650_totalcartons/drums/pails/pallets', width: 180, type: 'text', transform: 'buildContainer' },
-    { key: 'containerQty', header: 'Container Qty.', source: 'cr650_dcl_masters', field: 'sum(totalcartons+totaldrums+totalpails+totalpallets)', width: 120, type: 'number', decimals: 0 },
+    { key: 'containerType', header: 'Container Type', source: 'cr650_dcl_containers + cr650_dcl_masters', field: 'cr650_container_type / cr650_container_size_dimension', width: 180, type: 'text' },
+    { key: 'containerQty', header: 'Container Qty.', source: 'cr650_dcl_containers + cr650_dcl_masters', field: 'count(containers) or sum(totals)', width: 120, type: 'number', decimals: 0 },
 
     // Pricing from AR Reports
-    { key: 'unitPIFreight', header: 'Unit PI Freight', source: 'cr650_dcl_ar_reports', field: 'cr650_price', width: 130, type: 'currency', decimals: 2 },
+    { key: 'unitPIFreight', header: 'Unit PI Freight', source: 'cr650_dcl_ar_reports + cr650_dcl_loading_plans', field: 'cr650_price / cr650_unitprice', width: 130, type: 'currency', decimals: 2 },
 
     // Charges from Documents table (cr650_dcl_documents)
     { key: 'cooCharges', header: 'COO Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=COO/Certificate)', width: 120, type: 'currency', decimals: 2 },
@@ -110,7 +110,7 @@ const COLUMN_DEFINITIONS = [
 
     // Calculated from system data: Freight Charges / Container Qty
     { key: 'unitActualFreight', header: 'Unit Actual Freight', source: 'formula', field: 'freightCharges / containerQty', width: 150, type: 'currency', decimals: 2 },
-    { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_qty / cr650_totalorderquantity', width: 100, type: 'number', decimals: 0 },
+    { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports + cr650_dcl_loading_plans + cr650_dcl_masters', field: 'cr650_qty / cr650_loadedquantity / cr650_totalorderquantity', width: 100, type: 'number', decimals: 0 },
 
     // Formula Fields (derived from system data)
     { key: 'totalFreight', header: 'Total Freight', source: 'formula', field: 'freightCharges or containerQty * unitActualFreight', width: 140, type: 'currency', decimals: 2 },
@@ -183,6 +183,9 @@ const state = {
     customerData: [],
     updatedCustomers: [],
     discountsCharges: [],
+    dclContainers: [],
+    dclLoadingPlans: [],
+    dclOrders: [],
     
     // Merged & filtered
     allData: [],
@@ -296,10 +299,13 @@ async function loadAllData() {
             fetchWithProgress("/_api/cr650_dcl_shipped_orderses?$top=5000", "Shipped Orders"),
             fetchWithProgress("/_api/cr650_dcl_customer_datas?$top=5000", "Customer Data"),
             fetchWithProgress("/_api/cr650_dcl_discounts_chargeses?$top=5000", "Discounts & Charges"),
-            fetchWithProgress("/_api/cr650_updated_dcl_customers?$top=5000", "Updated DCL Customers")
+            fetchWithProgress("/_api/cr650_updated_dcl_customers?$top=5000", "Updated DCL Customers"),
+            fetchWithProgress("/_api/cr650_dcl_containers?$top=5000", "DCL Containers"),
+            fetchWithProgress("/_api/cr650_dcl_loading_plans?$top=5000", "Loading Plans"),
+            fetchWithProgress("/_api/cr650_dcl_orders?$top=5000", "DCL Orders")
         ];
 
-        const [dcl, ar, docs, shipped, customers, discCharges, updatedCust] = await Promise.all(promises);
+        const [dcl, ar, docs, shipped, customers, discCharges, updatedCust, containers, loadingPlans, orders] = await Promise.all(promises);
 
         state.dclMasters = dcl.value || [];
         state.arReports = ar.value || [];
@@ -308,8 +314,11 @@ async function loadAllData() {
         state.customerData = customers.value || [];
         state.discountsCharges = discCharges.value || [];
         state.updatedCustomers = updatedCust.value || [];
+        state.dclContainers = containers.value || [];
+        state.dclLoadingPlans = loadingPlans.value || [];
+        state.dclOrders = orders.value || [];
 
-        console.log(`Loaded: ${state.dclMasters.length} DCLs, ${state.arReports.length} AR Reports, ${state.dclDocuments.length} Documents, ${state.shippedOrders.length} Shipments, ${state.discountsCharges.length} Discounts/Charges, ${state.updatedCustomers.length} Updated Customers`);
+        console.log(`Loaded: ${state.dclMasters.length} DCLs, ${state.arReports.length} AR, ${state.dclDocuments.length} Docs, ${state.shippedOrders.length} Shipped, ${state.discountsCharges.length} Disc/Charges, ${state.updatedCustomers.length} Customers, ${state.dclContainers.length} Containers, ${state.dclLoadingPlans.length} Loading Plans, ${state.dclOrders.length} Orders`);
         
         mergeDataOptimized();
         updateCache();
@@ -407,6 +416,36 @@ function mergeDataOptimized() {
         }
     });
 
+    // 6. DCL Containers: group by DCL Master lookup
+    const containersByDclId = new Map();
+    state.dclContainers.forEach(cont => {
+        const key = cont._cr650_dcl_number_value;
+        if (key) {
+            if (!containersByDclId.has(key)) containersByDclId.set(key, []);
+            containersByDclId.get(key).push(cont);
+        }
+    });
+
+    // 7. Loading Plans: group by DCL Master lookup
+    const loadingPlansByDclId = new Map();
+    state.dclLoadingPlans.forEach(lp => {
+        const key = lp._cr650_dcl_number_value;
+        if (key) {
+            if (!loadingPlansByDclId.has(key)) loadingPlansByDclId.set(key, []);
+            loadingPlansByDclId.get(key).push(lp);
+        }
+    });
+
+    // 8. DCL Orders: group by DCL Master lookup (for CI number fallback)
+    const ordersByDclId = new Map();
+    state.dclOrders.forEach(ord => {
+        const key = ord._cr650_dcl_number_value;
+        if (key) {
+            if (!ordersByDclId.has(key)) ordersByDclId.set(key, []);
+            ordersByDclId.get(key).push(ord);
+        }
+    });
+
     state.allData = [];
     const processedArIds = new Set();
 
@@ -443,19 +482,28 @@ function mergeDataOptimized() {
         const custNumber = dcl.cr650_customernumber;
         const customerInfo = custNumber ? customerByCode.get(custNumber) : null;
 
+        // Find containers for this DCL
+        const containers = containersByDclId.get(dclId) || [];
+
+        // Find loading plans for this DCL
+        const loadingPlans = loadingPlansByDclId.get(dclId) || [];
+
+        // Find orders for this DCL (CI number fallback)
+        const dclOrders = ordersByDclId.get(dclId) || [];
+
         if (relatedAR.length > 0) {
             // Has AR reports - create one row per AR line item
             relatedAR.forEach(ar => {
                 processedArIds.add(ar.cr650_dcl_ar_reportid);
                 // Also try customer lookup by AR customer number
                 const arCustInfo = customerInfo || (ar.cr650_customernumber ? customerByCode.get(ar.cr650_customernumber) : null);
-                const record = buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, arCustInfo);
+                const record = buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, arCustInfo, containers, loadingPlans, dclOrders);
                 applyFormulas(record);
                 state.allData.push(record);
             });
         } else {
             // No AR reports (likely Draft DCL) - still create a row from Master data
-            const record = buildMergedRecord(dcl, null, shipped, docCharges, extraCharges, customerInfo);
+            const record = buildMergedRecord(dcl, null, shipped, docCharges, extraCharges, customerInfo, containers, loadingPlans, dclOrders);
             applyFormulas(record);
             state.allData.push(record);
         }
@@ -473,7 +521,7 @@ function mergeDataOptimized() {
         const emptyExtra = { freightCharges: 0, flexiBagsCharges: 0, otherCharges: 0 };
         const custInfo = ar.cr650_customernumber ? customerByCode.get(ar.cr650_customernumber) : null;
 
-        const record = buildMergedRecord(null, ar, shipped, emptyCharges, emptyExtra, custInfo);
+        const record = buildMergedRecord(null, ar, shipped, emptyCharges, emptyExtra, custInfo, [], [], []);
         applyFormulas(record);
         state.allData.push(record);
     });
@@ -482,13 +530,21 @@ function mergeDataOptimized() {
     console.log(`Merged ${state.allData.length} records (${state.dclMasters.length} DCL Masters, ${state.arReports.length - processedArIds.size} orphaned AR reports)`);
 }
 
-function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerInfo) {
-    // Container qty for unit freight calculation
-    const contQty = dcl ? buildContainerQty(dcl) : 0;
+function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerInfo, containers, loadingPlans, dclOrders) {
+    // Container info from cr650_dcl_containers (primary) or DCL master (fallback)
+    const containerInfo = buildContainerInfo(containers, dcl);
+    const contQty = containerInfo.qty;
     const freightTotal = parseFloat(extraCharges.freightCharges) || 0;
 
     // Unit Actual Freight = Total Freight Charges / Container Qty (system-derived)
     const unitFreight = (freightTotal > 0 && contQty > 0) ? (freightTotal / contQty) : 0;
+
+    // Loading plan aggregates (fallback for qty, unit price, item info)
+    const lpAggregates = aggregateLoadingPlans(loadingPlans);
+
+    // CI number: DCL master first, then orders table
+    const ciNumber = dcl?.cr650_ci_number || dcl?.cr650_autonumber_ic
+        || (dclOrders.length > 0 ? dclOrders[0].cr650_ci_number : null) || "N/A";
 
     // Per-record currency: prefer AR report's transaction currency, then DCL master, then customer
     const currency = ar?.cr650_transactioncurrency
@@ -501,7 +557,7 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
 
         // From DCL Masters with AR Reports fallback
         dclNumber: dcl?.cr650_dclnumber || "N/A",
-        ciNumber: dcl?.cr650_ci_number || dcl?.cr650_autonumber_ic || "N/A",
+        ciNumber: ciNumber,
         businessUnit: ar?.cr650_businessunit || dcl?.cr650_businessunit || "N/A",
         salesperson: ar?.cr650_salesperson || dcl?.cr650_salesrepresentativename || "N/A",
         exportExecutive: dcl?.cr650_salesrepresentativename || dcl?.cr650_submitter_name || customerInfo?.cr650_salesrepresentativename || "N/A",
@@ -509,8 +565,8 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         // Customer PO: AR report first, then DCL master fields
         customerPO: ar?.cr650_customerponumber || dcl?.cr650_pinumber || dcl?.cr650_po_customer_number || "N/A",
 
-        // Item info from AR Reports
-        itemBrand: ar?.cr650_itemtype || ar?.cr650_itemcategory || "N/A",
+        // Item info from AR Reports, then loading plans
+        itemBrand: ar?.cr650_itemtype || ar?.cr650_itemcategory || lpAggregates.itemDescription || "N/A",
 
         // Customer class: AR report has cr650_customerclassofbusiness, DCL master has cr650_cob
         customerClass: ar?.cr650_customerclassofbusiness || dcl?.cr650_cob || customerInfo?.cr650_cob || "N/A",
@@ -524,21 +580,23 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         // Country: AR report first, then DCL master, then customer table
         country: ar?.cr650_country || dcl?.cr650_country || customerInfo?.cr650_country || "N/A",
 
-        // Quantities from AR Reports, fallback to DCL master totals
-        qtyLtrs: parseFloat(ar?.cr650_qty) || 0,
+        // Quantities from AR Reports, fallback to loading plans, then DCL master totals
+        qtyLtrs: parseFloat(ar?.cr650_qty) || lpAggregates.totalLoadedQty || 0,
         qtyBBL: parseFloat(ar?.cr650_qtybbl) || 0,
-        qtyMT: parseFloat(ar?.cr650_qtymt) || 0,
-        qty: parseFloat(ar?.cr650_qty) || parseFloat(dcl?.cr650_totalorderquantity) || 0,
+        qtyMT: parseFloat(ar?.cr650_qtymt) || lpAggregates.totalNetWeightKg / 1000 || 0,
+        qty: parseFloat(ar?.cr650_qty) || lpAggregates.totalLoadedQty || parseFloat(dcl?.cr650_totalorderquantity) || 0,
 
-        // Pricing from AR Reports
-        unitPIFreight: parseFloat(ar?.cr650_price) || 0,
+        // Pricing from AR Reports, then loading plans unit price
+        unitPIFreight: parseFloat(ar?.cr650_price) || lpAggregates.avgUnitPrice || 0,
 
-        // Oracle PO from AR Reports
-        oraclePO: ar?.cr650_salesordernumber || "N/A",
+        // Oracle PO from AR Reports, then loading plan order number
+        oraclePO: ar?.cr650_salesordernumber || lpAggregates.orderNumber || "N/A",
 
         // From DCL Masters
         incoterms: dcl?.cr650_incoterms || "N/A",
-        containerType: dcl ? buildContainerType(dcl) : "N/A",
+
+        // Container Type & Qty from cr650_dcl_containers (primary), DCL master (fallback)
+        containerType: containerInfo.type,
         containerQty: contQty,
 
         // Shipment month: shipped orders first, then DCL master sailing date
@@ -710,6 +768,86 @@ function buildContainerQty(dcl) {
         + (parseInt(dcl.cr650_totalpails) || 0)
         + (parseInt(dcl.cr650_totalpallets) || 0);
     return total > 0 ? total : (parseInt(dcl.cr650_palletcount) || 0);
+}
+
+/**
+ * Build container info from cr650_dcl_containers table (primary)
+ * Falls back to DCL master container fields if no container records exist
+ */
+function buildContainerInfo(containers, dcl) {
+    if (containers && containers.length > 0) {
+        // Primary: use actual container records from cr650_dcl_containers
+        const types = containers.map(c => {
+            const type = c.cr650_container_type || '';
+            const size = c.cr650_container_size_dimension || '';
+            return size ? `${size} ${type}`.trim() : type;
+        }).filter(Boolean);
+
+        return {
+            type: types.length > 0 ? types.join(', ') : 'N/A',
+            qty: containers.length
+        };
+    }
+
+    // Fallback: derive from DCL master fields
+    if (dcl) {
+        return {
+            type: buildContainerType(dcl),
+            qty: buildContainerQty(dcl)
+        };
+    }
+
+    return { type: 'N/A', qty: 0 };
+}
+
+/**
+ * Aggregate loading plan data for a DCL
+ * Provides fallback values for qty, unit price, item info, order number
+ */
+function aggregateLoadingPlans(loadingPlans) {
+    if (!loadingPlans || loadingPlans.length === 0) {
+        return {
+            totalLoadedQty: 0,
+            totalOrderedQty: 0,
+            totalNetWeightKg: 0,
+            avgUnitPrice: 0,
+            orderNumber: null,
+            itemDescription: null,
+            itemCode: null,
+            packageType: null
+        };
+    }
+
+    let totalLoaded = 0;
+    let totalOrdered = 0;
+    let totalNetWeight = 0;
+    let totalPrice = 0;
+    let priceCount = 0;
+
+    loadingPlans.forEach(lp => {
+        totalLoaded += parseFloat(lp.cr650_loadedquantity) || 0;
+        totalOrdered += parseFloat(lp.cr650_orderedquantity) || 0;
+        totalNetWeight += parseFloat(lp.cr650_netweightkg) || 0;
+        const price = parseFloat(lp.cr650_unitprice);
+        if (price && !isNaN(price)) {
+            totalPrice += price;
+            priceCount++;
+        }
+    });
+
+    // Use first loading plan for non-aggregatable fields
+    const first = loadingPlans[0];
+
+    return {
+        totalLoadedQty: totalLoaded,
+        totalOrderedQty: totalOrdered,
+        totalNetWeightKg: totalNetWeight,
+        avgUnitPrice: priceCount > 0 ? totalPrice / priceCount : 0,
+        orderNumber: first.cr650_ordernumber || null,
+        itemDescription: first.cr650_itemdescription || null,
+        itemCode: first.cr650_itemcode || null,
+        packageType: first.cr650_packagetype || null
+    };
 }
 
 /* -------------------------------------------------
