@@ -302,8 +302,8 @@ function initializeTableHeaders() {
    5) OPTIMIZED DATA LOADING WITH CACHING
 ---------------------------------------------------*/
 async function loadAllData() {
-    showLoading(true, "Loading data...");
-    
+    showLoading(true, "Loading data... (0/10)");
+
     // Check cache first
     if (isCacheValid()) {
         console.log("Using cached data");
@@ -311,20 +311,32 @@ async function loadAllData() {
         showLoading(false);
         return;
     }
-    
+
+    const TOTAL_STEPS = 10;
+    let completedSteps = 0;
+
+    // Wraps fetch to update the loading progress UI after each table completes
+    function trackedFetch(url, label) {
+        return fetchWithProgress(url, label).then(data => {
+            completedSteps++;
+            updateLoadingProgress(label, completedSteps, TOTAL_STEPS);
+            return data;
+        });
+    }
+
     try {
         // Parallel loading with progress tracking - all Dataverse tables
         const promises = [
-            fetchWithProgress("/_api/cr650_dcl_masters?$top=5000", "DCL Masters"),
-            fetchWithProgress("/_api/cr650_dcl_ar_reports?$top=5000", "AR Reports"),
-            fetchWithProgress("/_api/cr650_dcl_documents?$top=5000", "Documents"),
-            fetchWithProgress("/_api/cr650_dcl_shipped_orderses?$top=5000", "Shipped Orders"),
-            fetchWithProgress("/_api/cr650_dcl_customer_datas?$top=5000", "Customer Data"),
-            fetchWithProgress("/_api/cr650_dcl_discounts_chargeses?$top=5000", "Discounts & Charges"),
-            fetchWithProgress("/_api/cr650_updated_dcl_customers?$top=5000", "Updated DCL Customers"),
-            fetchWithProgress("/_api/cr650_dcl_containers?$top=5000", "DCL Containers"),
-            fetchWithProgress("/_api/cr650_dcl_loading_plans?$top=5000", "Loading Plans"),
-            fetchWithProgress("/_api/cr650_dcl_orders?$top=5000", "DCL Orders")
+            trackedFetch("/_api/cr650_dcl_masters?$top=5000", "DCL Masters"),
+            trackedFetch("/_api/cr650_dcl_ar_reports?$top=5000", "AR Reports"),
+            trackedFetch("/_api/cr650_dcl_documents?$top=5000", "Documents"),
+            trackedFetch("/_api/cr650_dcl_shipped_orderses?$top=5000", "Shipped Orders"),
+            trackedFetch("/_api/cr650_dcl_customer_datas?$top=5000", "Customer Data"),
+            trackedFetch("/_api/cr650_dcl_discounts_chargeses?$top=5000", "Discounts & Charges"),
+            trackedFetch("/_api/cr650_updated_dcl_customers?$top=5000", "Updated Customers"),
+            trackedFetch("/_api/cr650_dcl_containers?$top=5000", "DCL Containers"),
+            trackedFetch("/_api/cr650_dcl_loading_plans?$top=5000", "Loading Plans"),
+            trackedFetch("/_api/cr650_dcl_orders?$top=5000", "DCL Orders")
         ];
 
         const [dcl, ar, docs, shipped, customers, discCharges, updatedCust, containers, loadingPlans, orders] = await Promise.all(promises);
@@ -341,15 +353,16 @@ async function loadAllData() {
         state.dclOrders = orders.value || [];
 
         console.log(`Loaded: ${state.dclMasters.length} DCLs, ${state.arReports.length} AR, ${state.dclDocuments.length} Docs, ${state.shippedOrders.length} Shipped, ${state.discountsCharges.length} Disc/Charges, ${state.updatedCustomers.length} Customers, ${state.dclContainers.length} Containers, ${state.dclLoadingPlans.length} Loading Plans, ${state.dclOrders.length} Orders`);
-        
+
+        showLoading(true, "Processing records...");
         mergeDataOptimized();
         updateCache();
-        
+
     } catch (err) {
         console.error("Error loading data:", err);
         showError("Failed to load data. Please refresh the page.");
     }
-    
+
     showLoading(false);
 }
 
@@ -359,7 +372,7 @@ async function fetchWithProgress(url, label) {
         headers: { "Accept": "application/json" }
     });
     const data = await response.json();
-    console.log(`✓ ${label} loaded (${data.value?.length || 0} records)`);
+    console.log(`${label} loaded (${data.value?.length || 0} records)`);
     return data;
 }
 
@@ -801,8 +814,25 @@ function buildContainerInfo(containers, dcl) {
             return size ? `${size} ${type}`.trim() : type;
         }).filter(Boolean);
 
+        // Group by type and count duplicates for a cleaner display
+        // e.g. "20ft Container x12, 40ft Container x5" instead of listing all 17
+        const grouped = {};
+        types.forEach(t => { grouped[t] = (grouped[t] || 0) + 1; });
+        const summary = Object.entries(grouped)
+            .map(([t, count]) => count > 1 ? `${t} x${count}` : t);
+
+        // Wrap every 4 entries on a new line so the column doesn't stretch
+        let displayType = 'N/A';
+        if (summary.length > 0) {
+            const lines = [];
+            for (let i = 0; i < summary.length; i += 4) {
+                lines.push(summary.slice(i, i + 4).join(', '));
+            }
+            displayType = lines.join('\n');
+        }
+
         return {
-            type: types.length > 0 ? types.join(', ') : 'N/A',
+            type: displayType,
             qty: containers.length
         };
     }
@@ -1133,7 +1163,13 @@ function renderTable() {
                 col.source === 'formula' ? 'calculated' : ''
             ].filter(Boolean).join(' ');
 
-            return `<td class="${cssClass}" data-key="${col.key}">${isNA ? 'N/A' : displayValue}</td>`;
+            // For containerType, convert newlines to <br> so wrapping works in cells
+            let cellContent = isNA ? 'N/A' : displayValue;
+            if (col.key === 'containerType' && typeof cellContent === 'string') {
+                cellContent = cellContent.replace(/\n/g, '<br>');
+            }
+
+            return `<td class="${cssClass}" data-key="${col.key}">${cellContent}</td>`;
         }).join('');
 
         tr.innerHTML = cells;
@@ -1263,13 +1299,31 @@ function exportToExcel() {
 function showLoading(show, message = "Loading...") {
     const overlay = document.getElementById("loadingOverlay");
     const text = document.getElementById("loadingText");
-    
+
     if (show) {
         if (text) text.textContent = message;
         overlay.classList.remove("hidden");
     } else {
         overlay.classList.add("hidden");
+        // Clear progress steps when hiding
+        const steps = document.getElementById("loadingSteps");
+        if (steps) steps.innerHTML = '';
     }
+}
+
+// Progress-aware loading: show each API step as it completes
+function updateLoadingProgress(label, done, total) {
+    const text = document.getElementById("loadingText");
+    if (text) text.textContent = `Loading data... (${done}/${total})`;
+
+    const steps = document.getElementById("loadingSteps");
+    if (!steps) return;
+
+    // Add completed step
+    const step = document.createElement('div');
+    step.className = 'ea-loading-step';
+    step.innerHTML = `<i class="fas fa-check-circle"></i> ${label}`;
+    steps.appendChild(step);
 }
 
 function showError(message) {
