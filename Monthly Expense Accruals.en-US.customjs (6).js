@@ -55,77 +55,77 @@ const AED_RATES = {
     'GBP': 4.65
 };
 
-function toAED(amount, currency) {
+function toAED(amount, currency, conversionRate) {
     if (!amount || isNaN(amount)) return 0;
     const cur = (currency || 'USD').toUpperCase().trim();
-    const rate = AED_RATES[cur] || AED_RATES['USD'];
+    // Use AR report's conversion rate if available, otherwise fallback to static rates
+    const rate = (conversionRate && !isNaN(conversionRate)) ? conversionRate : (AED_RATES[cur] || AED_RATES['USD']);
     return amount * rate;
 }
 
 // ============================================================================
 // FULL COLUMN DEFINITIONS (Summary Accruals uses all)
+// All data is system-generated from Dataverse tables - no manual entry
 // ============================================================================
 const COLUMN_DEFINITIONS = [
-    // System Generated from DCL Masters
+    // From DCL Masters (cr650_dcl_masters)
     { key: 'dclNumber', header: 'DCL #', source: 'cr650_dcl_masters', field: 'cr650_dclnumber', width: 120, type: 'text' },
     { key: 'ciNumber', header: 'CI Number', source: 'cr650_dcl_masters', field: 'cr650_ci_number', width: 140, type: 'text' },
     { key: 'status', header: 'Status', source: 'cr650_dcl_masters', field: 'cr650_status', width: 100, type: 'text' },
-    { key: 'businessUnit', header: 'Business Unit', source: 'cr650_dcl_ar_reports', field: 'cr650_businessunit', width: 150, type: 'text' },
-    { key: 'salesperson', header: 'Salesperson', source: 'cr650_dcl_ar_reports', field: 'cr650_salesperson', width: 150, type: 'text' },
+    { key: 'businessUnit', header: 'Business Unit', source: 'cr650_dcl_masters + cr650_dcl_ar_reports', field: 'cr650_businessunit', width: 150, type: 'text' },
+    { key: 'salesperson', header: 'Salesperson', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_salesperson / cr650_salesrepresentativename', width: 150, type: 'text' },
+    { key: 'exportExecutive', header: 'Export Executive', source: 'cr650_dcl_masters', field: 'cr650_salesrepresentativename', width: 150, type: 'text' },
 
-    // Manual Entry Fields
-    { key: 'exportExecutive', header: 'Export Executive', source: 'cr650_dcl_masters', field: 'cr650_submitter_name', width: 150, type: 'text', editable: true },
-
-    // System Generated
-    { key: 'customerPO', header: 'Customer PO Number', source: 'cr650_dcl_ar_reports', field: 'cr650_customerponumber', width: 150, type: 'text' },
-    { key: 'shipmentMonth', header: 'Shipment Month', source: 'cr650_dcl_shipped_orderses', field: 'cr650_shipment_date', width: 120, type: 'month', transform: 'toMonth' },
+    // From AR Reports (cr650_dcl_ar_reports) with DCL Masters fallback
+    { key: 'customerPO', header: 'Customer PO Number', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customerponumber / cr650_po_customer_number', width: 150, type: 'text' },
+    { key: 'shipmentMonth', header: 'Shipment Month', source: 'cr650_dcl_shipped_orderses + cr650_dcl_masters', field: 'cr650_shipment_date / cr650_sailing_date', width: 120, type: 'month', transform: 'toMonth' },
     { key: 'itemBrand', header: 'Item Brand', source: 'cr650_dcl_ar_reports', field: 'cr650_itemtype', width: 120, type: 'text' },
-    { key: 'customerClass', header: 'Customer Class of Business', source: 'cr650_dcl_ar_reports', field: 'cr650_customerclassofbusiness', width: 180, type: 'text' },
-    { key: 'customerNumber', header: 'Customer Number', source: 'cr650_dcl_ar_reports', field: 'cr650_customernumber', width: 140, type: 'text' },
-    { key: 'customerName', header: 'Customer Name', source: 'cr650_dcl_ar_reports', field: 'cr650_customername', width: 200, type: 'text' },
-    { key: 'country', header: 'Country', source: 'cr650_dcl_ar_reports', field: 'cr650_country', width: 120, type: 'text' },
+    { key: 'customerClass', header: 'Customer Class of Business', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customerclassofbusiness / cr650_cob', width: 180, type: 'text' },
+    { key: 'customerNumber', header: 'Customer Number', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customernumber', width: 140, type: 'text' },
+    { key: 'customerName', header: 'Customer Name', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customername', width: 200, type: 'text' },
+    { key: 'country', header: 'Country', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_country', width: 120, type: 'text' },
 
-    // Quantities
-    { key: 'qtyLtrs', header: 'Qty ltrs.', source: 'cr650_dcl_ar_reports', field: 'cr650_qty', width: 120, type: 'number', decimals: 2, editable: true },
+    // Quantities from AR Reports
+    { key: 'qtyLtrs', header: 'Qty ltrs.', source: 'cr650_dcl_ar_reports', field: 'cr650_qty', width: 120, type: 'number', decimals: 2 },
     { key: 'qtyBBL', header: 'QTY BBL', source: 'cr650_dcl_ar_reports', field: 'cr650_qtybbl', width: 120, type: 'number', decimals: 2 },
     { key: 'qtyMT', header: 'Qty MT', source: 'cr650_dcl_ar_reports', field: 'cr650_qtymt', width: 120, type: 'number', decimals: 2 },
 
-    // Manual Entries
-    { key: 'incoterms', header: 'Incoterms', source: 'cr650_dcl_masters', field: 'cr650_incoterms', width: 100, type: 'text', editable: true },
-    { key: 'containerType', header: 'Container Type', source: 'cr650_dcl_masters', field: 'calculated', width: 180, type: 'text', transform: 'buildContainer' },
-    { key: 'containerQty', header: 'Container Qty.', source: 'cr650_dcl_masters', field: 'calculated', width: 120, type: 'number', decimals: 0 },
+    // From DCL Masters
+    { key: 'incoterms', header: 'Incoterms', source: 'cr650_dcl_masters', field: 'cr650_incoterms', width: 100, type: 'text' },
+    { key: 'containerType', header: 'Container Type', source: 'cr650_dcl_masters', field: 'cr650_totalcartons/drums/pails/pallets', width: 180, type: 'text', transform: 'buildContainer' },
+    { key: 'containerQty', header: 'Container Qty.', source: 'cr650_dcl_masters', field: 'sum(totalcartons+totaldrums+totalpails+totalpallets)', width: 120, type: 'number', decimals: 0 },
 
-    // Pricing
+    // Pricing from AR Reports
     { key: 'unitPIFreight', header: 'Unit PI Freight', source: 'cr650_dcl_ar_reports', field: 'cr650_price', width: 130, type: 'currency', decimals: 2 },
 
-    // Charges (from Documents table)
-    { key: 'cooCharges', header: 'COO Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount', width: 120, type: 'currency', decimals: 2, docType: 'Customer Exit/Entry Certificate', editable: true },
-    { key: 'mofaCharges', header: 'MOFA Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount', width: 120, type: 'currency', decimals: 2, docType: 'MOFA', editable: true },
-    { key: 'docCharges', header: 'Documentation Charges', source: 'manual', field: 'N/A', width: 160, type: 'currency', decimals: 2, editable: true },
-    { key: 'insuranceCharges', header: 'Insurance Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount', width: 150, type: 'currency', decimals: 2, docType: 'Insurance', editable: true },
-    { key: 'inspectionCharges', header: 'Inspection Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount', width: 150, type: 'currency', decimals: 2, docType: 'Inspection', editable: true },
+    // Charges from Documents table (cr650_dcl_documents)
+    { key: 'cooCharges', header: 'COO Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=COO/Certificate)', width: 120, type: 'currency', decimals: 2 },
+    { key: 'mofaCharges', header: 'MOFA Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=MOFA)', width: 120, type: 'currency', decimals: 2 },
+    { key: 'docCharges', header: 'Documentation Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=documentation)', width: 160, type: 'currency', decimals: 2 },
+    { key: 'insuranceCharges', header: 'Insurance Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=insurance)', width: 150, type: 'currency', decimals: 2 },
+    { key: 'inspectionCharges', header: 'Inspection Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=inspection)', width: 150, type: 'currency', decimals: 2 },
 
-    // Freight from Discounts & Charges table
-    { key: 'freightCharges', header: 'Freight Charges', source: 'cr650_dcl_discounts_chargeses', field: 'cr650_amount', width: 140, type: 'currency', decimals: 2 },
+    // Freight from Discounts & Charges table (cr650_dcl_discounts_chargeses)
+    { key: 'freightCharges', header: 'Freight Charges', source: 'cr650_dcl_discounts_chargeses', field: 'cr650_amount (type=freight)', width: 140, type: 'currency', decimals: 2 },
 
-    // Critical Missing Fields - Now Included
-    { key: 'unitActualFreight', header: 'Unit Actual Freight', source: 'manual', field: 'N/A', width: 150, type: 'currency', decimals: 2, editable: true },
-    { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports', field: 'cr650_qty', width: 100, type: 'number', decimals: 0 },
+    // Calculated from system data: Freight Charges / Container Qty
+    { key: 'unitActualFreight', header: 'Unit Actual Freight', source: 'formula', field: 'freightCharges / containerQty', width: 150, type: 'currency', decimals: 2 },
+    { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_qty / cr650_totalorderquantity', width: 100, type: 'number', decimals: 0 },
 
-    // Formula Fields
-    { key: 'totalFreight', header: 'Total Freight', source: 'formula', field: 'Container Qty * Unit Actual Freight', width: 140, type: 'currency', decimals: 2, formula: (row) => (row.containerQty || 0) * (row.unitActualFreight || 0) },
+    // Formula Fields (derived from system data)
+    { key: 'totalFreight', header: 'Total Freight', source: 'formula', field: 'freightCharges or containerQty * unitActualFreight', width: 140, type: 'currency', decimals: 2 },
 
-    // Additional System Fields
-    { key: 'supplier', header: 'Supplier', source: 'manual', field: 'N/A', width: 150, type: 'text', editable: true },
-    { key: 'shippingLine', header: 'Shipping Line', source: 'cr650_dcl_shipped_orderses', field: 'cr650_shippingline', width: 150, type: 'text', editable: true },
-    { key: 'vendorInvoice', header: 'Vendor Invoice #', source: 'cr650_dcl_documents', field: 'cr650_invoice_number', width: 150, type: 'text', editable: true },
-    { key: 'vendorInvoiceDate', header: 'Vendor Invoice Receive Date', source: 'cr650_dcl_documents', field: 'cr650_invoice_date', width: 180, type: 'date', editable: true },
-    { key: 'blNumber', header: 'BL No.', source: 'cr650_dcl_shipped_orderses', field: 'cr650_blnumber', width: 150, type: 'text' },
+    // From DCL Masters / Shipped Orders
+    { key: 'supplier', header: 'Supplier', source: 'cr650_dcl_masters', field: 'cr650_party', width: 150, type: 'text' },
+    { key: 'shippingLine', header: 'Shipping Line', source: 'cr650_dcl_masters + cr650_dcl_shipped_orderses', field: 'cr650_shippingline', width: 150, type: 'text' },
+    { key: 'vendorInvoice', header: 'Vendor Invoice #', source: 'cr650_dcl_ar_reports', field: 'cr650_trxnumber', width: 150, type: 'text' },
+    { key: 'vendorInvoiceDate', header: 'Vendor Invoice Receive Date', source: 'cr650_dcl_masters', field: 'cr650_sailing_date', width: 180, type: 'date' },
+    { key: 'blNumber', header: 'BL No.', source: 'cr650_dcl_masters + cr650_dcl_shipped_orderses', field: 'cr650_blnumber', width: 150, type: 'text' },
     { key: 'oraclePO', header: 'Oracle P.O No.', source: 'cr650_dcl_ar_reports', field: 'cr650_salesordernumber', width: 150, type: 'text' },
 
-    // Cost Calculations (AED conversion)
-    { key: 'perLtrCost', header: 'Per Ltr. Cost (AED)', source: 'formula', field: '(Total Freight / Qty ltrs) * 3.675', width: 160, type: 'currency', decimals: 2, formula: (row) => row.qtyLtrs > 0 ? ((row.totalFreight || 0) / row.qtyLtrs) * 3.675 : 0 },
-    { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: '(Total Freight / Qty MT) * 3.675', width: 160, type: 'currency', decimals: 2, formula: (row) => row.qtyMT > 0 ? ((row.totalFreight || 0) / row.qtyMT) * 3.675 : 0 }
+    // Cost Calculations (AED conversion - derived from system data)
+    { key: 'perLtrCost', header: 'Per Ltr. Cost (AED)', source: 'formula', field: '(totalFreight / qtyLtrs) converted to AED', width: 160, type: 'currency', decimals: 2 },
+    { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: '(totalFreight / qtyMT) converted to AED', width: 160, type: 'currency', decimals: 2 }
 ];
 
 // ============================================================================
@@ -181,6 +181,7 @@ const state = {
     dclDocuments: [],
     shippedOrders: [],
     customerData: [],
+    updatedCustomers: [],
     discountsCharges: [],
     
     // Merged & filtered
@@ -287,17 +288,18 @@ async function loadAllData() {
     }
     
     try {
-        // Parallel loading with progress tracking
+        // Parallel loading with progress tracking - all Dataverse tables
         const promises = [
             fetchWithProgress("/_api/cr650_dcl_masters?$top=5000", "DCL Masters"),
             fetchWithProgress("/_api/cr650_dcl_ar_reports?$top=5000", "AR Reports"),
             fetchWithProgress("/_api/cr650_dcl_documents?$top=5000", "Documents"),
             fetchWithProgress("/_api/cr650_dcl_shipped_orderses?$top=5000", "Shipped Orders"),
             fetchWithProgress("/_api/cr650_dcl_customer_datas?$top=5000", "Customer Data"),
-            fetchWithProgress("/_api/cr650_dcl_discounts_chargeses?$top=5000", "Discounts & Charges")
+            fetchWithProgress("/_api/cr650_dcl_discounts_chargeses?$top=5000", "Discounts & Charges"),
+            fetchWithProgress("/_api/cr650_updated_dcl_customers?$top=5000", "Updated DCL Customers")
         ];
 
-        const [dcl, ar, docs, shipped, customers, discCharges] = await Promise.all(promises);
+        const [dcl, ar, docs, shipped, customers, discCharges, updatedCust] = await Promise.all(promises);
 
         state.dclMasters = dcl.value || [];
         state.arReports = ar.value || [];
@@ -305,8 +307,9 @@ async function loadAllData() {
         state.shippedOrders = shipped.value || [];
         state.customerData = customers.value || [];
         state.discountsCharges = discCharges.value || [];
+        state.updatedCustomers = updatedCust.value || [];
 
-        console.log(`Loaded: ${state.dclMasters.length} DCLs, ${state.arReports.length} AR Reports, ${state.dclDocuments.length} Documents, ${state.shippedOrders.length} Shipments, ${state.discountsCharges.length} Discounts/Charges`);
+        console.log(`Loaded: ${state.dclMasters.length} DCLs, ${state.arReports.length} AR Reports, ${state.dclDocuments.length} Documents, ${state.shippedOrders.length} Shipments, ${state.discountsCharges.length} Discounts/Charges, ${state.updatedCustomers.length} Updated Customers`);
         
         mergeDataOptimized();
         updateCache();
@@ -395,6 +398,15 @@ function mergeDataOptimized() {
         }
     });
 
+    // 5. Updated DCL Customers: lookup by customer code for fallback data
+    const customerByCode = new Map();
+    state.updatedCustomers.forEach(cust => {
+        const code = cust.cr650_customercodes;
+        if (code) {
+            customerByCode.set(code, cust);
+        }
+    });
+
     state.allData = [];
     const processedArIds = new Set();
 
@@ -427,17 +439,23 @@ function mergeDataOptimized() {
         }
         const shipped = shippedList[0];
 
+        // Find customer info from updated_dcl_customers (by customer number on DCL)
+        const custNumber = dcl.cr650_customernumber;
+        const customerInfo = custNumber ? customerByCode.get(custNumber) : null;
+
         if (relatedAR.length > 0) {
             // Has AR reports - create one row per AR line item
             relatedAR.forEach(ar => {
                 processedArIds.add(ar.cr650_dcl_ar_reportid);
-                const record = buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges);
+                // Also try customer lookup by AR customer number
+                const arCustInfo = customerInfo || (ar.cr650_customernumber ? customerByCode.get(ar.cr650_customernumber) : null);
+                const record = buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, arCustInfo);
                 applyFormulas(record);
                 state.allData.push(record);
             });
         } else {
             // No AR reports (likely Draft DCL) - still create a row from Master data
-            const record = buildMergedRecord(dcl, null, shipped, docCharges, extraCharges);
+            const record = buildMergedRecord(dcl, null, shipped, docCharges, extraCharges, customerInfo);
             applyFormulas(record);
             state.allData.push(record);
         }
@@ -453,8 +471,9 @@ function mergeDataOptimized() {
         const shipped = shippedByPO.get(customerPO)?.[0];
         const emptyCharges = { cooCharges: 0, mofaCharges: 0, documentationCharges: 0, insuranceCharges: 0, inspectionCharges: 0 };
         const emptyExtra = { freightCharges: 0, flexiBagsCharges: 0, otherCharges: 0 };
+        const custInfo = ar.cr650_customernumber ? customerByCode.get(ar.cr650_customernumber) : null;
 
-        const record = buildMergedRecord(null, ar, shipped, emptyCharges, emptyExtra);
+        const record = buildMergedRecord(null, ar, shipped, emptyCharges, emptyExtra, custInfo);
         applyFormulas(record);
         state.allData.push(record);
     });
@@ -463,71 +482,108 @@ function mergeDataOptimized() {
     console.log(`Merged ${state.allData.length} records (${state.dclMasters.length} DCL Masters, ${state.arReports.length - processedArIds.size} orphaned AR reports)`);
 }
 
-function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges) {
+function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerInfo) {
+    // Container qty for unit freight calculation
+    const contQty = dcl ? buildContainerQty(dcl) : 0;
+    const freightTotal = parseFloat(extraCharges.freightCharges) || 0;
+
+    // Unit Actual Freight = Total Freight Charges / Container Qty (system-derived)
+    const unitFreight = (freightTotal > 0 && contQty > 0) ? (freightTotal / contQty) : 0;
+
+    // Per-record currency: prefer AR report's transaction currency, then DCL master, then customer
+    const currency = ar?.cr650_transactioncurrency
+        || dcl?.cr650_currencycode || dcl?.cr650_currency
+        || customerInfo?.cr650_currency || 'USD';
+
     return {
         // DCL Status
         status: dcl?.cr650_status || "N/A",
 
-        // System generated from DCL Master + AR
+        // From DCL Masters with AR Reports fallback
         dclNumber: dcl?.cr650_dclnumber || "N/A",
         ciNumber: dcl?.cr650_ci_number || dcl?.cr650_autonumber_ic || "N/A",
-        businessUnit: ar?.cr650_businessunit || "N/A",
-        salesperson: ar?.cr650_salesperson || "N/A",
-        customerPO: ar?.cr650_customerponumber || dcl?.cr650_pinumber || dcl?.cr650_po_customer_number || "N/A",
-        itemBrand: ar?.cr650_itemtype || "N/A",
-        customerClass: ar?.cr650_customerclassofbusiness || "N/A",
-        customerNumber: ar?.cr650_customernumber || "N/A",
-        customerName: ar?.cr650_customername || dcl?.cr650_party || dcl?.cr650_consignee || "N/A",
-        country: ar?.cr650_country || dcl?.cr650_country || "N/A",
+        businessUnit: ar?.cr650_businessunit || dcl?.cr650_businessunit || "N/A",
+        salesperson: ar?.cr650_salesperson || dcl?.cr650_salesrepresentativename || "N/A",
+        exportExecutive: dcl?.cr650_salesrepresentativename || dcl?.cr650_submitter_name || customerInfo?.cr650_salesrepresentativename || "N/A",
 
-        // Quantities (from AR Reports)
+        // Customer PO: AR report first, then DCL master fields
+        customerPO: ar?.cr650_customerponumber || dcl?.cr650_pinumber || dcl?.cr650_po_customer_number || "N/A",
+
+        // Item info from AR Reports
+        itemBrand: ar?.cr650_itemtype || ar?.cr650_itemcategory || "N/A",
+
+        // Customer class: AR report has cr650_customerclassofbusiness, DCL master has cr650_cob
+        customerClass: ar?.cr650_customerclassofbusiness || dcl?.cr650_cob || customerInfo?.cr650_cob || "N/A",
+
+        // Customer number: AR report first, then DCL master
+        customerNumber: ar?.cr650_customernumber || dcl?.cr650_customernumber || customerInfo?.cr650_customercodes || "N/A",
+
+        // Customer name: AR report first, then DCL master fields
+        customerName: ar?.cr650_customername || dcl?.cr650_customername || dcl?.cr650_party || dcl?.cr650_consignee || "N/A",
+
+        // Country: AR report first, then DCL master, then customer table
+        country: ar?.cr650_country || dcl?.cr650_country || customerInfo?.cr650_country || "N/A",
+
+        // Quantities from AR Reports, fallback to DCL master totals
+        qtyLtrs: parseFloat(ar?.cr650_qty) || 0,
         qtyBBL: parseFloat(ar?.cr650_qtybbl) || 0,
         qtyMT: parseFloat(ar?.cr650_qtymt) || 0,
-        qty: parseFloat(ar?.cr650_qty) || 0,
+        qty: parseFloat(ar?.cr650_qty) || parseFloat(dcl?.cr650_totalorderquantity) || 0,
+
+        // Pricing from AR Reports
         unitPIFreight: parseFloat(ar?.cr650_price) || 0,
 
+        // Oracle PO from AR Reports
         oraclePO: ar?.cr650_salesordernumber || "N/A",
 
         // From DCL Masters
-        exportExecutive: dcl?.cr650_submitter_name || "N/A",
         incoterms: dcl?.cr650_incoterms || "N/A",
         containerType: dcl ? buildContainerType(dcl) : "N/A",
-        containerQty: dcl ? buildContainerQty(dcl) : 0,
+        containerQty: contQty,
 
-        // From Shipped Orders
-        shipmentMonth: shipped ? extractMonth(shipped.cr650_shipment_date) : "N/A",
-        shippingLine: shipped?.cr650_shippingline || dcl?.cr650_shippingline || "N/A",
-        blNumber: shipped?.cr650_blnumber || dcl?.cr650_blnumber || "N/A",
+        // Shipment month: shipped orders first, then DCL master sailing date
+        shipmentMonth: shipped ? extractMonth(shipped.cr650_shipment_date)
+            : (dcl?.cr650_sailing_date ? extractMonth(dcl.cr650_sailing_date) : "N/A"),
 
-        // Quantities with conversion
-        qtyLtrs: parseFloat(ar?.cr650_qty) || 0,
+        // Shipping line: DCL master has cr650_shippingline, shipped orders as fallback
+        shippingLine: dcl?.cr650_shippingline || shipped?.cr650_shippingline || "N/A",
 
-        // Charges from Documents table (cr650_dcl_documents)
+        // BL number: DCL master has cr650_blnumber, shipped orders as fallback
+        blNumber: dcl?.cr650_blnumber || shipped?.cr650_blnumber || "N/A",
+
+        // Charges from Documents table (cr650_dcl_documents) - all system-generated
         cooCharges: parseFloat(docCharges.cooCharges) || 0,
         mofaCharges: parseFloat(docCharges.mofaCharges) || 0,
         docCharges: parseFloat(docCharges.documentationCharges) || 0,
         insuranceCharges: parseFloat(docCharges.insuranceCharges) || 0,
         inspectionCharges: parseFloat(docCharges.inspectionCharges) || 0,
 
-        // Charges from Discounts/Charges table (cr650_dcl_discounts_chargeses)
-        freightCharges: parseFloat(extraCharges.freightCharges) || 0,
+        // Freight from Discounts/Charges table (cr650_dcl_discounts_chargeses)
+        freightCharges: freightTotal,
 
-        // Manual fields
-        unitActualFreight: 0,
-        supplier: "N/A",
-        vendorInvoice: "N/A",
-        vendorInvoiceDate: "N/A",
+        // Calculated from system data: freight / container qty
+        unitActualFreight: unitFreight,
 
-        // Calculated fields
+        // Supplier from DCL Masters (party field)
+        supplier: dcl?.cr650_party || dcl?.cr650_consignee || customerInfo?.cr650_consignee || "N/A",
+
+        // Vendor Invoice from AR Reports transaction number
+        vendorInvoice: ar?.cr650_trxnumber || dcl?.cr650_ednumber || "N/A",
+
+        // Vendor Invoice Date from DCL sailing date (closest system date available)
+        vendorInvoiceDate: dcl?.cr650_sailing_date || "N/A",
+
+        // Formula fields (calculated in applyFormulas)
         totalFreight: 0,
         perLtrCost: 0,
         perMTCost: 0,
 
-        // Metadata
+        // Metadata for internal use
         _arId: ar?.cr650_dcl_ar_reportid,
         _dclId: dcl?.cr650_dcl_masterid,
         _shippedId: shipped?.cr650_dcl_shipped_ordersid,
-        _currency: dcl?.cr650_currencycode || dcl?.cr650_currency || 'USD'
+        _currency: currency,
+        _conversionRate: parseFloat(ar?.cr650_conversionrate) || null
     };
 }
 
@@ -598,23 +654,30 @@ function extractDiscountCharges(discCharges) {
 
 
 function applyFormulas(record) {
-    // Ensure all values are numeric for calculations
     const containerQty = parseFloat(record.containerQty) || 0;
     const unitActualFreight = parseFloat(record.unitActualFreight) || 0;
+    const freightCharges = parseFloat(record.freightCharges) || 0;
     const qtyLtrs = parseFloat(record.qtyLtrs) || 0;
     const qtyMT = parseFloat(record.qtyMT) || 0;
 
-    // Total Freight = Container Qty * Unit Actual Freight (freight per container)
-    record.totalFreight = containerQty * unitActualFreight;
-    
-    // Per Ltr Cost (AED) = (Total Freight / Qty ltrs) * 3.675
-    record.perLtrCost = qtyLtrs > 0 
-        ? (record.totalFreight / qtyLtrs) * 3.675 
+    // Total Freight: use system freight charges directly if available,
+    // otherwise fall back to containerQty * unitActualFreight
+    record.totalFreight = freightCharges > 0
+        ? freightCharges
+        : (containerQty * unitActualFreight);
+
+    // Convert total freight to AED using per-record currency
+    const currency = (record._currency || 'USD').toUpperCase().trim();
+    const aedRate = AED_RATES[currency] || AED_RATES['USD'];
+
+    // Per Ltr Cost (AED) = (Total Freight / Qty ltrs) converted to AED
+    record.perLtrCost = qtyLtrs > 0
+        ? (record.totalFreight / qtyLtrs) * aedRate
         : 0;
-    
-    // Per MT Cost (AED) = (Total Freight / Qty MT) * 3.675
-    record.perMTCost = qtyMT > 0 
-        ? (record.totalFreight / qtyMT) * 3.675 
+
+    // Per MT Cost (AED) = (Total Freight / Qty MT) converted to AED
+    record.perMTCost = qtyMT > 0
+        ? (record.totalFreight / qtyMT) * aedRate
         : 0;
 }
 
@@ -911,8 +974,7 @@ function renderTable() {
 
             const cssClass = [
                 isNA ? 'missing' : '',
-                col.source === 'formula' ? 'calculated' : '',
-                col.editable ? 'editable' : ''
+                col.source === 'formula' ? 'calculated' : ''
             ].filter(Boolean).join(' ');
 
             return `<td class="${cssClass}" data-key="${col.key}">${isNA ? 'N/A' : displayValue}</td>`;
@@ -992,11 +1054,11 @@ function exportToExcel() {
                     value = '';
                 }
 
-                // Convert currency values to AED
+                // Convert currency values to AED using per-record conversion rate
                 if (col.type === 'currency' && value !== '' && value !== 0) {
                     const numVal = parseFloat(value);
                     if (!isNaN(numVal)) {
-                        const aedVal = toAED(numVal, record._currency);
+                        const aedVal = toAED(numVal, record._currency, record._conversionRate);
                         value = aedVal.toFixed(col.decimals || 2);
                     }
                 }

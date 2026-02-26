@@ -478,30 +478,9 @@ body {
     font-style: italic;
 }
 
-.data-table td.editable {
-    background: rgba(59, 130, 246, 0.03);
-    cursor: pointer;
-    position: relative;
-}
-
-.data-table td.editable:hover {
-    background: rgba(59, 130, 246, 0.08);
-}
-
-.data-table td.editable::after {
-    content: '✎';
-    position: absolute;
-    right: 0.5rem;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.75rem;
-    color: var(--info-blue);
-    opacity: 0;
-    transition: opacity var(--transition-fast);
-}
-
-.data-table td.editable:hover::after {
-    opacity: 1;
+/* System-sourced data indicator (all data from Dataverse) */
+.data-table td.system-sourced {
+    color: var(--dark-gray);
 }
 
 /* ============================================================================
