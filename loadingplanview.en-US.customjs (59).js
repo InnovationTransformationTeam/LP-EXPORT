@@ -1560,6 +1560,9 @@
     });
 
     renderContainerSummaries();
+
+    // Keep toolbar button state and status bar in sync whenever totals change
+    updateToolbarState();
   }
 
 
