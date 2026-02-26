@@ -1196,7 +1196,7 @@
         try {
             showLoader(true);
 
-            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$select=cr650_updated_dcl_customerid,cr650_customercodes,cr650_customername,cr650_country,cr650_paymentterms,cr650_salesrepresentativename,cr650_destinationport,cr650_notifyparty1,cr650_notifyparty2,cr650_organizationid,cr650_cob,cr650_country_1,cr650_loadingplancomments,cr650_currency,cr650_mandatory_documents,modifiedon&$orderby=createdon desc`;
+            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$select=cr650_updated_dcl_customerid,cr650_customercodes,cr650_customername,cr650_country,cr650_paymentterms,cr650_salesrepresentativename,cr650_destinationport,cr650_notifyparty1,cr650_notifyparty2,cr650_organizationid,cr650_cob,cr650_country_1,cr650_loadingplancomments,cr650_currency,cr650_mandatorydocuments,modifiedon&$orderby=createdon desc`;
 
             const response = await fetch(url, {
                 headers: {
@@ -1296,7 +1296,7 @@
                 'cr650_notifyparty1': getElement('#notifyParty1')?.value.trim() || null,
                 'cr650_notifyparty2': getElement('#notifyParty2')?.value.trim() || null,
                 'cr650_loadingplancomments': lpCommentsValue,
-                'cr650_mandatory_documents': mandatoryDocsValue
+                'cr650_mandatorydocuments': mandatoryDocsValue
             };
 
             let url = `${CONFIG.apiPath}/${CONFIG.entitySetName}`;
@@ -1787,7 +1787,7 @@
                 }
 
                 // Load Mandatory Documents
-                loadMandatoryDocuments(customer.cr650_mandatory_documents || '');
+                loadMandatoryDocuments(customer.cr650_mandatorydocuments || '');
 
                 const codeInput = getElement('#customerCode');
                 if (codeInput) codeInput.disabled = true;
