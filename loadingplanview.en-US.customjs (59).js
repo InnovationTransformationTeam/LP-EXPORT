@@ -6761,6 +6761,10 @@
 
           if (!parsedItems.length) {
             alert("No order items found in this PDF. Please check the file format.");
+            pdfImportBtn.disabled = false;
+            pdfImportBtn.textContent = oldText || "Import from PDF";
+            setLoading(false);
+            e.target.value = "";
             return;
           }
 
