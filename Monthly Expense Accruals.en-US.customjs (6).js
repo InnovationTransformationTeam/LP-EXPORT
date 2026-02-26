@@ -552,8 +552,9 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         || customerInfo?.cr650_currency || 'USD';
 
     return {
-        // DCL Status
-        status: dcl?.cr650_status || "N/A",
+        // DCL Status (option set field - use FormattedValue for display text)
+        status: dcl?.['cr650_status@OData.Community.Display.V1.FormattedValue']
+            || dcl?.cr650_status || "N/A",
 
         // From DCL Masters with AR Reports fallback
         dclNumber: dcl?.cr650_dclnumber || "N/A",
@@ -592,8 +593,9 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         // Oracle PO from AR Reports, then loading plan order number
         oraclePO: ar?.cr650_salesordernumber || lpAggregates.orderNumber || "N/A",
 
-        // From DCL Masters
-        incoterms: dcl?.cr650_incoterms || "N/A",
+        // From DCL Masters (may be option set - use FormattedValue for safety)
+        incoterms: dcl?.['cr650_incoterms@OData.Community.Display.V1.FormattedValue']
+            || dcl?.cr650_incoterms || "N/A",
 
         // Container Type & Qty from cr650_dcl_containers (primary), DCL master (fallback)
         containerType: containerInfo.type,
@@ -770,8 +772,10 @@ function buildContainerQty(dcl) {
 function buildContainerInfo(containers, dcl) {
     if (containers && containers.length > 0) {
         // Primary: use actual container records from cr650_dcl_containers
+        // cr650_container_type is an OPTION SET field - use FormattedValue for display text
         const types = containers.map(c => {
-            const type = c.cr650_container_type || '';
+            const type = c['cr650_container_type@OData.Community.Display.V1.FormattedValue']
+                || c.cr650_container_type || '';
             const size = c.cr650_container_size_dimension || '';
             return size ? `${size} ${type}`.trim() : type;
         }).filter(Boolean);
