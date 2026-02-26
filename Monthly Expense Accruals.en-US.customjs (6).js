@@ -113,7 +113,7 @@ const COLUMN_DEFINITIONS = [
     { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports + cr650_dcl_loading_plans + cr650_dcl_masters', field: 'cr650_qty / cr650_loadedquantity / cr650_totalorderquantity', width: 100, type: 'number', decimals: 0 },
 
     // Formula Fields (derived from system data)
-    { key: 'totalFreight', header: 'Total Freight', source: 'formula', field: 'freightCharges or containerQty * unitActualFreight', width: 140, type: 'currency', decimals: 2 },
+    { key: 'totalFreight', header: 'Total Freight', source: 'formula', field: 'Container Qty * Unit Actual Freight', width: 140, type: 'currency', decimals: 2 },
 
     // From DCL Masters / Shipped Orders
     { key: 'supplier', header: 'Supplier', source: 'cr650_dcl_masters', field: 'cr650_party', width: 150, type: 'text' },
@@ -124,8 +124,8 @@ const COLUMN_DEFINITIONS = [
     { key: 'oraclePO', header: 'Oracle P.O No.', source: 'cr650_dcl_ar_reports', field: 'cr650_salesordernumber', width: 150, type: 'text' },
 
     // Cost Calculations (AED conversion - derived from system data)
-    { key: 'perLtrCost', header: 'Per Ltr. Cost (AED)', source: 'formula', field: '(totalFreight / qtyLtrs) converted to AED', width: 160, type: 'currency', decimals: 2 },
-    { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: '(totalFreight / qtyMT) converted to AED', width: 160, type: 'currency', decimals: 2 }
+    { key: 'perLtrCost', header: 'Per Ltr. Cost (AED)', source: 'formula', field: '(Total Freight / Qty ltrs) * 3.675', width: 160, type: 'currency', decimals: 2 },
+    { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: '(Total Freight / Qty MT) * 3.675', width: 160, type: 'currency', decimals: 2 }
 ];
 
 // ============================================================================
@@ -714,28 +714,21 @@ function extractDiscountCharges(discCharges) {
 function applyFormulas(record) {
     const containerQty = parseFloat(record.containerQty) || 0;
     const unitActualFreight = parseFloat(record.unitActualFreight) || 0;
-    const freightCharges = parseFloat(record.freightCharges) || 0;
     const qtyLtrs = parseFloat(record.qtyLtrs) || 0;
     const qtyMT = parseFloat(record.qtyMT) || 0;
 
-    // Total Freight: use system freight charges directly if available,
-    // otherwise fall back to containerQty * unitActualFreight
-    record.totalFreight = freightCharges > 0
-        ? freightCharges
-        : (containerQty * unitActualFreight);
+    // Total Freight = Qty. * Unit Actual Freight (stakeholder formula)
+    // Where Qty. = Container Qty (number of containers)
+    record.totalFreight = containerQty * unitActualFreight;
 
-    // Convert total freight to AED using per-record currency
-    const currency = (record._currency || 'USD').toUpperCase().trim();
-    const aedRate = AED_RATES[currency] || AED_RATES['USD'];
-
-    // Per Ltr Cost (AED) = (Total Freight / Qty ltrs) converted to AED
+    // Per Ltr. Cost (AED) = (Total Freight / Qty ltrs.) * 3.675
     record.perLtrCost = qtyLtrs > 0
-        ? (record.totalFreight / qtyLtrs) * aedRate
+        ? (record.totalFreight / qtyLtrs) * 3.675
         : 0;
 
-    // Per MT Cost (AED) = (Total Freight / Qty MT) converted to AED
+    // Per Mts. Cost (AED) = (Total Freight / Qty MT) * 3.675
     record.perMTCost = qtyMT > 0
-        ? (record.totalFreight / qtyMT) * aedRate
+        ? (record.totalFreight / qtyMT) * 3.675
         : 0;
 }
 
