@@ -1,0 +1,554 @@
+<div id="top-loader" class="top-loader hidden" aria-hidden="true"></div>
+
+<section id="dcl-create" class="main-section">
+  <!-- Dashboard Header -->
+  <div class="dashboard-header">
+    <h1><i class="fas fa-file-alt"></i> DCL Management System</h1>
+    <p>Create and manage your Document Control Lists efficiently</p>
+  </div>
+
+  <div id="dclWizard" class="wizard-container">
+    <!-- DCL Header -->
+    <div class="dcl-header">
+      <div class="dcl-info">
+        <h3>DCL Number</h3>
+        <p>Document Control List Reference</p>
+      </div>
+      <div class="dcl-number"><span id="dclNumber">-</span></div>
+    </div>
+
+    <!-- Progress Bar -->
+    <!-- Progress Bar -->
+    <div class="progress-container" aria-label="Progress">
+      <div class="progress-bar">
+        <!-- Step 1 = 20%; set 40%, 60%, 80%, 100% on later pages -->
+        <div class="progress-fill" id="progressFill" style="width: 60%;"></div>
+      </div>
+
+      <nav class="step-indicators" id="stepIndicators" aria-label="Steps">
+        <a href="/Basic_Information_View" class="step" data-step="1" aria-current="step">
+          <div class="step-number">1</div>
+          <div class="step-label">Basic Info</div>
+        </a>
+        <a href="/loading_plan_view" class="step" data-step="2">
+          <div class="step-number">2</div>
+          <div class="step-label">Loading Plan</div>
+        </a>
+        <a href="/DCL-Document-Generator" class="step active" data-step="3">
+          <div class="step-number">3</div>
+          <div class="step-label">Document Generator</div>
+        </a>
+        <a href="/Upload_Center_Accruals" class="step" data-step="4">
+          <div class="step-number">4</div>
+          <div class="step-label">Upload Center</div>
+        </a>
+        <a href="/Review_Submit" class="step" data-step="5">
+          <div class="step-number">5</div>
+          <div class="step-label">Review &amp; Submit</div>
+        </a>
+      </nav>
+    </div>
+
+    <!-- Order Items Section (Full Editable - Same as Loading Plan View) -->
+    <div class="items-section">
+      <h3 class="section-title"><i class="fas fa-boxes"></i> Order Items</h3>
+
+      <div class="items-header">
+        <div class="toolbar-left">
+          <button type="button" id="updateAllBtn" class="btn btn-success">
+            <i class="fas fa-sync-alt"></i> Update All
+          </button>
+        </div>
+        <div class="toolbar-center">
+          <div id="modifiedIndicator" class="modified-indicator" style="display:none;">
+            <i class="fas fa-circle"></i>
+            <span id="modifiedCount">0</span> modified rows
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <button type="button" id="saveAllChangesBtn" class="btn btn-success" style="display:none;">
+            <i class="fas fa-save"></i> Save All Changes
+          </button>
+          <button type="button" id="discardChangesBtn" class="btn btn-outline-danger" style="display:none;">
+            <i class="fas fa-undo"></i> Discard
+          </button>
+          <button type="button" id="fullscreenBtn" class="btn btn-fullscreen">
+            <i class="fas fa-expand"></i> Fullscreen
+          </button>
+        </div>
+      </div>
+
+      <div class="items-table-container" id="itemsTableContainer">
+        <table id="itemsTable" class="items-table">
+          <thead>
+            <tr>
+              <th align="center">S/N</th>
+              <th align="center">Order #</th>
+              <th align="center">Item Code</th>
+              <th align="center">Item Description</th>
+              <th align="center">Released</th>
+              <th align="center">Packaging</th>
+              <th align="center">UOM</th>
+              <th align="center">PACK</th>
+              <th align="center">Order Qty.</th>
+              <th align="center">Loading Qty.</th>
+              <th align="center">Pending Qty.</th>
+              <th align="center">Palletized</th>
+              <th align="center"># Pallets</th>
+              <th align="center">Pallets Weights</th>
+              <th align="center">Total L/Kgs</th>
+              <th align="center">Net Weight (Kgs)</th>
+              <th align="center">Gross Weight (Kgs)</th>
+              <th align="center">Value Type</th>
+              <th align="center">Unit Price</th>
+              <th align="center">5% VAT</th>
+              <th align="center">Total (Ex VAT)</th>
+              <th align="center">Total (Inc VAT)</th>
+              <th align="center">Container #</th>
+              <th align="center">HS Code</th>
+            </tr>
+          </thead>
+          <tbody id="itemsTableBody">
+            <tr class="empty-row">
+              <td colspan="24">
+                <i class="fas fa-spinner fa-spin"></i>
+                Loading order items...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Summary (Same as Loading Plan View) -->
+      <div class="items-summary">
+        <div class="summary-item">
+          <span class="summary-label">Total Items:</span>
+          <span id="totalItems" class="summary-value">0</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total Order Qty:</span>
+          <span id="totalOrderQty" class="summary-value">0</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total Loading Qty:</span>
+          <span id="totalLoadingQty" class="summary-value">0</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total Net Weight:</span>
+          <span id="totalNetWeight" class="summary-value">0 kg</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total Gross Weight:</span>
+          <span id="totalGrossWeight" class="summary-value">0 kg</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total Value (Ex VAT):</span>
+          <span id="totalValueExVAT" class="summary-value">$0.00</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total Value (Inc VAT):</span>
+          <span id="totalValueIncVAT" class="summary-value">$0.00</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Total VAT:</span>
+          <span id="totalVATAmount" class="summary-value">$0.00</span>
+        </div>
+      </div>
+
+      <!-- Backward compatibility spans -->
+      <div class="hidden">
+        <span id="totalQuantity">0</span>
+        <span id="totalWeight">0</span>
+        <span id="totalValue">0</span>
+      </div>
+    </div>
+
+    <!-- Additional Details Section (Full Features - Same as Loading Plan View) -->
+    <div id="additionalDetails" class="additional-details-section"
+      style="padding: 2rem; border-radius: 20px; box-shadow: var(--shadow-medium); margin-bottom: 2rem; background: white;">
+
+      <h3 style="margin-bottom: 1.5rem; color: var(--primary-green); font-size: 1.5rem;">Additional Details</h3>
+
+      <!-- Totals Table -->
+      <div class="table-container" style="overflow-x: auto; border-radius: 12px; margin-bottom: 1.5rem;">
+        <table id="additionalDetailsTable"
+          style="width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--primary-green); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-light);">
+          <thead style="background-color: #f5f5f5;">
+            <tr>
+              <th
+                style="padding: 1rem; text-align: left; font-weight: 700; color: var(--primary-green); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid var(--primary-green); width: 50%;">
+                Additional Details
+              </th>
+              <th
+                style="padding: 1rem; text-align: left; font-weight: 700; color: var(--primary-green); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid var(--primary-green); width: 35%;">
+                Value
+              </th>
+              <th
+                style="padding: 1rem; text-align: center; font-weight: 700; color: var(--primary-green); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid var(--primary-green); width: 15%;">
+                Action
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Total Pallets -->
+            <tr data-detail="totalPallets" style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 1rem; text-align: left; font-size: 0.95rem;">
+                Number of pallets the products are packed on:
+              </td>
+              <td style="padding: 1rem; text-align: left; font-weight: 600; font-size: 1rem; color: #1f2937;">
+                <span id="totalPallets">0</span>
+              </td>
+              <td style="padding: 1rem; text-align: center;">
+                <button type="button" onclick="removeDetailRow(this, 'totalPallets')" class="btn-remove"
+                  style="padding: 0.5rem 1rem; font-weight: 600; font-size: 0.875rem; cursor: pointer; border: 2px solid transparent; display: inline-flex; align-items: center; gap: 0.375rem; border-radius: 6px; background: #dc2626; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.2s;">
+                  Remove
+                </button>
+              </td>
+            </tr>
+
+            <!-- Total Cartons -->
+            <tr data-detail="totalCartons" style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 1rem; text-align: left; font-size: 0.95rem;">
+                Total Number of Cartons:
+              </td>
+              <td style="padding: 1rem; text-align: left; font-weight: 600; font-size: 1rem; color: #1f2937;">
+                <span id="totalCartons">0</span>
+              </td>
+              <td style="padding: 1rem; text-align: center;">
+                <button type="button" onclick="removeDetailRow(this, 'totalCartons')" class="btn-remove"
+                  style="padding: 0.5rem 1rem; font-weight: 600; font-size: 0.875rem; cursor: pointer; border: 2px solid transparent; display: inline-flex; align-items: center; gap: 0.375rem; border-radius: 6px; background: #dc2626; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.2s;">
+                  Remove
+                </button>
+              </td>
+            </tr>
+
+            <!-- Total Drums -->
+            <tr data-detail="totalDrums" style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 1rem; text-align: left; font-size: 0.95rem;">
+                Total Number of Drums:
+              </td>
+              <td style="padding: 1rem; text-align: left; font-weight: 600; font-size: 1rem; color: #1f2937;">
+                <span id="totalDrums">0</span>
+              </td>
+              <td style="padding: 1rem; text-align: center;">
+                <button type="button" onclick="removeDetailRow(this, 'totalDrums')" class="btn-remove"
+                  style="padding: 0.5rem 1rem; font-weight: 600; font-size: 0.875rem; cursor: pointer; border: 2px solid transparent; display: inline-flex; align-items: center; gap: 0.375rem; border-radius: 6px; background: #dc2626; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.2s;">
+                  Remove
+                </button>
+              </td>
+            </tr>
+
+            <!-- Total Pails -->
+            <tr data-detail="totalPails" style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 1rem; text-align: left; font-size: 0.95rem;">
+                Total Number of Pails:
+              </td>
+              <td style="padding: 1rem; text-align: left; font-weight: 600; font-size: 1rem; color: #1f2937;">
+                <span id="totalPails">0</span>
+              </td>
+              <td style="padding: 1rem; text-align: center;">
+                <button type="button" onclick="removeDetailRow(this, 'totalPails')" class="btn-remove"
+                  style="padding: 0.5rem 1rem; font-weight: 600; font-size: 0.875rem; cursor: pointer; border: 2px solid transparent; display: inline-flex; align-items: center; gap: 0.375rem; border-radius: 6px; background: #dc2626; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.2s;">
+                  Remove
+                </button>
+              </td>
+            </tr>
+
+            <!-- Total Packages -->
+            <tr data-detail="totalPackages" style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 1rem; text-align: left; font-size: 0.95rem;">
+                Total Number of Packages:
+              </td>
+              <td style="padding: 1rem; text-align: left; font-weight: 600; font-size: 1rem; color: #1f2937;">
+                <span id="totalPackages">0</span>
+              </td>
+              <td style="padding: 1rem; text-align: center;">
+                <button type="button" onclick="removeDetailRow(this, 'totalPackages')" class="btn-remove"
+                  style="padding: 0.5rem 1rem; font-weight: 600; font-size: 0.875rem; cursor: pointer; border: 2px solid transparent; display: inline-flex; align-items: center; gap: 0.375rem; border-radius: 6px; background: #dc2626; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.2s;">
+                  Remove
+                </button>
+              </td>
+            </tr>
+
+            <!-- Total Net Weight -->
+            <tr data-detail="totalNetWeight" style="border-bottom: 1px solid #e5e7eb;">
+              <td style="padding: 1rem; text-align: left; font-size: 0.95rem;">
+                Total Net Weight of Packages (Kgs):
+              </td>
+              <td style="padding: 1rem; text-align: left; font-weight: 600; font-size: 1rem; color: #1f2937;">
+                <span id="totalNetWeightAD">0.00</span>
+              </td>
+              <td style="padding: 1rem; text-align: center;">
+                <button type="button" onclick="removeDetailRow(this, 'totalNetWeight')" class="btn-remove"
+                  style="padding: 0.5rem 1rem; font-weight: 600; font-size: 0.875rem; cursor: pointer; border: 2px solid transparent; display: inline-flex; align-items: center; gap: 0.375rem; border-radius: 6px; background: #dc2626; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.2s;">
+                  Remove
+                </button>
+              </td>
+            </tr>
+
+            <!-- Total Gross Weight -->
+            <tr data-detail="totalGrossWeight">
+              <td style="padding: 1rem; text-align: left; font-size: 0.95rem;">
+                Total Gross Weight of Packages (Kgs):
+              </td>
+              <td style="padding: 1rem; text-align: left; font-weight: 600; font-size: 1rem; color: #1f2937;">
+                <span id="totalGrossWeightAD">0.00</span>
+              </td>
+              <td style="padding: 1rem; text-align: center;">
+                <button type="button" onclick="removeDetailRow(this, 'totalGrossWeight')" class="btn-remove"
+                  style="padding: 0.5rem 1rem; font-weight: 600; font-size: 0.875rem; cursor: pointer; border: 2px solid transparent; display: inline-flex; align-items: center; gap: 0.375rem; border-radius: 6px; background: #dc2626; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.2s;">
+                  Remove
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Add Detail Back Controls -->
+        <div style="margin-top: 1rem; display: flex; gap: 1rem; align-items: center;">
+          <select id="addDetailSelect"
+            style="flex: 1; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem; background: white; color: #374151; cursor: pointer;">
+            <option value="">Select detail to add back</option>
+          </select>
+          <button type="button" id="addDetailBtn" class="btn-primary"
+            style="padding: 10px 20px; font-weight: 600; font-size: 0.95rem; cursor: pointer; border: 2px solid transparent; display: inline-flex; align-items: center; gap: 0.5rem; border-radius: 8px; background: var(--primary-green); color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;"
+            disabled>
+            <span></span> Add Detail
+          </button>
+        </div>
+      </div>
+
+      <!-- Print Options -->
+      <div class="form-group" style="margin-bottom: 1rem;">
+        <label style="display: block; font-weight: 600; color: #374151; margin-bottom: 0.75rem; font-size: 0.95rem;">
+          Print Additional Details on:
+        </label>
+        <div style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
+          <label
+            style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.95rem; color: #374151;">
+            <input type="checkbox" id="printAdditionalOnCL" value="cl"
+              style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary-green);" />
+            <span>Commercial List (CL)</span>
+          </label>
+
+          <label
+            style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.95rem; color: #374151;">
+            <input type="checkbox" id="printAdditionalOnPL" value="pl"
+              style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary-green);" />
+            <span>Packing List (PL)</span>
+          </label>
+
+          <label
+            style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.95rem; color: #374151;">
+            <input type="checkbox" id="printAdditionalOnBoth" value="both"
+              style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary-green);" />
+            <span>Both</span>
+          </label>
+        </div>
+        <small style="display: block; margin-top: 0.5rem; color: #6b7280; font-size: 0.875rem;">
+          Auto-saved when selected
+        </small>
+      </div>
+
+      <!-- Info Message -->
+      <div
+        style="margin-top: 1.5rem; padding: 12px; background: #f0f9ff; border-left: 4px solid #3b82f6; border-radius: 6px;">
+        <p style="margin: 0; font-size: 0.875rem; color: #1e40af;">
+          <strong>ℹ️ Note:</strong> All totals are automatically calculated from the Loading Plan table. Changes are
+          saved automatically.
+        </p>
+      </div>
+    </div>
+
+    <!-- Discounts / Additional Charges -->
+    <div class="discounts-charges-section">
+      <h3>Discounts / Additional Charges</h3>
+
+      <div class="table-container">
+        <table id="discountsChargesTable" class="table bordered">
+          <thead>
+            <tr>
+              <th align="left">Type</th>
+              <th align="left">Quantity</th>
+              <th align="left">Amount</th>
+              <th align="left">Currency</th>
+              <th align="left">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Will be filled by renderDiscountCharges / addDiscountChargeRow -->
+            <tr class="empty-row">
+              <td colspan="5">
+                <i class="fas fa-inbox"></i>
+                No discounts or charges added yet
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="dc-actions" style="margin-top: 8px;">
+          <button type="button" id="addDiscountChargeBtn" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Add Row
+          </button>
+
+          <!-- Optional save and reload buttons if you want manual control -->
+          <button type="button" id="saveDiscountsBtn" class="btn btn-success">
+            <i class="fas fa-save"></i> Save
+          </button>
+          <button type="button" id="loadDiscountsBtn" class="btn btn-secondary">
+            <i class="fas fa-sync-alt"></i> Reload
+          </button>
+        </div>
+
+        <!-- Optional summary panel -->
+        <div class="dc-summary" style="display:none; margin-top: 10px;">
+          <strong>Summary:</strong>
+          <span>Total Charges: <span class="total-charges">+0.00</span></span> |
+          <span>Total Discounts: <span class="total-discounts">-0.00</span></span> |
+          <span>Net Impact: <span class="net-impact">+0.00</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Terms & Conditions Section -->
+    <div class="terms-conditions-section">
+      <h3><i class="fas fa-file-contract"></i> Terms & Conditions</h3>
+      <div id="termsConditionsContainer">
+        <!-- Terms items will be rendered here -->
+        <div class="terms-loading">
+          <i class="fas fa-spinner fa-spin"></i> Loading terms & conditions...
+        </div>
+      </div>
+      <button type="button" id="addTermsConditionBtn" class="btn btn-primary" style="margin-top: 12px;">
+        <i class="fas fa-plus"></i> Add Terms & Conditions
+      </button>
+    </div>
+
+    <!-- ROW -->
+    <!-- ROW -->
+    <section class="doc-grid" aria-label="Document generators">
+      <!-- Commercial Invoice -->
+      <article class="doc-card" aria-labelledby="ciTitle">
+        <header class="doc-head">
+          <div class="doc-icon" aria-hidden="true"><i class="fas fa-file-invoice"></i></div>
+          <h3 id="ciTitle">Commercial Invoice</h3>
+          <p>Generate CI in Arabic/English</p>
+        </header>
+
+        <div class="doc-body" style="flex-direction: column; align-items: center;">
+          <div class="doc-lang" role="radiogroup" aria-label="CI language">
+            <label><input type="radio" name="ci_lang" value="en" checked><span>English</span></label>
+            <label><input type="radio" name="ci_lang" value="ar"><span>Arabic</span></label>
+          </div>
+          <div style="margin-top: 0.5rem;">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+              <input type="checkbox" id="ciShowHsCode" checked>
+              <span>HS Code</span>
+            </label>
+          </div>
+        </div>
+        <!-- Warning for regeneration -->
+        <div id="ciWarning" class="doc-warning hidden" role="alert">
+          <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+          <span>Please close all open tabs of this document before regenerating</span>
+        </div>
+        <footer class="doc-actions">
+          <!-- Shown only when no CI row exists -->
+          <button class="btn btn-primary" id="btnGenCI" type="button">
+            <i class="fas fa-file-word" aria-hidden="true"></i> Generate
+          </button>
+
+          <!-- Shown only when a CI row exists -->
+          <a class="btn btn-outline hidden" id="btnViewCI" href="#" target="_blank" rel="noopener" aria-disabled="true">
+            <i class="fas fa-link" aria-hidden="true"></i> View
+          </a>
+        </footer>
+      </article>
+
+      <!-- Packing List -->
+      <article class="doc-card" aria-labelledby="plTitle">
+        <header class="doc-head">
+          <div class="doc-icon" aria-hidden="true"><i class="fas fa-box-open"></i></div>
+          <h3 id="plTitle">Packing List</h3>
+          <p>Generate PL with item details</p>
+        </header>
+
+        <div class="doc-body" style="flex-direction: column; align-items: center;">
+          <div class="doc-lang" role="radiogroup" aria-label="PL language">
+            <label><input type="radio" name="pl_lang" value="en" checked><span>English</span></label>
+            <label><input type="radio" name="pl_lang" value="ar"><span>Arabic</span></label>
+          </div>
+          <div style="margin-top: 0.5rem;">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+              <input type="checkbox" id="plShowHsCode" checked>
+              <span>HS Code</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Warning for regeneration -->
+        <div id="plWarning" class="doc-warning hidden" role="alert">
+          <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+          <span>Please close all open tabs of this document before regenerating</span>
+        </div>
+
+        <footer class="doc-actions">
+          <!-- Shown only when no PL row exists -->
+          <button class="btn btn-primary" id="btnGenPL" type="button">
+            <i class="fas fa-file-word" aria-hidden="true"></i> Generate
+          </button>
+
+          <!-- Shown only when a PL row exists (the JS toggles these) -->
+          <a class="btn btn-outline hidden" id="btnPrevPL" href="#" target="_blank" rel="noopener" aria-disabled="true">
+            <i class="fas fa-link" aria-hidden="true"></i> View
+          </a>
+        </footer>
+      </article>
+    </section>
+
+
+    <!-- Navigation Buttons -->
+    <nav aria-label="Wizard navigation" class="navigation-buttons">
+      <a href="/loading_plan_view" rel="prev" class="btn btn-outline"><i aria-hidden="true"
+          class="fas fa-arrow-left"></i>
+        Previous</a>
+      <a href="/Upload_Center_Accruals" rel="next" class="btn btn-primary">Next <i aria-hidden="true"
+          class="fas fa-arrow-right"></i></a>
+    </nav>
+  </div>
+</section>
+
+<div class="row sectionBlockLayout text-start">
+  <div class="container">
+    <div class="col-lg-12 columnBlockLayout"></div>
+  </div>
+</div>
+
+<!-- Fullscreen Table Overlay -->
+<div id="fullscreenOverlay" class="fullscreen-overlay">
+  <div class="fullscreen-header">
+    <h3><i class="fas fa-boxes"></i> Order Items - Fullscreen View</h3>
+    <span class="fullscreen-hint">Press ESC to close</span>
+    <button type="button" id="closeFullscreenBtn" class="btn-close-fullscreen" title="Close Fullscreen">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+  <div class="fullscreen-content">
+    <div class="fullscreen-table-container" id="fullscreenTableContainer">
+      <!-- Table will be moved here when fullscreen is activated -->
+    </div>
+    <div class="fullscreen-actions">
+      <button type="button" id="fsAddItemBtn" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Add Item
+      </button>
+      <button type="button" id="fsUpdateAllBtn" class="btn btn-success">
+        <i class="fas fa-sync-alt"></i> Update All
+      </button>
+      <button type="button" id="fsCloseBtn" class="btn btn-outline">
+        <i class="fas fa-compress"></i> Exit Fullscreen
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>

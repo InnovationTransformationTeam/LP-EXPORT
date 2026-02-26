@@ -1,0 +1,181 @@
+<!-- ============================================================================
+     MONTHLY EXPENSE ACCRUALS - ENHANCED HTML
+     Professional Structure with Pagination & Advanced Filtering
+     ============================================================================ -->
+<div class="container" style="max-width: 1600px; margin-top: 0px; margin-right: auto; margin-bottom: 0px; margin-left: auto; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem;">
+  <!-- Page Header -->
+  <div class="page-header" style="padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; margin-bottom: 2rem; box-shadow: var(--shadow-lg); position: relative; overflow-x: hidden; overflow-y: hidden;">
+    <h1 style="font-size: 2rem; font-weight: 700; color: var(--primary-green); margin-bottom: 0.5rem; display: flex; align-items: center; row-gap: 1rem; column-gap: 1rem; position: relative; z-index: 1;">
+      <i class="fas fa-file-invoice-dollar" style="font-size: 1.75rem;"></i>
+      Monthly Expense Accruals Report
+    </h1>
+    <p style="font-size: 1rem; color: var(--neutral-gray); position: relative; z-index: 1;">Comprehensive expense accrual tracking with dynamic filtering, sorting, and Excel export capabilities</p>
+  </div>
+  <!-- Filters Section -->
+  <div class="filters-section" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; margin-bottom: 2rem; box-shadow: var(--shadow-md);">
+    <div class="filters-header" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 1rem; margin-bottom: 1.5rem;">
+      <h2 style="font-size: 1.25rem; font-weight: 600; color: var(--dark-gray); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem;">
+        <i class="fas fa-filter"></i>
+        Filters &amp; Search
+      </h2>
+      <button onclick="resetFilters()" class="btn btn-secondary" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray);"><i class="fas fa-redo" style="font-size: 1rem;"></i> Reset All</button>
+    </div>
+    <!-- Search Bar -->
+    <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem; margin-bottom: 1rem;">
+      <label for="searchInput" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-search"></i> Global Search </label><input type="search" id="searchInput" placeholder="Search by DCL#, PO, Customer, Executive, BL#..." style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit; background-image: url('/\'data:image/svg+xml,%3Csvg xmlns=http://www.w3.org/2000/svg width=16 height=16 fill=%236b7280 viewBox=0 0 16 16%3E%3Cpath d=M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z/%3E%3C/svg%3E\''); background-repeat: no-repeat; background-position-x: 12px; background-position-y: center; padding-left: 2.5rem; max-width: 100%;" />
+    </div>
+    <!-- Filter Grid -->
+    <div class="filter-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); row-gap: 1rem; column-gap: 1rem; margin-bottom: 1.5rem;">
+      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
+        <label for="filterExportExec" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-user"></i> Export Executive </label
+        ><select id="filterExportExec" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
+          <option value="">All Export Executives</option>
+        </select>
+      </div>
+      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
+        <label for="filterMonth" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-calendar-alt"></i> Month </label
+        ><select id="filterMonth" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
+          <option value="">All Months</option>
+          <option value="1">January</option>
+          <option value="2">February</option>
+          <option value="3">March</option>
+          <option value="4">April</option>
+          <option value="5">May</option>
+          <option value="6">June</option>
+          <option value="7">July</option>
+          <option value="8">August</option>
+          <option value="9">September</option>
+          <option value="10">October</option>
+          <option value="11">November</option>
+          <option value="12">December</option>
+        </select>
+      </div>
+      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
+        <label for="filterYear" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-calendar"></i> Year </label
+        ><select id="filterYear" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
+          <option value="">All Years</option>
+        </select>
+      </div>
+      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
+        <label for="filterBusinessUnit" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-building"></i> Business Unit </label
+        ><select id="filterBusinessUnit" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
+          <option value="">All Business Units</option>
+        </select>
+      </div>
+      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
+        <label for="filterCustomer" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-briefcase"></i> Customer </label
+        ><select id="filterCustomer" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
+          <option value="">All Customers</option>
+        </select>
+      </div>
+      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
+        <label for="filterCountry" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-globe"></i> Country </label
+        ><select id="filterCountry" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
+          <option value="">All Countries</option>
+        </select>
+      </div>
+    </div>
+    <!-- Action Buttons -->
+    <div class="filter-actions" style="display: flex; justify-content: flex-end; row-gap: 1rem; column-gap: 1rem; flex-wrap: wrap;">
+      <button onclick="applyFilters()" class="btn btn-primary" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--white); box-shadow: var(--shadow-sm);"><i class="fas fa-search" style="font-size: 1rem;"></i> Apply Filters</button><button onclick="exportToExcel()" class="btn btn-success" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--white); box-shadow: var(--shadow-sm);"><i class="fas fa-file-excel" style="font-size: 1rem;"></i> Export to Excel</button>
+    </div>
+  </div>
+  <!-- Statistics Cards -->
+  <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); row-gap: 1rem; column-gap: 1rem; margin-bottom: 2rem;">
+    <div class="stat-card" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; box-shadow: var(--shadow-md); position: relative; overflow-x: hidden; overflow-y: hidden;">
+      <div class="label" style="font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--neutral-gray); margin-bottom: 0.5rem; font-weight: 600;"><i class="fas fa-list"></i> Total Records</div>
+      <div id="statTotalRecords" class="value" style="font-size: 1.75rem; font-weight: 700; color: var(--primary-green);">0</div>
+    </div>
+    <div class="stat-card" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; box-shadow: var(--shadow-md); position: relative; overflow-x: hidden; overflow-y: hidden;">
+      <div class="label" style="font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--neutral-gray); margin-bottom: 0.5rem; font-weight: 600;"><i class="fas fa-file-alt"></i> Total DCLs</div>
+      <div id="statTotalDCLs" class="value" style="font-size: 1.75rem; font-weight: 700; color: var(--primary-green);">0</div>
+    </div>
+    <div class="stat-card" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; box-shadow: var(--shadow-md); position: relative; overflow-x: hidden; overflow-y: hidden;">
+      <div class="label" style="font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--neutral-gray); margin-bottom: 0.5rem; font-weight: 600;"><i class="fas fa-weight"></i> Total Quantity (MT)</div>
+      <div id="statTotalQtyMT" class="value" style="font-size: 1.75rem; font-weight: 700; color: var(--primary-green);">0</div>
+    </div>
+    <div class="stat-card" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; box-shadow: var(--shadow-md); position: relative; overflow-x: hidden; overflow-y: hidden;">
+      <div class="label" style="font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--neutral-gray); margin-bottom: 0.5rem; font-weight: 600;"><i class="fas fa-users"></i> Unique Customers</div>
+      <div id="statCustomers" class="value" style="font-size: 1.75rem; font-weight: 700; color: var(--primary-green);">0</div>
+    </div>
+  </div>
+  <!-- Data Table -->
+  <div class="table-section" style="box-shadow: var(--shadow-md); overflow-x: hidden; overflow-y: hidden;">
+    <div class="table-header" style="color: var(--white); padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; row-gap: 1rem; column-gap: 1rem;">
+      <h2 style="font-size: 1.25rem; font-weight: 600; display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem;"><i class="fas fa-table"></i> Expense Accruals Data</h2>
+      <span id="recordCount" style="font-size: 0.95rem; opacity: 0.9;">0 records</span>
+    </div>
+    <div class="table-container" style="max-height: 600px; overflow-x: auto; overflow-y: auto; position: relative;">
+      <table id="expenseTable" class="data-table" style="width: 100%; border-collapse: separate; -webkit-border-horizontal-spacing: 0px; -webkit-border-vertical-spacing: 0px; font-size: 0.875rem;">
+        <thead style="position: sticky; top: 0px; z-index: 10;">
+          <tr>
+            <!-- Headers will be dynamically populated by JavaScript -->
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr>
+            <td colspan="100%" style="padding-top: 0.875rem; padding-right: 0.75rem; padding-bottom: 0.875rem; padding-left: 0.75rem; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); border-right-width: initial; border-right-style: none; border-right-color: initial; text-align: center; padding: 3rem;" align="center">
+              <div class="empty-state" style="text-align: center; padding-top: 4rem; padding-right: 2rem; padding-bottom: 4rem; padding-left: 2rem; color: var(--neutral-gray);">
+                <i class="fas fa-spinner fa-pulse fa-3x" style="font-size: 4rem; color: var(--border-color); margin-bottom: 1rem;"></i>
+                <h3 style="font-size: 1.5rem; color: var(--dark-gray); margin-bottom: 0.5rem;">Loading Data...</h3>
+                <p style="font-size: 1rem; color: var(--neutral-gray);">Please wait while we fetch your expense accruals</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- Pagination Controls -->
+    <div class="pagination-controls" style="display: flex; justify-content: center; align-items: center; row-gap: 1rem; column-gap: 1rem; padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem;">
+      <div class="pagination-buttons" style="display: flex; row-gap: 0.5rem; column-gap: 0.5rem;">
+        <button id="firstPage" title="First Page" class="btn btn-secondary btn-icon" style="font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; display: inline-flex; align-items: center; justify-content: center; min-width: 40px;"><i class="fas fa-angle-double-left" style="font-size: 1rem;"></i></button><button id="prevPage" title="Previous Page" class="btn btn-secondary btn-icon" style="font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; display: inline-flex; align-items: center; justify-content: center; min-width: 40px;"><i class="fas fa-angle-left" style="font-size: 1rem;"></i></button>
+      </div>
+      <div class="pagination-info" style="font-size: 0.95rem; color: var(--dark-gray); font-weight: 500;">Page <span id="currentPage">1</span> of <span id="totalPages">1</span></div>
+      <div class="pagination-buttons" style="display: flex; row-gap: 0.5rem; column-gap: 0.5rem;">
+        <button id="nextPage" title="Next Page" class="btn btn-secondary btn-icon" style="font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; display: inline-flex; align-items: center; justify-content: center; min-width: 40px;"><i class="fas fa-angle-right" style="font-size: 1rem;"></i></button><button id="lastPage" title="Last Page" class="btn btn-secondary btn-icon" style="font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; display: inline-flex; align-items: center; justify-content: center; min-width: 40px;"><i class="fas fa-angle-double-right" style="font-size: 1rem;"></i></button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="loading-overlay hidden" style="position: fixed; top: 0px; right: 0px; bottom: 0px; left: 0px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgba(0, 0, 0, 0.6); flex-direction: column; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(4px); display: none;">
+  <div class="loading-content" style="text-align: center; color: var(--white);">
+    <div class="spinner" style="width: 60px; height: 60px; border-top-width: 5px; border-right-width: 5px; border-bottom-width: 5px; border-left-width: 5px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-right-color: rgba(255, 255, 255, 0.2); border-bottom-color: rgba(255, 255, 255, 0.2); border-left-color: rgba(255, 255, 255, 0.2); border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; border-top-color: var(--primary-green); border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; animation-duration: 1s; animation-timing-function: linear; animation-delay: 0s; animation-iteration-count: infinite; animation-direction: normal; animation-fill-mode: none; animation-play-state: running; animation-name: spin; animation-timeline: auto; animation-range-start: normal; animation-range-end: normal; margin-bottom: 1rem;"></div>
+    <div id="loadingText" style="font-size: 1.125rem; font-weight: 500;">Loading...</div>
+  </div>
+</div>
+<!-- Instructions/Help Section (Optional - can be toggled) -->
+<div class="container" style="max-width: 1600px; margin-right: auto; margin-bottom: 0px; margin-left: auto; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; margin-top: 2rem;">
+  <details style="background: var(--white); padding: 1.5rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-md);">
+    <summary style="cursor: pointer; font-weight: 600; color: var(--primary-green); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-info-circle"></i> User Guide &amp; Field Definitions</summary>
+    <div style="margin-top: 1rem; color: var(--dark-gray); line-height: 1.8;">
+      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">How to Use This Report:</h3>
+      <ul style="margin-left: 1.5rem; margin-bottom: 1rem;">
+        <li><strong>Filtering:</strong> Use the dropdown filters to narrow down records by specific criteria</li>
+        <li><strong>Search:</strong> Use the global search to find records by DCL#, Customer PO, Customer Name, etc.</li>
+        <li><strong>Sorting:</strong> Click on any column header to sort by that column (click again to reverse order)</li>
+        <li><strong>Export:</strong> Click "Export to Excel" to download the current filtered data</li>
+        <li><strong>Pagination:</strong> Navigate through pages using the controls at the bottom of the table</li>
+      </ul>
+      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">Field Definitions:</h3>
+      <ul style="margin-left: 1.5rem;">
+        <li><strong style="color: var(--success-green);">Green Cells:</strong> Calculated/Formula fields (auto-computed)</li>
+        <li><strong style="color: var(--error-red);">Red Cells:</strong> Missing data (N/A values)</li>
+        <li><strong style="color: var(--info-blue);">Blue Cells:</strong> Editable fields (manual entry required)</li>
+        <li><strong>S = System Generated:</strong> Automatically populated from Oracle/Dataverse</li>
+        <li><strong>M = Manual Entry:</strong> Requires user input</li>
+        <li><strong>Formula:</strong> Calculated based on other fields</li>
+      </ul>
+      <h3 style="color: var(--primary-green); margin-top: 1rem; margin-bottom: 0.5rem;">Important Notes:</h3>
+      <ul style="margin-left: 1.5rem;">
+        <li><strong>Unit Actual Freight</strong> must be entered manually for accurate cost calculations</li>
+        <li><strong>Currency conversions</strong> to AED use a rate of 3.675 (as per stakeholder requirement)</li>
+        <li><strong>Shipment Month</strong> is derived from Shipped Orders, not DCL Master sailing date</li>
+        <li>Data refreshes every 5 minutes automatically</li>
+      </ul>
+    </div>
+  </details>
+</div>
+<div class="row sectionBlockLayout text-start" style="display: flex; flex-wrap: wrap; margin: 0px; min-height: auto; padding: 8px;">
+  <div class="container" style="max-width: 1600px; margin-top: 0px; margin-right: auto; margin-bottom: 0px; margin-left: auto; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; padding: 0px; display: flex; flex-wrap: wrap;"><div class="col-lg-12 columnBlockLayout" style="flex-grow: 1; display: flex; flex-direction: column; min-width: 250px;"></div></div>
+</div>
