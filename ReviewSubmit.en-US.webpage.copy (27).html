@@ -1,0 +1,185 @@
+<!-- Top Loader -->
+<div id="top-loader" aria-hidden="true" class="top-loader hidden" style="position: fixed; top: 0px; left: 0px; width: 100%; height: 4px; z-index: 9999; overflow-x: hidden; overflow-y: hidden; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: transparent; display: none;"></div>
+<section id="dcl-create" class="main-section dcl-review-section" style="max-width: 1400px; margin-top: 0px; margin-right: auto; margin-bottom: 0px; margin-left: auto; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem;">
+  <!-- Dashboard Header (kept mostly same, feel free to clean later) -->
+  <div class="dashboard-header" style="color: var(--dark-gray); text-align: center; padding-top: 3rem; padding-right: 2rem; padding-bottom: 3rem; padding-left: 2rem; margin-bottom: 2rem; box-shadow: var(--shadow-lg); position: relative; overflow-x: hidden; overflow-y: hidden;">
+    <h1 style="font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; position: relative; z-index: 1; color: var(--white); -webkit-text-fill-color: transparent; background-clip: text;">
+      <i class="fas fa-file-alt" style="margin-right: 1rem; color: var(--primary-green); -webkit-text-fill-color: var(--primary-green);"></i>
+      DCL Management System
+    </h1>
+    <p style="font-size: 1.125rem; color: var(--neutral-gray); font-weight: 400; position: relative; z-index: 1;">Create and manage your Document Control Lists efficiently</p>
+  </div>
+  <div id="dclWizard" class="wizard-container" style="padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; box-shadow: var(--shadow-md); margin-bottom: 2rem; border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom-right-radius: 16px; border-bottom-left-radius: 16px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(255, 255, 255);">
+    <!-- DCL Header -->
+    <div class="dcl-header" style="color: var(--white); padding-top: 1.5rem; padding-right: 2rem; padding-bottom: 1.5rem; padding-left: 2rem; border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom-right-radius: 16px; border-bottom-left-radius: 16px; box-shadow: var(--shadow-large); margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; position: relative; overflow-x: hidden; overflow-y: hidden;">
+      <div class="dcl-info">
+        <h3 style="position: relative; z-index: 1; color: var(--white); font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem;">DCL Number</h3>
+        <p style="position: relative; z-index: 1; opacity: 0.9; font-size: 0.95rem; color: var(--light-gray);">Document Control List Reference</p>
+      </div>
+      <div class="dcl-number" style="background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgba(255, 255, 255, 0.2); padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-weight: 700; font-size: 1.1rem; backdrop-filter: blur(10px); border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: rgba(255, 255, 255, 0.3); border-right-color: rgba(255, 255, 255, 0.3); border-bottom-color: rgba(255, 255, 255, 0.3); border-left-color: rgba(255, 255, 255, 0.3); border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; position: relative; z-index: 1;"><span id="dclNumber">-</span></div>
+    </div>
+    <!-- Progress Bar -->
+    <div aria-label="Progress" class="progress-container" style="margin-bottom: 1.5rem;">
+      <div class="progress-bar" style="height: 12px; border-top-left-radius: 6px; border-top-right-radius: 6px; border-bottom-right-radius: 6px; border-bottom-left-radius: 6px; margin-bottom: 1.5rem; overflow-x: hidden; overflow-y: hidden; position: relative; width: 100%; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(224, 224, 224);"><div id="progressFill" class="progress-fill" style="height: 100%; border-top-left-radius: 6px; border-top-right-radius: 6px; border-bottom-right-radius: 6px; border-bottom-left-radius: 6px; width: 80%; position: relative; transition-behavior: normal; transition-duration: 0.8s; transition-timing-function: ease; transition-delay: 0s; transition-property: width;"></div></div>
+      <nav id="stepIndicators" aria-label="Steps" class="step-indicators" style="display: flex; justify-content: space-between; row-gap: 1rem; column-gap: 1rem; flex-wrap: wrap;">
+        <a href="/Basic_Information_View/" data-step="1" class="step" style="flex-grow: 1; flex-shrink: 1; flex-basis: 120px; min-width: 120px; display: flex; flex-direction: column; align-items: center; cursor: pointer; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; position: relative; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;"
+          ><div class="step-number" style="width: 48px; height: 48px; border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; color: var(--neutral-gray); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; margin-bottom: 0.75rem; border-top-width: 3px; border-right-width: 3px; border-bottom-width: 3px; border-left-width: 3px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial;">1</div>
+          <div class="step-label" style="font-weight: 600; font-size: 0.9rem; text-align: center; color: var(--neutral-gray);">Basic Info</div></a
+        ><a href="/loading_plan_view/" data-step="2" class="step" style="flex-grow: 1; flex-shrink: 1; flex-basis: 120px; min-width: 120px; display: flex; flex-direction: column; align-items: center; cursor: pointer; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; position: relative; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;"
+          ><div class="step-number" style="width: 48px; height: 48px; border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; color: var(--neutral-gray); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; margin-bottom: 0.75rem; border-top-width: 3px; border-right-width: 3px; border-bottom-width: 3px; border-left-width: 3px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial;">2</div>
+          <div class="step-label" style="font-weight: 600; font-size: 0.9rem; text-align: center; color: var(--neutral-gray);">Loading Plan</div></a
+        ><a href="/DCL-Document-Generator/" data-step="3" class="step" style="flex-grow: 1; flex-shrink: 1; flex-basis: 120px; min-width: 120px; display: flex; flex-direction: column; align-items: center; cursor: pointer; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; position: relative; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;"
+          ><div class="step-number" style="width: 48px; height: 48px; border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; color: var(--neutral-gray); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; margin-bottom: 0.75rem; border-top-width: 3px; border-right-width: 3px; border-bottom-width: 3px; border-left-width: 3px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial;">3</div>
+          <div class="step-label" style="font-weight: 600; font-size: 0.9rem; text-align: center; color: var(--neutral-gray);">Document Generator</div></a
+        ><a href="/Upload_Center_Accruals/" data-step="4" class="step" style="flex-grow: 1; flex-shrink: 1; flex-basis: 120px; min-width: 120px; display: flex; flex-direction: column; align-items: center; cursor: pointer; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; position: relative; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;"
+          ><div class="step-number" style="width: 48px; height: 48px; border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; color: var(--neutral-gray); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; margin-bottom: 0.75rem; border-top-width: 3px; border-right-width: 3px; border-bottom-width: 3px; border-left-width: 3px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial;">4</div>
+          <div class="step-label" style="font-weight: 600; font-size: 0.9rem; text-align: center; color: var(--neutral-gray);">Upload Center</div></a
+        ><a href="/Review_Submit/" data-step="5" class="step active" style="flex-grow: 1; flex-shrink: 1; flex-basis: 120px; min-width: 120px; display: flex; flex-direction: column; align-items: center; cursor: pointer; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; position: relative; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial;"
+          ><div class="step-number" style="width: 48px; height: 48px; border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; margin-bottom: 0.75rem; border-top-width: 3px; border-right-width: 3px; border-bottom-width: 3px; border-left-width: 3px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; color: var(--white); box-shadow: rgba(50, 99, 55, 0.3) 0px 4px 12px;">5</div>
+          <div class="step-label" style="font-weight: 600; font-size: 0.9rem; text-align: center; color: var(--primary-green);">Review &amp; Submit</div></a
+        >
+      </nav>
+    </div>
+    <!-- ============================================
+     DCL REVIEW & SUBMIT PAGE (No duplicate header)
+     ============================================ -->
+    <section class="dcl-review-page">
+      <!-- Main Content Grid -->
+      <div class="review-content-grid" style="display: grid; grid-template-columns: 1fr 420px; row-gap: 2rem; column-gap: 2rem; margin-bottom: 2rem; align-items: start;">
+        <!-- LEFT COLUMN: Documents List -->
+        <div class="review-left-column" style="display: flex; flex-direction: column; row-gap: 1.5rem; column-gap: 1.5rem;">
+          <!-- Documents to be Merged -->
+          <div class="card documents-card" style="background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; box-shadow: rgba(0, 0, 0, 0.08) 0px 2px 8px; position: relative; overflow-x: hidden; overflow-y: hidden;">
+            <div id="documentsListContainer">
+              <!-- JavaScript will populate this with renderDocumentsList() -->
+              <div id="documentsBlurOverlay" class="dcl-modal-overlay" style="display: flex;"><div class="loading-blur-message">Loading documents...</div></div>
+            </div>
+          </div>
+        </div>
+        <!-- RIGHT COLUMN: Merged PDF + Information + Additional Comments -->
+        <div class="review-right-column" style="display: flex; flex-direction: column; row-gap: 1.5rem; column-gap: 1.5rem; position: sticky; top: 2rem;">
+          <!-- DCL INFORMATION SUMMARY -->
+          <div class="card dcl-info-card" style="background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; box-shadow: rgba(0, 0, 0, 0.08) 0px 2px 8px; position: relative; overflow-x: hidden; overflow-y: hidden; margin-top: 1rem;">
+            <h4 class="card-title" style="font-size: 1.25rem; font-weight: 700; color: var(--dark-gray); margin-top: 0px; margin-right: 0px; margin-bottom: 1.5rem; margin-left: 0px; display: flex; align-items: center; row-gap: 0.75rem; column-gap: 0.75rem;">
+              <i class="fas fa-info-circle" style="color: var(--primary-green); font-size: 1.4rem;"></i>
+              DCL Information
+            </h4>
+            <div class="dcl-info-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); row-gap: 12px; column-gap: 20px; padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem;">
+              <div class="info-item">
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--neutral-gray); display: block;">DCL Number</label>
+                <div id="info_dclNumber" class="info-value" style="font-size: 0.95rem; font-weight: 600; color: var(--dark-gray); margin-top: 2px;">—</div>
+              </div>
+              <div class="info-item">
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--neutral-gray); display: block;">Customer</label>
+                <div id="info_customer" class="info-value" style="font-size: 0.95rem; font-weight: 600; color: var(--dark-gray); margin-top: 2px;">—</div>
+              </div>
+              <div class="info-item">
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--neutral-gray); display: block;">Country / Port</label>
+                <div id="info_countryport" class="info-value" style="font-size: 0.95rem; font-weight: 600; color: var(--dark-gray); margin-top: 2px;">—</div>
+              </div>
+              <div class="info-item">
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--neutral-gray); display: block;">Order #</label>
+                <div id="info_order" class="info-value" style="font-size: 0.95rem; font-weight: 600; color: var(--dark-gray); margin-top: 2px;">—</div>
+              </div>
+              <div class="info-item">
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--neutral-gray); display: block;">Incoterms</label>
+                <div id="info_incoterms" class="info-value" style="font-size: 0.95rem; font-weight: 600; color: var(--dark-gray); margin-top: 2px;">—</div>
+              </div>
+              <div class="info-item">
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--neutral-gray); display: block;">Transportation Mode</label>
+                <div id="info_mode" class="info-value" style="font-size: 0.95rem; font-weight: 600; color: var(--dark-gray); margin-top: 2px;">—</div>
+              </div>
+            </div>
+          </div>
+<!-- ============================================================================
+     DCL DATA EXTRACTION BUTTON
+     Add this HTML snippet to your ReviewSubmit_en-US_webpage_copy__23_.html
+     Place it AFTER the "DCL Information" card (around line 93)
+     ============================================================================ -->
+          <!-- Merged PDF Preview -->
+          <div class="card merged-pdf-card" style="background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; box-shadow: rgba(0, 0, 0, 0.08) 0px 2px 8px; position: relative; overflow-x: hidden; overflow-y: hidden;">
+            <div id="mergedPdfContainer">
+              <div id="pdfBlurOverlay" class="dcl-modal-overlay" style="display: flex;"><div class="loading-blur-message">Checking merged PDF...</div></div>
+            </div>
+          </div>
+          <!-- ADDITIONAL COMMENTS -->
+          <div class="card additional-comments-card" style="background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; box-shadow: rgba(0, 0, 0, 0.08) 0px 2px 8px; position: relative; overflow-x: hidden; overflow-y: hidden; margin-top: 1rem;">
+            <h4 class="card-title" style="font-size: 1.25rem; font-weight: 700; color: var(--dark-gray); margin-top: 0px; margin-right: 0px; margin-bottom: 1.5rem; margin-left: 0px; display: flex; align-items: center; row-gap: 0.75rem; column-gap: 0.75rem;">
+              <i class="fas fa-comment-dots" style="color: var(--primary-green); font-size: 1.4rem;"></i>
+              Additional Comments / Instructions
+            </h4>
+            <textarea id="additionalCommentsInput" placeholder="Write any additional instructions or comments for this DCL..." class="comments-textarea" style="width: 100%; min-height: 120px; border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-right-radius: 10px; border-bottom-left-radius: 10px; padding-top: 12px; padding-right: 12px; padding-bottom: 12px; padding-left: 12px; font-size: 0.95rem; resize: vertical;"></textarea>
+          </div>
+        </div>
+      </div>
+<!-- Enhanced Submit Section -->
+<div class="submit-section-wrapper">
+  <!-- Gradient accent bar -->
+  <div class="submit-accent-bar"></div>
+  
+  <div class="submit-section-card">
+    <div class="submit-header">
+      <div class="submit-icon-badge">
+        <i class="fas fa-paper-plane"></i>
+      </div>
+      <div class="submit-header-text">
+        <h3 class="submit-title">Submit DCL for Export</h3>
+        <p class="submit-subtitle">Ready to finalize and submit your document package</p>
+      </div>
+    </div>
+    
+    <div class="submit-action-area">
+      <button id="btnSubmitDcl" class="btn-submit-enhanced" onclick="handleSubmitDcl()">
+        <span class="btn-icon">
+          <i class="fas fa-check-circle"></i>
+        </span>
+        <span class="btn-text">Submit for Export</span>
+        <span class="btn-arrow">
+          <i class="fas fa-arrow-right"></i>
+        </span>
+      </button>
+      
+      <p class="submit-note">
+        <i class="fas fa-info-circle"></i>
+        This will merge selected documents and update the DCL status
+      </p>
+    </div>
+  </div>
+</div>
+      <!-- Loading Overlay -->
+      <div id="loadingOverlay" class="loading-overlay hidden" style="position: fixed; top: 0px; left: 0px; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.75); justify-content: center; align-items: center; z-index: 10000; backdrop-filter: blur(8px); right: 0px; bottom: 0px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; display: none;"><div class="dcl-modal-overlay" style="display: flex;"></div></div>
+      <!-- Submit Confirmation Modal -->
+      <div id="submitConfirmModal" class="modal-overlay hidden" style="position: fixed; top: 0px; left: 0px; right: 0px; bottom: 0px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgba(0, 0, 0, 0.65); backdrop-filter: blur(6px); align-items: center; justify-content: center; z-index: 11000; padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; opacity: 0; visibility: hidden; transition-behavior: normal, normal; transition-duration: 0.2s, 0.2s; transition-timing-function: ease, ease; transition-delay: 0s, 0s; transition-property: opacity, visibility; display: none;">
+        <div onclick="cancelSubmitDcl()" class="modal-backdrop" style="position: absolute; top: 0px; left: 0px; right: 0px; bottom: 0px;"></div>
+        <div class="modal-dialog" style="background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom-right-radius: 16px; border-bottom-left-radius: 16px; max-width: 560px; width: 100%; box-shadow: rgba(0, 0, 0, 0.3) 0px 25px 70px; position: relative; z-index: 1; overflow-x: hidden; overflow-y: hidden;">
+          <div class="modal-header" style="color: var(--white); padding-top: 2rem; padding-right: 2.5rem; padding-bottom: 1.5rem; padding-left: 2.5rem; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: space-between;">
+            <h3 class="modal-title" style="font-size: 1.5rem; font-weight: 700; color: var(--dark-gray); margin-top: 0px; margin-right: 0px; margin-bottom: 0px; margin-left: 0px;">Submit DCL for Merge?</h3>
+            <button onclick="cancelSubmitDcl()" class="modal-close" style="color: var(--neutral-gray); font-size: 2rem; cursor: pointer; padding-top: 0.25rem; padding-right: 0.25rem; padding-bottom: 0.25rem; padding-left: 0.25rem; line-height: 1; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; position: absolute; top: 1rem; right: 1rem; z-index: 2; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; backdrop-filter: blur(10px); border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; transition-behavior: normal; transition-duration: 0.2s; transition-timing-function: ease; transition-delay: 0s; transition-property: all; appearance: button;"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="modal-body" style="padding-top: 2rem; padding-right: 2.5rem; padding-bottom: 2rem; padding-left: 2.5rem;">
+            <p style="font-size: 1rem; color: var(--dark-gray); margin-top: 0px; margin-right: 0px; margin-bottom: 1.5rem; margin-left: 0px; line-height: 1.6;">This will merge all documents into a single PDF package.</p>
+            <ul class="modal-info-list" style="list-style-position: initial; list-style-image: initial; list-style-type: none; padding-top: 0px; padding-right: 0px; padding-bottom: 0px; padding-left: 0px; margin-top: 0px; margin-right: 0px; margin-bottom: 0px; margin-left: 0px;">
+              <li style="padding-top: 0.75rem; padding-right: 1rem; padding-bottom: 0.75rem; padding-left: 1rem; background-image: linear-gradient(135deg, rgb(250, 250, 250), rgb(255, 255, 255)); background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: initial; border-top-left-radius: 6px; border-top-right-radius: 6px; border-bottom-right-radius: 6px; border-bottom-left-radius: 6px; margin-bottom: 0.75rem; display: flex; align-items: center; row-gap: 0.75rem; column-gap: 0.75rem; font-size: 0.95rem; color: var(--dark-gray);"><i class="fas fa-clock" style="color: var(--primary-green); font-size: 1.1rem;"></i> Processing time: 30-90 seconds</li>
+              <li style="padding-top: 0.75rem; padding-right: 1rem; padding-bottom: 0.75rem; padding-left: 1rem; background-image: linear-gradient(135deg, rgb(250, 250, 250), rgb(255, 255, 255)); background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: initial; border-top-left-radius: 6px; border-top-right-radius: 6px; border-bottom-right-radius: 6px; border-bottom-left-radius: 6px; margin-bottom: 0.75rem; display: flex; align-items: center; row-gap: 0.75rem; column-gap: 0.75rem; font-size: 0.95rem; color: var(--dark-gray);"><i class="fas fa-sync" style="color: var(--primary-green); font-size: 1.1rem;"></i> Auto-refresh every 5 seconds</li>
+              <li style="padding-top: 0.75rem; padding-right: 1rem; padding-bottom: 0.75rem; padding-left: 1rem; background-image: linear-gradient(135deg, rgb(250, 250, 250), rgb(255, 255, 255)); background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: initial; border-top-left-radius: 6px; border-top-right-radius: 6px; border-bottom-right-radius: 6px; border-bottom-left-radius: 6px; margin-bottom: 0.75rem; display: flex; align-items: center; row-gap: 0.75rem; column-gap: 0.75rem; font-size: 0.95rem; color: var(--dark-gray);"><i class="fas fa-file-pdf" style="color: var(--primary-green); font-size: 1.1rem;"></i> PDF will appear when ready</li>
+            </ul>
+          </div>
+          <div class="modal-footer" style="padding-top: 1.5rem; padding-right: 2.5rem; padding-bottom: 2rem; padding-left: 2.5rem; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(250, 250, 250); display: flex; justify-content: flex-end; row-gap: 1rem; column-gap: 1rem;">
+            <button onclick="cancelSubmitDcl()" class="btn btn-secondary" style="border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; white-space-collapse: collapse; text-wrap-mode: nowrap; position: relative; overflow-x: hidden; overflow-y: hidden; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: white; color: var(--dark-gray); appearance: button; padding-top: 0.875rem; padding-right: 2rem; padding-bottom: 0.875rem; padding-left: 2rem; font-size: 1rem; font-weight: 700; border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom-right-radius: 8px; border-bottom-left-radius: 8px; cursor: pointer; transition-behavior: normal; transition-duration: 0.2s; transition-timing-function: ease; transition-delay: 0s; transition-property: all; display: flex; align-items: center; row-gap: 0.625rem; column-gap: 0.625rem;">
+              <i class="fas fa-times" style="font-size: 0.875em;"></i>
+              Cancel</button
+            ><button onclick="confirmSubmitDcl()" class="btn btn-primary" style="text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; white-space-collapse: collapse; text-wrap-mode: nowrap; position: relative; overflow-x: hidden; overflow-y: hidden; color: white; box-shadow: rgba(0, 102, 51, 0.3) 0px 4px 12px; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; appearance: button; padding-top: 0.875rem; padding-right: 2rem; padding-bottom: 0.875rem; padding-left: 2rem; font-size: 1rem; font-weight: 700; border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom-right-radius: 8px; border-bottom-left-radius: 8px; cursor: pointer; transition-behavior: normal; transition-duration: 0.2s; transition-timing-function: ease; transition-delay: 0s; transition-property: all; display: flex; align-items: center; row-gap: 0.625rem; column-gap: 0.625rem;">
+              <i class="fas fa-check" style="font-size: 0.875em;"></i>
+              Yes, Submit
+            </button>
+          </div>
+        </div>
+      </div>
+      <!-- Toast Container -->
+      <div id="toastContainer" class="toast-container" style="position: fixed; top: 1.5rem; right: 1.5rem; z-index: 12000; display: flex; flex-direction: column; row-gap: 1rem; column-gap: 1rem;"></div>
+    </section>
+  </div>
+</section>
+<div class="row sectionBlockLayout text-start" style="display: flex; flex-wrap: wrap; margin: 0px; min-height: auto; padding: 8px;">
+  <div class="container" style="padding: 0px; display: flex; flex-wrap: wrap;"><div class="col-lg-12 columnBlockLayout" style="flex-grow: 1; display: flex; flex-direction: column; min-width: 250px;"></div></div>
+</div>
