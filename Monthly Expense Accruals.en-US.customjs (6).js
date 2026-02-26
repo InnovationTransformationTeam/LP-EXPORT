@@ -93,6 +93,7 @@ const COLUMN_DEFINITIONS = [
     // Manual Entries
     { key: 'incoterms', header: 'Incoterms', source: 'cr650_dcl_masters', field: 'cr650_incoterms', width: 100, type: 'text', editable: true },
     { key: 'containerType', header: 'Container Type', source: 'cr650_dcl_masters', field: 'calculated', width: 180, type: 'text', transform: 'buildContainer' },
+    { key: 'containerQty', header: 'Container Qty.', source: 'cr650_dcl_masters', field: 'calculated', width: 120, type: 'number', decimals: 0 },
 
     // Pricing
     { key: 'unitPIFreight', header: 'Unit PI Freight', source: 'cr650_dcl_ar_reports', field: 'cr650_price', width: 130, type: 'currency', decimals: 2 },
@@ -112,7 +113,7 @@ const COLUMN_DEFINITIONS = [
     { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports', field: 'cr650_qty', width: 100, type: 'number', decimals: 0 },
 
     // Formula Fields
-    { key: 'totalFreight', header: 'Total Freight', source: 'formula', field: 'Qty * Unit Actual Freight', width: 140, type: 'currency', decimals: 2, formula: (row) => (row.qty || 0) * (row.unitActualFreight || 0) },
+    { key: 'totalFreight', header: 'Total Freight', source: 'formula', field: 'Container Qty * Unit Actual Freight', width: 140, type: 'currency', decimals: 2, formula: (row) => (row.containerQty || 0) * (row.unitActualFreight || 0) },
 
     // Additional System Fields
     { key: 'supplier', header: 'Supplier', source: 'manual', field: 'N/A', width: 150, type: 'text', editable: true },
@@ -133,7 +134,7 @@ const COLUMN_DEFINITIONS = [
 // Expense Accruals Report: simplified view per stakeholder
 const EXPENSE_REPORT_KEYS = [
     'businessUnit', 'exportExecutive', 'shipmentMonth', 'customerClass',
-    'customerNumber', 'customerName', 'containerType', 'qty',
+    'customerNumber', 'customerName', 'containerType', 'containerQty',
     'unitPIFreight', 'cooCharges', 'mofaCharges', 'docCharges',
     'insuranceCharges', 'inspectionCharges', 'unitActualFreight',
     'totalFreight', 'perLtrCost', 'perMTCost'
@@ -491,6 +492,7 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges) {
         exportExecutive: dcl?.cr650_submitter_name || "N/A",
         incoterms: dcl?.cr650_incoterms || "N/A",
         containerType: dcl ? buildContainerType(dcl) : "N/A",
+        containerQty: dcl ? buildContainerQty(dcl) : 0,
 
         // From Shipped Orders
         shipmentMonth: shipped ? extractMonth(shipped.cr650_shipment_date) : "N/A",
@@ -597,13 +599,13 @@ function extractDiscountCharges(discCharges) {
 
 function applyFormulas(record) {
     // Ensure all values are numeric for calculations
-    const qty = parseFloat(record.qty) || 0;
+    const containerQty = parseFloat(record.containerQty) || 0;
     const unitActualFreight = parseFloat(record.unitActualFreight) || 0;
     const qtyLtrs = parseFloat(record.qtyLtrs) || 0;
     const qtyMT = parseFloat(record.qtyMT) || 0;
-    
-    // Total Freight = Qty * Unit Actual Freight
-    record.totalFreight = qty * unitActualFreight;
+
+    // Total Freight = Container Qty * Unit Actual Freight (freight per container)
+    record.totalFreight = containerQty * unitActualFreight;
     
     // Per Ltr Cost (AED) = (Total Freight / Qty ltrs) * 3.675
     record.perLtrCost = qtyLtrs > 0 
@@ -636,6 +638,15 @@ function buildContainerType(dcl) {
     if (dcl.cr650_totalpails) parts.push(`${dcl.cr650_totalpails} Pails`);
     if (dcl.cr650_totalpallets) parts.push(`${dcl.cr650_totalpallets} Pallets`);
     return parts.length ? parts.join(", ") : "N/A";
+}
+
+function buildContainerQty(dcl) {
+    // Sum all container type counts, or use palletcount as fallback
+    const total = (parseInt(dcl.cr650_totalcartons) || 0)
+        + (parseInt(dcl.cr650_totaldrums) || 0)
+        + (parseInt(dcl.cr650_totalpails) || 0)
+        + (parseInt(dcl.cr650_totalpallets) || 0);
+    return total > 0 ? total : (parseInt(dcl.cr650_palletcount) || 0);
 }
 
 /* -------------------------------------------------
