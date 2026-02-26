@@ -64,6 +64,27 @@ function toAED(amount, currency, conversionRate) {
 }
 
 // ============================================================================
+// CONTAINER TYPE CODE MAPPING (cr650_container_type numeric codes to text)
+// ============================================================================
+const CONTAINER_TYPE_MAP = {
+    1: '20ft Container',
+    2: '40ft Container',
+    3: '40ft High Cube',
+    4: 'ISO Tank Container',
+    5: 'Flexi Bag 20ft',
+    6: 'Flexi Bag 40ft',
+    7: 'Bulk Tanker',
+    8: 'Truck'
+};
+
+function resolveContainerType(rawValue) {
+    if (!rawValue && rawValue !== 0) return '';
+    const num = parseInt(rawValue);
+    if (!isNaN(num) && CONTAINER_TYPE_MAP[num]) return CONTAINER_TYPE_MAP[num];
+    return String(rawValue);
+}
+
+// ============================================================================
 // FULL COLUMN DEFINITIONS (Summary Accruals uses all)
 // All data is system-generated from Dataverse tables - no manual entry
 // ============================================================================
@@ -772,10 +793,9 @@ function buildContainerQty(dcl) {
 function buildContainerInfo(containers, dcl) {
     if (containers && containers.length > 0) {
         // Primary: use actual container records from cr650_dcl_containers
-        // cr650_container_type is an OPTION SET field - use FormattedValue for display text
+        // cr650_container_type returns numeric codes (1-8), resolve to text via CONTAINER_TYPE_MAP
         const types = containers.map(c => {
-            const type = c['cr650_container_type@OData.Community.Display.V1.FormattedValue']
-                || c.cr650_container_type || '';
+            const type = resolveContainerType(c.cr650_container_type);
             const size = c.cr650_container_size_dimension || '';
             return size ? `${size} ${type}`.trim() : type;
         }).filter(Boolean);
