@@ -356,7 +356,9 @@ async function loadCustomerMandatoryDocs() {
     STATE.customerMandatoryDocs = rawDocs.map(code => {
       if (code.startsWith('Others:') || code === 'Others') {
         const customText = code.startsWith('Others:') ? code.substring(7).trim() : '';
-        return { code: code, label: customText || 'Other Document', search: ['other'], isOther: true };
+        // Use custom text as the search term so it matches against cr650_doc_type
+        const searchTerms = customText ? [customText.toLowerCase()] : ['other'];
+        return { code: code, label: customText || 'Other Document', search: searchTerms, isOther: true };
       }
       const config = MANDATORY_DOC_CONFIG[code];
       return {
