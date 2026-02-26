@@ -74,7 +74,7 @@ const COLUMN_DEFINITIONS = [
     { key: 'status', header: 'Status', source: 'cr650_dcl_masters', field: 'cr650_status', width: 100, type: 'text' },
     { key: 'businessUnit', header: 'Business Unit', source: 'cr650_dcl_masters + cr650_dcl_ar_reports', field: 'cr650_businessunit', width: 150, type: 'text' },
     { key: 'salesperson', header: 'Salesperson', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_salesperson / cr650_salesrepresentativename', width: 150, type: 'text' },
-    { key: 'exportExecutive', header: 'Export Executive', source: 'cr650_dcl_masters', field: 'cr650_salesrepresentativename', width: 150, type: 'text' },
+    { key: 'exportExecutive', header: 'Export Executive', source: 'cr650_dcl_masters', field: 'cr650_submitter_name / cr650_salesrepresentativename', width: 150, type: 'text' },
 
     // From AR Reports (cr650_dcl_ar_reports) with DCL Masters fallback
     { key: 'customerPO', header: 'Customer PO Number', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customerponumber / cr650_po_customer_number', width: 150, type: 'text' },
@@ -560,7 +560,7 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         ciNumber: ciNumber,
         businessUnit: ar?.cr650_businessunit || dcl?.cr650_businessunit || "N/A",
         salesperson: ar?.cr650_salesperson || dcl?.cr650_salesrepresentativename || "N/A",
-        exportExecutive: dcl?.cr650_salesrepresentativename || dcl?.cr650_submitter_name || customerInfo?.cr650_salesrepresentativename || "N/A",
+        exportExecutive: dcl?.cr650_submitter_name || dcl?.cr650_salesrepresentativename || customerInfo?.cr650_salesrepresentativename || "N/A",
 
         // Customer PO: AR report first, then DCL master fields
         customerPO: ar?.cr650_customerponumber || dcl?.cr650_pinumber || dcl?.cr650_po_customer_number || "N/A",
