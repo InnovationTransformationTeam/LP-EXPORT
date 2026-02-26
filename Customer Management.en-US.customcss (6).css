@@ -1524,3 +1524,39 @@ select.form-control-cm option[value="Other"] {
 .address-section-divider-cm {
     margin: 2rem 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MANDATORY DOCUMENTS CHECKLIST - Step 4
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Checkbox item hover & checked states */
+.mandatory-doc-item-cm:hover {
+    border-color: var(--primary) !important;
+    background: #f0f9f4 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 102, 51, 0.1);
+}
+
+.mandatory-doc-item-cm:has(input:checked) {
+    border-color: var(--primary) !important;
+    background: linear-gradient(135deg, #f0f9f4 0%, #e8f5ed 100%) !important;
+    box-shadow: 0 0 0 2px rgba(0, 102, 51, 0.15);
+}
+
+.mandatory-doc-item-cm:has(input:checked) span {
+    color: var(--primary) !important;
+    font-weight: 600 !important;
+}
+
+/* Responsive grid for mandatory docs */
+@media (max-width: 768px) {
+    .mandatory-docs-grid-cm {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+    .mandatory-docs-grid-cm {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+}

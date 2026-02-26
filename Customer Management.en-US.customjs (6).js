@@ -12,8 +12,8 @@
  * ✅ Updated Excel export to remove old address columns
  * ✅ Previous features maintained: Sales Rep, Country, Payment Terms, COB with "Other" options
  *
- * Version: 5.0.0 - Customer Models Feature
- * Last Updated: February 5, 2026
+ * Version: 6.0.0 - Mandatory Documents Feature
+ * Last Updated: February 26, 2026
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -77,7 +77,7 @@
         isLoading: false,
         editingCustomerId: null,
         currentStep: 1,
-        totalSteps: 3,
+        totalSteps: 4,
         customerModels: [],
         pendingCustomerModels: [], // Models to be created when saving a new customer
         editingModelId: null,
@@ -358,6 +358,127 @@
         if (!isChecked && commentsTextarea) {
             commentsTextarea.value = '';
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MANDATORY DOCUMENTS HELPERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Handle "Others" checkbox toggle - show/hide the text input
+     */
+    function handleMandatoryDocOthersToggle() {
+        const othersCheckbox = getElement('#mandatoryDocOthers');
+        const othersContainer = getElement('#mandatoryDocOthersContainer');
+        const othersText = getElement('#mandatoryDocOthersText');
+
+        if (othersContainer) {
+            othersContainer.style.display = othersCheckbox && othersCheckbox.checked ? 'block' : 'none';
+        }
+        if (!othersCheckbox?.checked && othersText) {
+            othersText.value = '';
+        }
+        updateMandatoryDocsCount();
+    }
+
+    /**
+     * Update the selected documents count display
+     */
+    function updateMandatoryDocsCount() {
+        const countText = getElement('#mandatoryDocsCountText');
+        if (!countText) return;
+
+        const checkboxes = document.querySelectorAll('input[name="mandatoryDoc"]:checked');
+        const count = checkboxes.length;
+
+        if (count === 0) {
+            countText.textContent = 'No documents selected';
+        } else {
+            countText.textContent = `${count} document${count > 1 ? 's' : ''} selected`;
+        }
+    }
+
+    /**
+     * Collect mandatory documents data as a comma-separated string
+     * Format: "PI,CI,PL,Others:custom text here"
+     */
+    function collectMandatoryDocuments() {
+        const checkboxes = document.querySelectorAll('input[name="mandatoryDoc"]:checked');
+        const selected = [];
+
+        checkboxes.forEach(cb => {
+            if (cb.value === 'Others') {
+                const othersText = getElement('#mandatoryDocOthersText');
+                const customText = othersText ? othersText.value.trim() : '';
+                if (customText) {
+                    selected.push('Others:' + customText);
+                } else {
+                    selected.push('Others');
+                }
+            } else {
+                selected.push(cb.value);
+            }
+        });
+
+        return selected.join(',');
+    }
+
+    /**
+     * Load mandatory documents from a comma-separated string into checkboxes
+     */
+    function loadMandatoryDocuments(value) {
+        // Uncheck all first
+        document.querySelectorAll('input[name="mandatoryDoc"]').forEach(cb => {
+            cb.checked = false;
+        });
+
+        const othersContainer = getElement('#mandatoryDocOthersContainer');
+        const othersText = getElement('#mandatoryDocOthersText');
+        if (othersContainer) othersContainer.style.display = 'none';
+        if (othersText) othersText.value = '';
+
+        if (!value || !value.trim()) {
+            updateMandatoryDocsCount();
+            return;
+        }
+
+        const items = value.split(',');
+        items.forEach(item => {
+            const trimmed = item.trim();
+            if (!trimmed) return;
+
+            if (trimmed.startsWith('Others:')) {
+                // Check "Others" and fill the text
+                const othersCheckbox = getElement('#mandatoryDocOthers');
+                if (othersCheckbox) othersCheckbox.checked = true;
+                if (othersContainer) othersContainer.style.display = 'block';
+                if (othersText) othersText.value = trimmed.substring(7); // Remove "Others:" prefix
+            } else if (trimmed === 'Others') {
+                const othersCheckbox = getElement('#mandatoryDocOthers');
+                if (othersCheckbox) othersCheckbox.checked = true;
+                if (othersContainer) othersContainer.style.display = 'block';
+            } else {
+                // Find matching checkbox by value
+                const cb = document.querySelector(`input[name="mandatoryDoc"][value="${CSS.escape(trimmed)}"]`);
+                if (cb) cb.checked = true;
+            }
+        });
+
+        updateMandatoryDocsCount();
+    }
+
+    /**
+     * Reset all mandatory document checkboxes
+     */
+    function resetMandatoryDocuments() {
+        document.querySelectorAll('input[name="mandatoryDoc"]').forEach(cb => {
+            cb.checked = false;
+        });
+        const othersContainer = getElement('#mandatoryDocOthersContainer');
+        const othersText = getElement('#mandatoryDocOthersText');
+        if (othersContainer) othersContainer.style.display = 'none';
+        if (othersText) othersText.value = '';
+        updateMandatoryDocsCount();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -851,6 +972,19 @@
             hasLpComments.addEventListener('change', handleLpCommentsToggle);
         }
 
+        // Mandatory Documents: "Others" checkbox toggle
+        const mandatoryDocOthers = getElement('#mandatoryDocOthers');
+        if (mandatoryDocOthers) {
+            mandatoryDocOthers.addEventListener('change', handleMandatoryDocOthersToggle);
+        }
+
+        // Mandatory Documents: Update count on any checkbox change
+        document.addEventListener('change', function (e) {
+            if (e.target.name === 'mandatoryDoc') {
+                updateMandatoryDocsCount();
+            }
+        });
+
         // POWER PAGES: Event delegation for edit buttons
         document.addEventListener('click', function (e) {
             const editBtn = e.target.closest('.btn-edit-cm');
@@ -1062,7 +1196,7 @@
         try {
             showLoader(true);
 
-            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$select=cr650_updated_dcl_customerid,cr650_customercodes,cr650_customername,cr650_country,cr650_paymentterms,cr650_salesrepresentativename,cr650_destinationport,cr650_notifyparty1,cr650_notifyparty2,cr650_organizationid,cr650_cob,cr650_country_1,cr650_loadingplancomments,cr650_currency,modifiedon&$orderby=createdon desc`;
+            const url = `${CONFIG.apiPath}/${CONFIG.entitySetName}?$select=cr650_updated_dcl_customerid,cr650_customercodes,cr650_customername,cr650_country,cr650_paymentterms,cr650_salesrepresentativename,cr650_destinationport,cr650_notifyparty1,cr650_notifyparty2,cr650_organizationid,cr650_cob,cr650_country_1,cr650_loadingplancomments,cr650_currency,cr650_mandatory_documents,modifiedon&$orderby=createdon desc`;
 
             const response = await fetch(url, {
                 headers: {
@@ -1144,6 +1278,9 @@
                 ? (getElement('#lpComments')?.value.trim() || null)
                 : null;
 
+            // Get Mandatory Documents value
+            const mandatoryDocsValue = collectMandatoryDocuments() || null;
+
             // Customer data (addresses are now managed via Customer Models)
             const customerData = {
                 'cr650_customercodes': getElement('#customerCode').value.trim().toUpperCase(),
@@ -1158,7 +1295,8 @@
                 'cr650_country_1': getElement('#country1').value.trim(),
                 'cr650_notifyparty1': getElement('#notifyParty1')?.value.trim() || null,
                 'cr650_notifyparty2': getElement('#notifyParty2')?.value.trim() || null,
-                'cr650_loadingplancomments': lpCommentsValue
+                'cr650_loadingplancomments': lpCommentsValue,
+                'cr650_mandatory_documents': mandatoryDocsValue
             };
 
             let url = `${CONFIG.apiPath}/${CONFIG.entitySetName}`;
@@ -1477,6 +1615,9 @@
         hideCustomerModelForm();
         renderCustomerModelsList();
 
+        // Reset Mandatory Documents
+        resetMandatoryDocuments();
+
         updateWizardUI();
         const modal = getElement('#customerModal');
         if (modal) {
@@ -1644,6 +1785,9 @@
                         salesRepCustomEl.required = true;
                     }
                 }
+
+                // Load Mandatory Documents
+                loadMandatoryDocuments(customer.cr650_mandatory_documents || '');
 
                 const codeInput = getElement('#customerCode');
                 if (codeInput) codeInput.disabled = true;
@@ -2199,6 +2343,6 @@
     // ═══════════════════════════════════════════════════════════════════════
     // APPLICATION READY INDICATOR
     // ═══════════════════════════════════════════════════════════════════════
-    console.log('%c✅ Customer Management System v5.0 (Customer Models Feature) Ready!', 'color: #006633; font-size: 14px; font-weight: bold;');
+    console.log('%c✅ Customer Management System v6.0 (Mandatory Documents Feature) Ready!', 'color: #006633; font-size: 14px; font-weight: bold;');
 
 })();
