@@ -1,202 +1,238 @@
-<!-- ============================================================================
-     MONTHLY EXPENSE ACCRUALS - ENHANCED HTML
-     Professional Structure with Pagination & Advanced Filtering
-     ============================================================================ -->
-<div class="container" style="max-width: 1600px; margin-top: 0px; margin-right: auto; margin-bottom: 0px; margin-left: auto; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem;">
+<!-- Monthly Expense Accruals - Enterprise UI -->
+<div class="ea-page">
+
   <!-- Page Header -->
-  <div class="page-header" style="padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; margin-bottom: 2rem; box-shadow: var(--shadow-lg); position: relative; overflow-x: hidden; overflow-y: hidden;">
-    <h1 style="font-size: 2rem; font-weight: 700; color: var(--primary-green); margin-bottom: 0.5rem; display: flex; align-items: center; row-gap: 1rem; column-gap: 1rem; position: relative; z-index: 1;">
-      <i class="fas fa-file-invoice-dollar" style="font-size: 1.75rem;"></i>
-      Monthly Expense Accruals Report
-    </h1>
-    <p style="font-size: 1rem; color: var(--neutral-gray); position: relative; z-index: 1;">Dual-view reporting: Expense Accruals &amp; Summary Accruals with AED-converted Excel export</p>
-  </div>
-  <!-- Filters Section -->
-  <div class="filters-section" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; margin-bottom: 2rem; box-shadow: var(--shadow-md);">
-    <div class="filters-header" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 1rem; margin-bottom: 1.5rem;">
-      <h2 style="font-size: 1.25rem; font-weight: 600; color: var(--dark-gray); display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <i class="fas fa-filter"></i>
-        Filters &amp; Search
-      </h2>
-      <button onclick="resetFilters()" class="btn btn-secondary" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray);"><i class="fas fa-redo" style="font-size: 1rem;"></i> Reset All</button>
+  <header class="ea-header">
+    <div class="ea-header-content">
+      <h1 class="ea-header-title">
+        <span class="ea-title-icon"><i class="fas fa-chart-bar"></i></span>
+        Monthly Expense Accruals
+      </h1>
+      <p class="ea-header-subtitle">Track and manage expense accruals across all DCLs with dual-view reporting and AED-converted exports.</p>
     </div>
-    <!-- Search Bar -->
-    <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem; margin-bottom: 1rem;">
-      <label for="searchInput" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-search"></i> Global Search </label><input type="search" id="searchInput" placeholder="Search by DCL#, PO, Customer, Executive, BL#..." style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit; background-image: url('/\'data:image/svg+xml,%3Csvg xmlns=http://www.w3.org/2000/svg width=16 height=16 fill=%236b7280 viewBox=0 0 16 16%3E%3Cpath d=M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z/%3E%3C/svg%3E\''); background-repeat: no-repeat; background-position-x: 12px; background-position-y: center; padding-left: 2.5rem; max-width: 100%;" />
+    <div class="ea-header-actions">
+      <button onclick="exportToExcel()" class="ea-btn ea-btn--success">
+        <i class="fas fa-download"></i> Export to Excel (AED)
+      </button>
     </div>
-    <!-- Filter Grid -->
-    <div class="filter-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); row-gap: 1rem; column-gap: 1rem; margin-bottom: 1.5rem;">
-      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <label for="filterStatus" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-flag"></i> DCL Status </label
-        ><select id="filterStatus" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
-          <option value="">All Statuses</option>
-        </select>
-      </div>
-      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <label for="filterExportExec" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-user"></i> Export Executive </label
-        ><select id="filterExportExec" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
-          <option value="">All Export Executives</option>
-        </select>
-      </div>
-      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <label for="filterMonth" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-calendar-alt"></i> Month </label
-        ><select id="filterMonth" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
-          <option value="">All Months</option>
-          <option value="1">January</option>
-          <option value="2">February</option>
-          <option value="3">March</option>
-          <option value="4">April</option>
-          <option value="5">May</option>
-          <option value="6">June</option>
-          <option value="7">July</option>
-          <option value="8">August</option>
-          <option value="9">September</option>
-          <option value="10">October</option>
-          <option value="11">November</option>
-          <option value="12">December</option>
-        </select>
-      </div>
-      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <label for="filterYear" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-calendar"></i> Year </label
-        ><select id="filterYear" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
-          <option value="">All Years</option>
-        </select>
-      </div>
-      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <label for="filterBusinessUnit" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-building"></i> Business Unit </label
-        ><select id="filterBusinessUnit" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
-          <option value="">All Business Units</option>
-        </select>
-      </div>
-      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <label for="filterCustomer" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-briefcase"></i> Customer </label
-        ><select id="filterCustomer" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
-          <option value="">All Customers</option>
-        </select>
-      </div>
-      <div class="filter-group" style="display: flex; flex-direction: column; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <label for="filterCountry" style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dark-gray);"><i class="fas fa-globe"></i> Country </label
-        ><select id="filterCountry" style="padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; font-size: 0.95rem; color: var(--dark-gray); font-family: inherit;">
-          <option value="">All Countries</option>
-        </select>
-      </div>
-    </div>
-    <!-- Action Buttons -->
-    <div class="filter-actions" style="display: flex; justify-content: flex-end; row-gap: 1rem; column-gap: 1rem; flex-wrap: wrap;">
-      <button onclick="applyFilters()" class="btn btn-primary" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--white); box-shadow: var(--shadow-sm);"><i class="fas fa-search" style="font-size: 1rem;"></i> Apply Filters</button><button onclick="exportToExcel()" class="btn btn-success" style="padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--white); box-shadow: var(--shadow-sm);"><i class="fas fa-file-excel" style="font-size: 1rem;"></i> Download Accruals (AED)</button>
-    </div>
-  </div>
+  </header>
+
   <!-- Report Tab Switcher -->
-  <div class="report-tabs-container" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; background: var(--white); padding: 0.5rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); border: 1px solid var(--border-color);">
-    <button class="report-tab active" data-report="summary" style="flex: 1; padding: 0.875rem 1.5rem; border: none; border-radius: var(--radius-md); font-weight: 600; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-family: inherit; transition: all 0.2s ease;">
+  <div class="ea-tabs">
+    <button class="ea-tab report-tab active" data-report="summary">
       <i class="fas fa-table"></i> Summary Accruals
     </button>
-    <button class="report-tab" data-report="expense" style="flex: 1; padding: 0.875rem 1.5rem; border: none; border-radius: var(--radius-md); font-weight: 600; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-family: inherit; transition: all 0.2s ease;">
-      <i class="fas fa-file-invoice-dollar"></i> Expense Accruals Report
+    <button class="ea-tab report-tab" data-report="expense">
+      <i class="fas fa-file-invoice-dollar"></i> Expense Accruals
     </button>
   </div>
-  <!-- Statistics Cards -->
-  <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); row-gap: 1rem; column-gap: 1rem; margin-bottom: 2rem;">
-    <div class="stat-card" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; box-shadow: var(--shadow-md); position: relative; overflow-x: hidden; overflow-y: hidden;">
-      <div class="label" style="font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--neutral-gray); margin-bottom: 0.5rem; font-weight: 600;"><i class="fas fa-list"></i> Total Records</div>
-      <div id="statTotalRecords" class="value" style="font-size: 1.75rem; font-weight: 700; color: var(--primary-green);">0</div>
+
+  <!-- Filters -->
+  <div class="ea-filters">
+    <div class="ea-filters-header" onclick="this.parentElement.querySelector('.ea-filters-body').classList.toggle('hidden')">
+      <div class="ea-filters-title">
+        <i class="fas fa-sliders-h"></i> Filters &amp; Search
+      </div>
+      <div class="ea-filters-toggle">
+        <i class="fas fa-chevron-down"></i>
+      </div>
     </div>
-    <div class="stat-card" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; box-shadow: var(--shadow-md); position: relative; overflow-x: hidden; overflow-y: hidden;">
-      <div class="label" style="font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--neutral-gray); margin-bottom: 0.5rem; font-weight: 600;"><i class="fas fa-file-alt"></i> Total DCLs</div>
-      <div id="statTotalDCLs" class="value" style="font-size: 1.75rem; font-weight: 700; color: var(--primary-green);">0</div>
-    </div>
-    <div class="stat-card" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; box-shadow: var(--shadow-md); position: relative; overflow-x: hidden; overflow-y: hidden;">
-      <div class="label" style="font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--neutral-gray); margin-bottom: 0.5rem; font-weight: 600;"><i class="fas fa-weight"></i> Total Quantity (MT)</div>
-      <div id="statTotalQtyMT" class="value" style="font-size: 1.75rem; font-weight: 700; color: var(--primary-green);">0</div>
-    </div>
-    <div class="stat-card" style="padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; box-shadow: var(--shadow-md); position: relative; overflow-x: hidden; overflow-y: hidden;">
-      <div class="label" style="font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--neutral-gray); margin-bottom: 0.5rem; font-weight: 600;"><i class="fas fa-users"></i> Unique Customers</div>
-      <div id="statCustomers" class="value" style="font-size: 1.75rem; font-weight: 700; color: var(--primary-green);">0</div>
+    <div class="ea-filters-body">
+      <!-- Search -->
+      <div class="ea-search filter-group">
+        <i class="fas fa-search ea-search-icon"></i>
+        <input type="search" id="searchInput" class="ea-search-input" placeholder="Search by DCL #, Customer PO, Customer Name, Export Executive, BL #..." />
+      </div>
+
+      <!-- Filter Grid -->
+      <div class="ea-filter-grid">
+        <div class="ea-field filter-group">
+          <label for="filterStatus" class="ea-field-label"><i class="fas fa-circle"></i> Status</label>
+          <select id="filterStatus" class="ea-select">
+            <option value="">All Statuses</option>
+          </select>
+        </div>
+        <div class="ea-field filter-group">
+          <label for="filterExportExec" class="ea-field-label"><i class="fas fa-user"></i> Export Executive</label>
+          <select id="filterExportExec" class="ea-select">
+            <option value="">All Executives</option>
+          </select>
+        </div>
+        <div class="ea-field filter-group">
+          <label for="filterMonth" class="ea-field-label"><i class="fas fa-calendar"></i> Month</label>
+          <select id="filterMonth" class="ea-select">
+            <option value="">All Months</option>
+            <option value="1">January</option>
+            <option value="2">February</option>
+            <option value="3">March</option>
+            <option value="4">April</option>
+            <option value="5">May</option>
+            <option value="6">June</option>
+            <option value="7">July</option>
+            <option value="8">August</option>
+            <option value="9">September</option>
+            <option value="10">October</option>
+            <option value="11">November</option>
+            <option value="12">December</option>
+          </select>
+        </div>
+        <div class="ea-field filter-group">
+          <label for="filterYear" class="ea-field-label"><i class="fas fa-calendar-alt"></i> Year</label>
+          <select id="filterYear" class="ea-select">
+            <option value="">All Years</option>
+          </select>
+        </div>
+        <div class="ea-field filter-group">
+          <label for="filterBusinessUnit" class="ea-field-label"><i class="fas fa-building"></i> Business Unit</label>
+          <select id="filterBusinessUnit" class="ea-select">
+            <option value="">All Business Units</option>
+          </select>
+        </div>
+        <div class="ea-field filter-group">
+          <label for="filterCustomer" class="ea-field-label"><i class="fas fa-briefcase"></i> Customer</label>
+          <select id="filterCustomer" class="ea-select">
+            <option value="">All Customers</option>
+          </select>
+        </div>
+        <div class="ea-field filter-group">
+          <label for="filterCountry" class="ea-field-label"><i class="fas fa-globe-americas"></i> Country</label>
+          <select id="filterCountry" class="ea-select">
+            <option value="">All Countries</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="ea-filters-actions">
+        <button onclick="resetFilters()" class="ea-btn ea-btn--secondary">
+          <i class="fas fa-undo"></i> Reset
+        </button>
+        <button onclick="applyFilters()" class="ea-btn ea-btn--primary">
+          <i class="fas fa-search"></i> Apply Filters
+        </button>
+      </div>
     </div>
   </div>
-  <!-- Data Table -->
-  <div class="table-section" style="box-shadow: var(--shadow-md); overflow-x: hidden; overflow-y: hidden;">
-    <div class="table-header" style="color: var(--white); padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; row-gap: 1rem; column-gap: 1rem;">
-      <h2 id="tableTitle" style="font-size: 1.25rem; font-weight: 600; display: flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem;"><i class="fas fa-table"></i> Summary Accruals Report</h2>
-      <span id="recordCount" style="font-size: 0.95rem; opacity: 0.9;">0 records</span>
+
+  <!-- Statistics -->
+  <div class="ea-stats">
+    <div class="ea-stat">
+      <div class="ea-stat-icon ea-stat-icon--records"><i class="fas fa-layer-group"></i></div>
+      <div class="ea-stat-body">
+        <div class="ea-stat-label">Total Records</div>
+        <div id="statTotalRecords" class="ea-stat-value">0</div>
+      </div>
     </div>
-    <div class="table-container" style="max-height: 600px; overflow-x: auto; overflow-y: auto; position: relative;">
-      <table id="expenseTable" class="data-table" style="width: 100%; border-collapse: separate; -webkit-border-horizontal-spacing: 0px; -webkit-border-vertical-spacing: 0px; font-size: 0.875rem;">
-        <thead style="position: sticky; top: 0px; z-index: 10;">
+    <div class="ea-stat">
+      <div class="ea-stat-icon ea-stat-icon--dcls"><i class="fas fa-file-alt"></i></div>
+      <div class="ea-stat-body">
+        <div class="ea-stat-label">Unique DCLs</div>
+        <div id="statTotalDCLs" class="ea-stat-value">0</div>
+      </div>
+    </div>
+    <div class="ea-stat">
+      <div class="ea-stat-icon ea-stat-icon--qty"><i class="fas fa-weight-hanging"></i></div>
+      <div class="ea-stat-body">
+        <div class="ea-stat-label">Total Qty (MT)</div>
+        <div id="statTotalQtyMT" class="ea-stat-value">0</div>
+      </div>
+    </div>
+    <div class="ea-stat">
+      <div class="ea-stat-icon ea-stat-icon--customers"><i class="fas fa-users"></i></div>
+      <div class="ea-stat-body">
+        <div class="ea-stat-label">Unique Customers</div>
+        <div id="statCustomers" class="ea-stat-value">0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Table -->
+  <div class="ea-table-section">
+    <div class="ea-table-toolbar">
+      <h2 id="tableTitle" class="ea-table-title">
+        <i class="fas fa-table"></i> Summary Accruals Report
+      </h2>
+      <span id="recordCount" class="ea-record-count">0 records</span>
+    </div>
+
+    <div class="ea-table-wrap table-container">
+      <table id="expenseTable" class="ea-table data-table">
+        <thead>
           <tr>
-            <!-- Headers will be dynamically populated by JavaScript -->
+            <!-- Headers populated by JavaScript -->
           </tr>
         </thead>
         <tbody id="tableBody">
           <tr>
-            <td colspan="100%" style="padding-top: 0.875rem; padding-right: 0.75rem; padding-bottom: 0.875rem; padding-left: 0.75rem; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); border-right-width: initial; border-right-style: none; border-right-color: initial; text-align: center; padding: 3rem;" align="center">
-              <div class="empty-state" style="text-align: center; padding-top: 4rem; padding-right: 2rem; padding-bottom: 4rem; padding-left: 2rem; color: var(--neutral-gray);">
-                <i class="fas fa-spinner fa-pulse fa-3x" style="font-size: 4rem; color: var(--border-color); margin-bottom: 1rem;"></i>
-                <h3 style="font-size: 1.5rem; color: var(--dark-gray); margin-bottom: 0.5rem;">Loading Data...</h3>
-                <p style="font-size: 1rem; color: var(--neutral-gray);">Please wait while we fetch your expense accruals</p>
+            <td colspan="100%">
+              <div class="empty-state">
+                <i class="fas fa-spinner fa-pulse"></i>
+                <h3>Loading Data...</h3>
+                <p>Fetching expense accruals from all data sources</p>
               </div>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
-    <!-- Pagination Controls -->
-    <div class="pagination-controls" style="display: flex; justify-content: center; align-items: center; row-gap: 1rem; column-gap: 1rem; padding-top: 1.5rem; padding-right: 1.5rem; padding-bottom: 1.5rem; padding-left: 1.5rem;">
-      <div class="pagination-buttons" style="display: flex; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <button id="firstPage" title="First Page" class="btn btn-secondary btn-icon" style="font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; display: inline-flex; align-items: center; justify-content: center; min-width: 40px;"><i class="fas fa-angle-double-left" style="font-size: 1rem;"></i></button><button id="prevPage" title="Previous Page" class="btn btn-secondary btn-icon" style="font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; display: inline-flex; align-items: center; justify-content: center; min-width: 40px;"><i class="fas fa-angle-left" style="font-size: 1rem;"></i></button>
+
+    <!-- Pagination -->
+    <div class="ea-pagination">
+      <div class="ea-pagination-btns">
+        <button id="firstPage" title="First Page" class="ea-page-btn"><i class="fas fa-angle-double-left"></i></button>
+        <button id="prevPage" title="Previous Page" class="ea-page-btn"><i class="fas fa-angle-left"></i></button>
       </div>
-      <div class="pagination-info" style="font-size: 0.95rem; color: var(--dark-gray); font-weight: 500;">Page <span id="currentPage">1</span> of <span id="totalPages">1</span></div>
-      <div class="pagination-buttons" style="display: flex; row-gap: 0.5rem; column-gap: 0.5rem;">
-        <button id="nextPage" title="Next Page" class="btn btn-secondary btn-icon" style="font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; display: inline-flex; align-items: center; justify-content: center; min-width: 40px;"><i class="fas fa-angle-right" style="font-size: 1rem;"></i></button><button id="lastPage" title="Last Page" class="btn btn-secondary btn-icon" style="font-weight: 600; font-size: 0.95rem; border-top-width: initial; border-right-width: initial; border-bottom-width: initial; border-left-width: initial; border-top-style: none; border-right-style: none; border-bottom-style: none; border-left-style: none; border-top-color: initial; border-right-color: initial; border-bottom-color: initial; border-left-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; row-gap: 0.5rem; column-gap: 0.5rem; font-family: inherit; white-space-collapse: collapse; text-wrap-mode: nowrap; color: var(--dark-gray); padding-top: 0.75rem; padding-right: 0.75rem; padding-bottom: 0.75rem; padding-left: 0.75rem; display: inline-flex; align-items: center; justify-content: center; min-width: 40px;"><i class="fas fa-angle-double-right" style="font-size: 1rem;"></i></button>
+      <div class="ea-pagination-info">
+        Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
+      </div>
+      <div class="ea-pagination-btns">
+        <button id="nextPage" title="Next Page" class="ea-page-btn"><i class="fas fa-angle-right"></i></button>
+        <button id="lastPage" title="Last Page" class="ea-page-btn"><i class="fas fa-angle-double-right"></i></button>
       </div>
     </div>
   </div>
-</div>
-<!-- Loading Overlay -->
-<div id="loadingOverlay" class="loading-overlay hidden" style="position: fixed; top: 0px; right: 0px; bottom: 0px; left: 0px; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgba(0, 0, 0, 0.6); flex-direction: column; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(4px); display: none;">
-  <div class="loading-content" style="text-align: center; color: var(--white);">
-    <div class="spinner" style="width: 60px; height: 60px; border-top-width: 5px; border-right-width: 5px; border-bottom-width: 5px; border-left-width: 5px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-right-color: rgba(255, 255, 255, 0.2); border-bottom-color: rgba(255, 255, 255, 0.2); border-left-color: rgba(255, 255, 255, 0.2); border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; border-top-color: var(--primary-green); border-top-left-radius: 50%; border-top-right-radius: 50%; border-bottom-right-radius: 50%; border-bottom-left-radius: 50%; animation-duration: 1s; animation-timing-function: linear; animation-delay: 0s; animation-iteration-count: infinite; animation-direction: normal; animation-fill-mode: none; animation-play-state: running; animation-name: spin; animation-timeline: auto; animation-range-start: normal; animation-range-end: normal; margin-bottom: 1rem;"></div>
-    <div id="loadingText" style="font-size: 1.125rem; font-weight: 500;">Loading...</div>
-  </div>
-</div>
-<!-- Instructions/Help Section (Optional - can be toggled) -->
-<div class="container" style="max-width: 1600px; margin-right: auto; margin-bottom: 0px; margin-left: auto; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; margin-top: 2rem;">
-  <details style="background: var(--white); padding: 1.5rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-md);">
-    <summary style="cursor: pointer; font-weight: 600; color: var(--primary-green); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-info-circle"></i> User Guide &amp; Field Definitions</summary>
-    <div style="margin-top: 1rem; color: var(--dark-gray); line-height: 1.8;">
-      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">Report Views:</h3>
-      <ul style="margin-left: 1.5rem; margin-bottom: 1rem;">
-        <li><strong>Summary Accruals:</strong> Full report with all columns including DCL #, CI Number, Status, and all details</li>
-        <li><strong>Expense Accruals Report:</strong> Simplified view with 18 key columns focused on costs and charges</li>
-        <li>Switch between views using the tabs above the statistics cards</li>
+
+  <!-- User Guide -->
+  <details class="ea-guide">
+    <summary><i class="fas fa-question-circle"></i> User Guide &amp; Field Definitions</summary>
+    <div class="ea-guide-body">
+      <h3>Report Views</h3>
+      <ul>
+        <li><strong>Summary Accruals:</strong> Complete report with all columns including DCL #, CI Number, Status, and full details</li>
+        <li><strong>Expense Accruals:</strong> Focused view with 18 key columns for costs and charges analysis</li>
       </ul>
-      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">How to Use:</h3>
-      <ul style="margin-left: 1.5rem; margin-bottom: 1rem;">
-        <li><strong>Filtering:</strong> Use the dropdown filters to narrow down records by Status, Executive, Month, etc.</li>
-        <li><strong>Search:</strong> Use global search to find records by DCL#, CI Number, Customer PO, Customer Name, etc.</li>
-        <li><strong>Sorting:</strong> Click any column header to sort (click again to reverse)</li>
-        <li><strong>Export:</strong> Click "Download Accruals (AED)" to export - <strong>all currency values are automatically converted to AED</strong></li>
+
+      <h3>How to Use</h3>
+      <ul>
+        <li><strong>Filter:</strong> Use the dropdowns to narrow records by Status, Executive, Month, Business Unit, Customer, or Country</li>
+        <li><strong>Search:</strong> Global search works across DCL #, CI Number, Customer PO, Customer Name, Export Executive, and BL #</li>
+        <li><strong>Sort:</strong> Click any column header to sort ascending; click again for descending</li>
+        <li><strong>Export:</strong> Click "Export to Excel (AED)" to download all filtered records with currency values converted to AED</li>
       </ul>
-      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">Currency Conversion (Export):</h3>
-      <ul style="margin-left: 1.5rem; margin-bottom: 1rem;">
-        <li><strong>USD &rarr; AED:</strong> Rate 3.6725</li>
-        <li><strong>SAR &rarr; AED:</strong> Rate 0.9793</li>
-        <li><strong>EUR &rarr; AED:</strong> Rate 4.02</li>
-        <li><strong>GBP &rarr; AED:</strong> Rate 4.65</li>
-        <li>All charge columns (COO, MOFA, Insurance, Freight, etc.) are converted in the exported file</li>
+
+      <h3>Currency Conversion (Export)</h3>
+      <ul>
+        <li><strong>USD:</strong> 3.6725 AED</li>
+        <li><strong>SAR:</strong> 0.9793 AED</li>
+        <li><strong>EUR:</strong> 4.02 AED</li>
+        <li><strong>GBP:</strong> 4.65 AED</li>
       </ul>
-      <h3 style="color: var(--primary-green); margin-bottom: 0.5rem;">Field Definitions:</h3>
-      <ul style="margin-left: 1.5rem;">
-        <li><strong style="color: var(--success-green);">Green Cells:</strong> Calculated/Formula fields (auto-computed)</li>
-        <li><strong style="color: var(--error-red);">Red Cells:</strong> Missing data (N/A values)</li>
-        <li><strong style="color: var(--info-blue);">Blue Cells:</strong> Editable fields (manual entry required)</li>
-        <li><strong>S = System Generated:</strong> Automatically populated from Oracle/Dataverse</li>
-        <li><strong>M = Manual Entry:</strong> Requires user input</li>
-        <li><strong>Formula:</strong> Calculated based on other fields</li>
+
+      <h3>Column Legend</h3>
+      <ul>
+        <li><strong>Green values:</strong> Formula-calculated fields (Total Freight, Per Ltr. Cost, Per MT Cost)</li>
+        <li><strong>Gray italic:</strong> Missing data (N/A)</li>
+        <li>All data is automatically sourced from Dataverse — no manual entry required</li>
       </ul>
     </div>
   </details>
+
 </div>
-<div class="row sectionBlockLayout text-start" style="display: flex; flex-wrap: wrap; margin: 0px; min-height: auto; padding: 8px;">
-  <div class="container" style="max-width: 1600px; margin-top: 0px; margin-right: auto; margin-bottom: 0px; margin-left: auto; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; padding: 0px; display: flex; flex-wrap: wrap;"><div class="col-lg-12 columnBlockLayout" style="flex-grow: 1; display: flex; flex-direction: column; min-width: 250px;"></div></div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="ea-loading-overlay hidden">
+  <div class="ea-loading-card">
+    <div class="ea-spinner"></div>
+    <div id="loadingText" class="ea-loading-text">Loading...</div>
+  </div>
 </div>

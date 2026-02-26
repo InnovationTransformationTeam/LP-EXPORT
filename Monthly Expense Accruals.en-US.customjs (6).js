@@ -178,12 +178,13 @@ function switchReport(reportType) {
         tab.classList.toggle('active', tab.dataset.report === reportType);
     });
 
-    // Update table title
+    // Update table title (preserve icon)
     const titleEl = document.getElementById('tableTitle');
     if (titleEl) {
-        titleEl.textContent = reportType === 'expense'
+        const label = reportType === 'expense'
             ? 'Expense Accruals Report'
             : 'Summary Accruals Report';
+        titleEl.innerHTML = `<i class="fas fa-table"></i> ${label}`;
     }
 
     initializeTableHeaders();
@@ -1084,11 +1085,11 @@ function renderTable() {
     if (!state.displayData.length) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="${cols.length}" style="text-align: center; padding: 3rem;">
+                <td colspan="${cols.length}">
                     <div class="empty-state">
-                        <i class="fas fa-inbox fa-3x" style="color: #ccc; margin-bottom: 1rem;"></i>
+                        <i class="fas fa-inbox"></i>
                         <h3>No Records Found</h3>
-                        <p>Try adjusting your filters or search query</p>
+                        <p>Try adjusting your filters or search criteria</p>
                     </div>
                 </td>
             </tr>`;
