@@ -28,16 +28,35 @@ const STATE = {
   mergedPdf: null,
   isSubmitting: false,
   autoRefreshTimer: null,
-  loadingPlanOrders: []
+  loadingPlanOrders: [],
+  customerMandatoryDocs: [] // Loaded from customer's cr650_mandatorydocuments field
 };
 
-// Mandatory documents that MUST be present before submission
-const MANDATORY_DOCUMENTS = [
-  "Commercial Invoice (CI)",
-  "Packing List (PL)",
-  "Delivery Note (DN)",
-  "System Invoice (SI)"
-];
+// Mapping from Customer Management checkbox values → Review & Submit checklist names
+// Used to translate cr650_mandatorydocuments short codes into system document types
+const MANDATORY_DOC_MAPPING = {
+  'PI': 'Proforma Invoice (PI)',
+  'CI': 'Commercial Invoice (CI)',
+  'PL': 'Packing List (PL)',
+  'DNs': 'Delivery Note (DN)',
+  'System Invoices': 'System Invoice (SI)',
+  'COO': 'Certificate of Origin (Dubai Chamber)',
+  'Shahada Mansha': 'Shahada Mansha (Ministry of Economy)',
+  'MOFA': 'MOFA Document',
+  'Inspection Certificate': 'Inspection Certificate',
+  'Insurance Certificate': 'Insurance Certificate',
+  'ED': 'Customs Export Declaration (ED) / Bayan Jumrki',
+  'Cust. Exit/Entry Cert.': 'Original Customs Exit / Entry Certificate',
+  'BL/TCN/Main.': 'BL / TCN / Manifest / Local',
+  'AWB Receipt by DHL/Email/WATSAPP/BANK': 'BL / TCN / Manifest / Local',
+  'Finance Submission For Vendor Freight Invoice': 'Invoice Submission To Finance',
+  'Vendor Freight Invoice': 'Vendor Invoice (Freight / Inspection / Others)',
+  'Oracle Freight PO': 'Oracle PO (Freight / Inspection / Others)',
+  'Inspection Invoice': 'Vendor Invoice (Freight / Inspection / Others)',
+  'Oracle Inspection PO': 'Oracle PO (Freight / Inspection / Others)',
+  'Documentation Charges': 'Documentation Charges',
+  'Finance Submission': 'Invoice Submission To Finance'
+};
 
 
 // ============================================================================
@@ -225,6 +244,7 @@ async function initializePage() {
 
     // Load data
     await loadDclMasterData();
+    await loadCustomerMandatoryDocs();
     await loadDclBrands();
     await loadDclContainers();
     await loadOrderNumbersFromLoadingPlan();
@@ -240,8 +260,10 @@ async function initializePage() {
     // Render UI
     renderDclHeader();
     renderDocumentsList();
+    renderMandatoryDocsChecklist();
     renderMergedPdfSection();
     renderDclInfoSection();
+    updateSelectionUI(); // Set initial submit button state (checks mandatory docs)
 
     // Initialize autosave AFTER loading data
     autoSaveAdditionalComments();
@@ -271,6 +293,61 @@ async function loadDclMasterData() {
   STATE.dclMasterData = data;
   STATE.dclNumber = data.cr650_dclnumber;
   console.log('✅ DCL master loaded:', STATE.dclNumber);
+}
+
+async function loadCustomerMandatoryDocs() {
+  const customerName = STATE.dclMasterData?.cr650_customername;
+  if (!customerName) {
+    console.log('ℹ️ No customer name on DCL — skipping mandatory docs lookup');
+    STATE.customerMandatoryDocs = [];
+    return;
+  }
+
+  try {
+    // Escape single quotes for OData filter
+    const safeName = customerName.replace(/'/g, "''");
+    const url = `/_api/cr650_updated_dcl_customers?$filter=cr650_customername eq '${safeName}'&$select=cr650_mandatorydocuments&$top=1`;
+
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json', 'OData-Version': '4.0' }
+    });
+
+    if (!response.ok) {
+      console.error('❌ Failed to load customer mandatory docs:', response.status);
+      STATE.customerMandatoryDocs = [];
+      return;
+    }
+
+    const data = await response.json();
+    const customer = (data.value || [])[0];
+
+    if (!customer || !customer.cr650_mandatorydocuments) {
+      console.log('ℹ️ No mandatory documents configured for customer:', customerName);
+      STATE.customerMandatoryDocs = [];
+      return;
+    }
+
+    // Parse comma-separated string: "PI,CI,PL,Others:custom text"
+    const rawDocs = customer.cr650_mandatorydocuments.split(',').map(s => s.trim()).filter(Boolean);
+
+    STATE.customerMandatoryDocs = rawDocs.map(code => {
+      if (code.startsWith('Others:') || code === 'Others') {
+        const customText = code.startsWith('Others:') ? code.substring(7).trim() : '';
+        return { code: code, fullName: customText || 'Other Document', isOther: true };
+      }
+      return {
+        code: code,
+        fullName: MANDATORY_DOC_MAPPING[code] || code,
+        isOther: false
+      };
+    });
+
+    console.log(`✅ Loaded ${STATE.customerMandatoryDocs.length} mandatory docs for ${customerName}:`, STATE.customerMandatoryDocs);
+
+  } catch (error) {
+    console.error('❌ Error loading customer mandatory docs:', error);
+    STATE.customerMandatoryDocs = [];
+  }
 }
 
 /* ============================================================
@@ -644,17 +721,21 @@ function updateSelectionUI() {
     counterEl.textContent = `${selected} of ${total} selected`;
   }
 
-  // Update submit button
+  // Update submit button — also check mandatory docs
   const submitBtn = document.getElementById('btnSubmitDcl');
   if (submitBtn) {
+    const mandatoryCheck = validateMandatoryDocuments();
     if (selected === 0) {
       submitBtn.disabled = true;
-      submitBtn.innerHTML = '<i class="fas fa-ban"></i> No Documents Selected';
+      submitBtn.innerHTML = '<span class="btn-icon"><i class="fas fa-ban"></i></span><span class="btn-text">No Documents Selected</span>';
+      submitBtn.classList.add('btn-disabled');
+    } else if (!mandatoryCheck.valid) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<span class="btn-icon"><i class="fas fa-lock"></i></span><span class="btn-text">${mandatoryCheck.missing.length} Mandatory Doc${mandatoryCheck.missing.length > 1 ? 's' : ''} Missing</span>`;
       submitBtn.classList.add('btn-disabled');
     } else {
       submitBtn.disabled = false;
-      const docWord = selected === 1 ? 'Document' : 'Documents';
-      submitBtn.innerHTML = `<i class="fas fa-check"></i> Submit ${selected} ${docWord} for Export`;
+      submitBtn.innerHTML = `<span class="btn-icon"><i class="fas fa-check-circle"></i></span><span class="btn-text">Submit for Export</span><span class="btn-arrow"><i class="fas fa-arrow-right"></i></span>`;
       submitBtn.classList.remove('btn-disabled');
     }
   }
@@ -892,6 +973,135 @@ function renderDocumentsList() {
   container.innerHTML = html;
 }
 
+
+// ============================================================================
+// MANDATORY DOCUMENTS CHECKLIST (Customer-Specific)
+// ============================================================================
+
+function renderMandatoryDocsChecklist() {
+  const container = document.getElementById('mandatoryDocsChecklistContainer');
+  if (!container) return;
+
+  // If no mandatory docs configured, hide the section
+  if (!STATE.customerMandatoryDocs || STATE.customerMandatoryDocs.length === 0) {
+    container.innerHTML = '';
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'block';
+
+  const customerName = STATE.dclMasterData?.cr650_customername || 'Customer';
+
+  // Check each mandatory doc against uploaded documents
+  let uploadedCount = 0;
+  const totalRequired = STATE.customerMandatoryDocs.length;
+  const docItems = STATE.customerMandatoryDocs.map(doc => {
+    let isUploaded = false;
+
+    if (doc.isOther) {
+      // "Others" items — check for any doc with "Other" in its type
+      isUploaded = STATE.allDocuments.some(d => {
+        const t = (d.cr650_doc_type || '').toLowerCase();
+        return t.includes('other') && t !== 'merged pdf';
+      });
+    } else {
+      // Standard docs — use existing getDocumentStatus()
+      isUploaded = getDocumentStatus(doc.fullName) === 'Yes';
+    }
+
+    if (isUploaded) uploadedCount++;
+
+    return { ...doc, isUploaded };
+  });
+
+  const allComplete = uploadedCount === totalRequired;
+  const progressPct = totalRequired > 0 ? Math.round((uploadedCount / totalRequired) * 100) : 0;
+
+  let html = `
+    <div class="card mandatory-checklist-card" style="background: white; border-radius: 12px; padding: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; border: 2px solid ${allComplete ? '#10b981' : '#f59e0b'};">
+      <!-- Header -->
+      <div style="padding: 1.25rem 1.5rem; background: ${allComplete ? 'linear-gradient(135deg, #ecfdf5, #d1fae5)' : 'linear-gradient(135deg, #fffbeb, #fef3c7)'}; border-bottom: 2px solid ${allComplete ? '#a7f3d0' : '#fde68a'};">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <i class="fas ${allComplete ? 'fa-check-circle' : 'fa-clipboard-list'}" style="font-size: 1.4rem; color: ${allComplete ? '#059669' : '#d97706'};"></i>
+            <div>
+              <h4 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: #1f2937;">Mandatory Documents</h4>
+              <p style="margin: 0; font-size: 0.825rem; color: #6b7280;">Required for <strong>${escapeHtml(customerName)}</strong></p>
+            </div>
+          </div>
+          <span style="background: ${allComplete ? '#059669' : '#d97706'}; color: white; padding: 0.375rem 0.875rem; border-radius: 999px; font-size: 0.825rem; font-weight: 700;">
+            ${uploadedCount} / ${totalRequired} Complete
+          </span>
+        </div>
+        <!-- Progress bar -->
+        <div style="margin-top: 0.75rem; height: 6px; background: ${allComplete ? '#a7f3d0' : '#fde68a'}; border-radius: 3px; overflow: hidden;">
+          <div style="height: 100%; width: ${progressPct}%; background: ${allComplete ? '#059669' : '#d97706'}; border-radius: 3px; transition: width 0.5s ease;"></div>
+        </div>
+      </div>
+      <!-- Checklist items -->
+      <div style="padding: 1rem 1.5rem;">
+  `;
+
+  docItems.forEach(doc => {
+    const statusIcon = doc.isUploaded
+      ? '<i class="fas fa-check-circle" style="color: #059669; font-size: 1.15rem;"></i>'
+      : '<i class="fas fa-times-circle" style="color: #dc2626; font-size: 1.15rem;"></i>';
+
+    const statusBadge = doc.isUploaded
+      ? '<span style="background: #ecfdf5; color: #059669; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Uploaded</span>'
+      : '<span style="background: #fef2f2; color: #dc2626; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Missing</span>';
+
+    const displayName = doc.isOther
+      ? `Other: ${escapeHtml(doc.fullName)}`
+      : escapeHtml(doc.fullName);
+
+    const shortCode = doc.isOther ? '' : `<span style="color: #9ca3af; font-size: 0.8rem; margin-left: 0.5rem;">(${escapeHtml(doc.code)})</span>`;
+
+    html += `
+      <div class="mandatory-doc-row" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 0.5rem; border-bottom: 1px solid #f3f4f6; transition: background 0.2s;">
+        ${statusIcon}
+        <div style="flex: 1; min-width: 0;">
+          <span style="font-size: 0.9rem; font-weight: 500; color: ${doc.isUploaded ? '#374151' : '#991b1b'};">${displayName}</span>${shortCode}
+        </div>
+        ${statusBadge}
+      </div>
+    `;
+  });
+
+  // Remove last border
+  html += `
+      </div>
+  `;
+
+  // If not all complete, show warning footer
+  if (!allComplete) {
+    const missingCount = totalRequired - uploadedCount;
+    html += `
+      <div style="padding: 1rem 1.5rem; background: #fef2f2; border-top: 2px solid #fecaca;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <i class="fas fa-exclamation-triangle" style="color: #dc2626;"></i>
+          <strong style="color: #991b1b; font-size: 0.9rem;">${missingCount} document${missingCount > 1 ? 's' : ''} still required</strong>
+        </div>
+        <p style="margin: 0; font-size: 0.825rem; color: #7f1d1d; line-height: 1.5;">
+          Upload or generate the missing documents before submitting this DCL.
+        </p>
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.75rem;">
+          <a href="/DCL-Document-Generator/?id=${STATE.dclMasterId}" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #006633; color: white; padding: 0.5rem 1rem; border-radius: 8px; font-weight: 600; font-size: 0.825rem; text-decoration: none;">
+            <i class="fas fa-file-alt"></i> Document Generator
+          </a>
+          <a href="/Upload_Center_Accruals/?id=${STATE.dclMasterId}" style="display: inline-flex; align-items: center; gap: 0.4rem; background: white; color: #006633; padding: 0.5rem 1rem; border: 2px solid #006633; border-radius: 8px; font-weight: 600; font-size: 0.825rem; text-decoration: none;">
+            <i class="fas fa-upload"></i> Upload Center
+          </a>
+        </div>
+      </div>
+    `;
+  }
+
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
 function getLatestMergedPdf(allDocs) {
   const mergedFiles = allDocs.filter(d =>
     d.cr650_doc_type === "Merged PDF" &&
@@ -987,16 +1197,30 @@ function renderDclInfoSection() {
 // ============================================================================
 
 /**
- * Validates that all mandatory documents exist in the DCL.
+ * Validates that all mandatory documents (from customer record) exist in the DCL.
  * Returns { valid: true } or { valid: false, missing: [...names] }
  */
 function validateMandatoryDocuments() {
+  // If no customer mandatory docs configured, validation passes
+  if (!STATE.customerMandatoryDocs || STATE.customerMandatoryDocs.length === 0) {
+    return { valid: true, missing: [] };
+  }
+
   const missing = [];
 
-  for (const mandatoryDoc of MANDATORY_DOCUMENTS) {
-    const status = getDocumentStatus(mandatoryDoc);
-    if (status !== "Yes") {
-      missing.push(mandatoryDoc);
+  for (const doc of STATE.customerMandatoryDocs) {
+    if (doc.isOther) {
+      // "Others" items — check for any doc with "Other" in its type
+      const hasOther = STATE.allDocuments.some(d => {
+        const t = (d.cr650_doc_type || '').toLowerCase();
+        return t.includes('other') && t !== 'merged pdf';
+      });
+      if (!hasOther) missing.push(doc.fullName);
+    } else {
+      const status = getDocumentStatus(doc.fullName);
+      if (status !== "Yes") {
+        missing.push(doc.fullName);
+      }
     }
   }
 
@@ -1144,10 +1368,14 @@ function showEnhancedConfirmation(selectedDocs, deselectedDocs) {
     }).join('')
     : '';
 
-  // Check if any deselected docs are mandatory
+  // Check if any deselected docs are mandatory (using customer-specific list)
+  const customerMandatoryNames = (STATE.customerMandatoryDocs || [])
+    .filter(d => !d.isOther)
+    .map(d => d.fullName);
+
   const deselectedMandatory = deselectedDocs.filter(doc => {
     const raw = doc.cr650_doc_type || '';
-    return MANDATORY_DOCUMENTS.some(md => {
+    return customerMandatoryNames.some(md => {
       if (normalize(raw) === normalize(md)) return true;
       for (const key in DOC_TYPE_MAPPING) {
         if (raw.toLowerCase().includes(key.toLowerCase()) && normalize(DOC_TYPE_MAPPING[key]) === normalize(md)) return true;
@@ -2175,7 +2403,9 @@ async function refreshPage() {
     processDocumentsForMerge();
     checkForExistingMergedPdf();
     renderDocumentsList();
+    renderMandatoryDocsChecklist();
     renderMergedPdfSection();
+    updateSelectionUI();
   } catch (error) {
     showToast('error', 'Refresh Failed', error.message);
   } finally {

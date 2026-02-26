@@ -10839,3 +10839,35 @@ button:not([type]) {
   margin-right: 8px;
   vertical-align: middle;
 }
+/* ============================================================================
+   MANDATORY DOCUMENTS CHECKLIST (Customer-Specific)
+   ============================================================================ */
+
+.mandatory-checklist-card {
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.mandatory-doc-row:hover {
+  background: #f9fafb !important;
+}
+
+.mandatory-doc-row:last-child {
+  border-bottom: none !important;
+}
+
+/* Disabled submit button when mandatory docs are missing */
+.btn-submit-enhanced.btn-disabled,
+.btn-submit-enhanced:disabled {
+  background: linear-gradient(135deg, #9ca3af, #6b7280) !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  transform: none !important;
+  opacity: 0.8;
+}
+
+.btn-submit-enhanced.btn-disabled:hover,
+.btn-submit-enhanced:disabled:hover {
+  background: linear-gradient(135deg, #9ca3af, #6b7280) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
