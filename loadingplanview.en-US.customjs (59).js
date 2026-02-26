@@ -6488,26 +6488,12 @@
               description = productBlock;
             }
 
-            // Extract packaging from parenthesized part at end of description
-            let packaging = "";
-            let pack = "";
-            const packMatch = description.match(/\(([^)]+)\)\s*$/);
-
-            if (packMatch) {
-              packaging = packMatch[1].trim();
-              const packTypeMatch = packaging.match(/(CARTON|CTN|DRUM|PAIL|IBC|BARREL|BOTTLE|CAN)\s*$/i);
-              pack = packTypeMatch ? packTypeMatch[1].toUpperCase() : "";
-              if (pack === "CTN") pack = "CARTON";
-            }
-
             if (itemCode && qty > 0) {
               items.push({
                 lineNo,
                 orderNo,
                 itemCode,
                 description,
-                packaging,
-                pack,
                 quantity: qty,
                 unitsCode
               });
@@ -6537,15 +6523,23 @@
     /**
      * Converts a parsed PDF item into the same shape that adaptRawRowToOrderItem() returns,
      * so it can be fed directly into computeItemData().
+     * outstandingIndex: Map of itemCode → outstanding report row (for released_flag lookup).
+     * Packaging code = last 2 digits of the item code.
      */
-    function pdfItemToOrderItem(pdfItem) {
+    function pdfItemToOrderItem(pdfItem, outstandingIndex) {
+      var packCode = pdfItem.itemCode ? pdfItem.itemCode.slice(-2) : "";
+      var releasedFlag = "N";
+      if (outstandingIndex) {
+        var osRow = outstandingIndex.get(pdfItem.itemCode);
+        if (osRow) releasedFlag = String(osRow.cr650_released_flag || "").toUpperCase() === "Y" ? "Y" : "N";
+      }
       return {
         order_no:           pdfItem.orderNo,
         product_no:         pdfItem.itemCode,
         product_name:       pdfItem.description,
-        released_flag:      "N",
-        pack_desc:          pdfItem.packaging,
-        pack:               pdfItem.pack,
+        released_flag:      releasedFlag,
+        pack_desc:          packCode,
+        pack:               packCode,
         original_order_qty: pdfItem.quantity
       };
     }
@@ -6578,7 +6572,21 @@
             return;
           }
 
-          // 3) Duplicate check — same logic as Oracle import
+          // 3) Query outstanding report to get released_flag for each item
+          setLoading(true, "Looking up released status…");
+          var outstandingIndex = new Map();
+          try {
+            var osRows = await fetchOrderLines(orderNo);
+            osRows.forEach(function (r) {
+              var code = (r.cr650_product_no || "").trim();
+              if (code && !outstandingIndex.has(code)) outstandingIndex.set(code, r);
+            });
+          } catch (osErr) {
+            console.warn("Could not fetch outstanding report for order " + orderNo + ":", osErr);
+            // Continue without released data — items will default to "N"
+          }
+
+          // 4) Duplicate check — same logic as Oracle import
           const existingKeys = new Set();
           QA("#itemsTableBody tr.lp-data-row").forEach(r => {
             const oNo = (r.querySelector(".order-no")?.textContent || "").trim();
@@ -6604,19 +6612,19 @@
             return;
           }
 
-          // 4) Convert to order items and compute data using existing pipeline
+          // 5) Convert to order items and compute data using existing pipeline
           const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
           const computed = newItems.map((pdfItem, idx) =>
-            computeItemData(pdfItemToOrderItem(pdfItem), baseCount + idx, itemMaster, null)
+            computeItemData(pdfItemToOrderItem(pdfItem, outstandingIndex), baseCount + idx, itemMaster, null)
           );
 
-          // 5) Render and persist using existing function
+          // 6) Render and persist using existing function
           const tbody = Q("#itemsTableBody");
           if (tbody) {
             await appendAndPersistItems(computed, tbody);
           }
 
-          // 6) Post-import UI updates
+          // 7) Post-import UI updates
           await ensureContainerItemsForCurrentDcl();
           rebuildAssignmentTable();
           renderContainerSummaries();
