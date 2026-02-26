@@ -10232,6 +10232,34 @@
     cursor: not-allowed;
   }
 
+  .bulk-toolbar-separator {
+    width: 1px;
+    height: 24px;
+    background: #c7d2fe;
+    flex-shrink: 0;
+  }
+
+  .btn-bulk-delete {
+    background: #dc3545;
+    color: #fff;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+  }
+
+  .btn-bulk-delete:hover:not(:disabled) {
+    background: #b02a37;
+  }
+
+  .btn-bulk-delete:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   /* Table header & row checkboxes */
   .th-checkbox {
     width: 36px;

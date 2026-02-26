@@ -1821,6 +1821,7 @@
         const tr = e.target.closest("tr.lp-data-row");
         if (tr) tr.classList.toggle("row-selected", e.target.checked);
         updateBulkAssignButton();
+        updateBulkDeleteRowsButton();
         syncLpRowSelectAll();
       }
     });
@@ -4331,6 +4332,7 @@
             : "Create allocations and assign to containers";
     }
 
+    refreshBulkAssignToolbar();
     updateAllocationStatusBar();
   }
 
@@ -4389,12 +4391,21 @@
       ).join("");
   }
 
-  /** Show/hide the bulk toolbar when container-items exist */
+  /** Show/hide the bulk toolbar when LP rows exist; conditionally show assign controls */
   function refreshBulkAssignToolbar() {
     const toolbar = Q("#lpRowBulkToolbar");
     if (!toolbar) return;
+    const hasRows = QA("#itemsTableBody tr.lp-data-row").length > 0;
     const hasCI = DCL_CONTAINER_ITEMS_STATE.length > 0;
-    toolbar.style.display = hasCI ? "flex" : "none";
+
+    // Show toolbar whenever items exist (delete is always available)
+    toolbar.style.display = hasRows ? "flex" : "none";
+
+    // Show/hide assign-specific controls based on container-items
+    const assignDropdown = Q("#bulkAssignContainerSelect");
+    const assignBtn = Q("#bulkAssignBtn");
+    if (assignDropdown) assignDropdown.style.display = hasCI ? "" : "none";
+    if (assignBtn) assignBtn.style.display = hasCI ? "" : "none";
     if (hasCI) refreshBulkAssignDropdown();
   }
 
@@ -4406,6 +4417,16 @@
     const count = checked ? checked.length : 0;
     if (countSpan) countSpan.textContent = count;
     if (btn) btn.disabled = count === 0 || !Q("#bulkAssignContainerSelect")?.value;
+  }
+
+  /** Update counter and disable/enable the Delete Selected (rows) button */
+  function updateBulkDeleteRowsButton() {
+    const checked = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const countSpan = Q("#selectedDeleteCount");
+    const btn = Q("#bulkDeleteRowsBtn");
+    const count = checked ? checked.length : 0;
+    if (countSpan) countSpan.textContent = count;
+    if (btn) btn.disabled = count === 0;
   }
 
   /** Keep header + toolbar Select All checkboxes in sync */
@@ -4426,6 +4447,7 @@
       cb.closest("tr")?.classList.toggle("row-selected", checked);
     });
     updateBulkAssignButton();
+    updateBulkDeleteRowsButton();
   }
 
   /** Bulk assign all selected rows to the chosen container */
@@ -4495,6 +4517,7 @@
     });
     syncLpRowSelectAll();
     updateBulkAssignButton();
+    updateBulkDeleteRowsButton();
 
     // Refresh all UI
     rebuildAssignmentTable();
@@ -4507,6 +4530,88 @@
     } else {
       const contLabel = DCL_CONTAINERS_STATE.find(c => c.dataverseId === containerGuid)?.id || "container";
       showValidation("success", `Assigned ${success} item${success !== 1 ? "s" : ""} to ${contLabel}.`);
+    }
+  }
+
+  /** Bulk delete all selected LP rows (with their container items) */
+  async function bulkDeleteSelectedRows() {
+    const selectedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const rows = Array.from(selectedCbs).map(cb => cb.closest("tr.lp-data-row")).filter(Boolean);
+    if (!rows.length) return;
+
+    const confirmed = confirm(
+      `Delete ${rows.length} selected item${rows.length > 1 ? "s" : ""}?\n\nThis will also remove any container allocations for these items.\nThis cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setLoading(true, `Deleting ${rows.length} item${rows.length > 1 ? "s" : ""}…`);
+
+    let deleted = 0;
+    let failed = 0;
+    const total = rows.length;
+
+    for (const tr of rows) {
+      try {
+        const serverId = tr.dataset.serverId;
+        const containerItemId = tr.dataset.containerItemId;
+
+        // Find all container-items linked to this LP row
+        const linkedCIs = serverId
+          ? DCL_CONTAINER_ITEMS_STATE.filter(
+              ci => ci.lpId && ci.lpId.toLowerCase() === serverId.toLowerCase()
+            )
+          : [];
+
+        // Delete container items first
+        for (const ci of linkedCIs) {
+          try {
+            await deleteContainerItem(ci.id);
+            const idx = DCL_CONTAINER_ITEMS_STATE.findIndex(c => c.id === ci.id);
+            if (idx >= 0) DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
+          } catch (ciErr) {
+            console.error(`[Bulk Delete] Failed to delete CI ${ci.id}`, ciErr);
+          }
+        }
+
+        // Delete the LP row from server
+        if (serverId) {
+          await deleteServerRow(serverId);
+        }
+
+        // Remove from DOM
+        tr.remove();
+        deleted++;
+      } catch (err) {
+        console.error("[Bulk Delete] Failed to delete row", err);
+        failed++;
+      }
+
+      setLoading(true, `Deleting items… ${deleted + failed}/${total}`);
+    }
+
+    setLoading(false);
+
+    // Deselect remaining checkboxes
+    QA("#itemsTableBody .lp-row-select-cb:checked").forEach(cb => {
+      cb.checked = false;
+      cb.closest("tr")?.classList.remove("row-selected");
+    });
+    syncLpRowSelectAll();
+    updateBulkDeleteRowsButton();
+    updateBulkAssignButton();
+
+    // Refresh all UI
+    recalcAllRows();
+    recomputeTotals();
+    rebuildAssignmentTable();
+    renderContainerCards();
+    renderContainerSummaries();
+
+    // Show result
+    if (failed > 0) {
+      showValidation("warning", `Deleted ${deleted} item${deleted !== 1 ? "s" : ""}. ${failed} failed to delete.`);
+    } else {
+      showValidation("success", `Successfully deleted ${deleted} item${deleted !== 1 ? "s" : ""}.`);
     }
   }
 
@@ -5593,6 +5698,12 @@
     const bulkAssignBtn = Q("#bulkAssignBtn");
     if (bulkAssignBtn) {
       bulkAssignBtn.addEventListener("click", bulkAssignSelectedRows);
+    }
+
+    // Bulk LP row deletion: Delete Selected button
+    const bulkDeleteBtn = Q("#bulkDeleteRowsBtn");
+    if (bulkDeleteBtn) {
+      bulkDeleteBtn.addEventListener("click", bulkDeleteSelectedRows);
     }
 
     // ===== STEP 2: ALLOCATION & ASSIGNMENT (ENHANCED) =====
