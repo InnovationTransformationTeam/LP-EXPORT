@@ -46,8 +46,9 @@ const CONFIG = {
 
 // Correct column definitions based on stakeholder Excel
 const COLUMN_DEFINITIONS = [
-    // System Generated from AR Reports
+    // System Generated from DCL Masters
     { key: 'dclNumber', header: 'DCL #', source: 'cr650_dcl_masters', field: 'cr650_dclnumber', width: 120, type: 'text' },
+    { key: 'status', header: 'Status', source: 'cr650_dcl_masters', field: 'cr650_status', width: 100, type: 'text' },
     { key: 'businessUnit', header: 'Business Unit', source: 'cr650_dcl_ar_reports', field: 'cr650_businessunit', width: 150, type: 'text' },
     { key: 'salesperson', header: 'Salesperson', source: 'cr650_dcl_ar_reports', field: 'cr650_salesperson', width: 150, type: 'text' },
     
@@ -81,7 +82,10 @@ const COLUMN_DEFINITIONS = [
     { key: 'docCharges', header: 'Documentation Charges', source: 'manual', field: 'N/A', width: 160, type: 'currency', decimals: 2, editable: true },
     { key: 'insuranceCharges', header: 'Insurance Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount', width: 150, type: 'currency', decimals: 2, docType: 'Insurance', editable: true },
     { key: 'inspectionCharges', header: 'Inspection Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount', width: 150, type: 'currency', decimals: 2, docType: 'Inspection', editable: true },
-    
+
+    // Freight from Discounts & Charges table
+    { key: 'freightCharges', header: 'Freight Charges', source: 'cr650_dcl_discounts_chargeses', field: 'cr650_amount', width: 140, type: 'currency', decimals: 2 },
+
     // Critical Missing Fields - Now Included
     { key: 'unitActualFreight', header: 'Unit Actual Freight', source: 'manual', field: 'N/A', width: 150, type: 'currency', decimals: 2, editable: true },
     { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports', field: 'cr650_qty', width: 100, type: 'number', decimals: 0 },
@@ -112,6 +116,7 @@ const state = {
     dclDocuments: [],
     shippedOrders: [],
     customerData: [],
+    discountsCharges: [],
     
     // Merged & filtered
     allData: [],
@@ -210,18 +215,20 @@ async function loadAllData() {
             fetchWithProgress("/_api/cr650_dcl_ar_reports?$top=5000", "AR Reports"),
             fetchWithProgress("/_api/cr650_dcl_documents?$top=5000", "Documents"),
             fetchWithProgress("/_api/cr650_dcl_shipped_orderses?$top=5000", "Shipped Orders"),
-            fetchWithProgress("/_api/cr650_dcl_customer_datas?$top=5000", "Customer Data")
+            fetchWithProgress("/_api/cr650_dcl_customer_datas?$top=5000", "Customer Data"),
+            fetchWithProgress("/_api/cr650_dcl_discounts_chargeses?$top=5000", "Discounts & Charges")
         ];
-        
-        const [dcl, ar, docs, shipped, customers] = await Promise.all(promises);
-        
+
+        const [dcl, ar, docs, shipped, customers, discCharges] = await Promise.all(promises);
+
         state.dclMasters = dcl.value || [];
         state.arReports = ar.value || [];
         state.dclDocuments = docs.value || [];
         state.shippedOrders = shipped.value || [];
         state.customerData = customers.value || [];
-        
-        console.log(`Loaded: ${state.dclMasters.length} DCLs, ${state.arReports.length} AR Reports, ${state.dclDocuments.length} Documents, ${state.shippedOrders.length} Shipments`);
+        state.discountsCharges = discCharges.value || [];
+
+        console.log(`Loaded: ${state.dclMasters.length} DCLs, ${state.arReports.length} AR Reports, ${state.dclDocuments.length} Documents, ${state.shippedOrders.length} Shipments, ${state.discountsCharges.length} Discounts/Charges`);
         
         mergeDataOptimized();
         updateCache();
@@ -249,107 +256,201 @@ async function fetchWithProgress(url, label) {
 ---------------------------------------------------*/
 function mergeDataOptimized() {
     console.time("Data Merge");
-    
-    // Create lookup maps for O(1) access
-    const dclMap = new Map(state.dclMasters.map(d => [d.cr650_pinumber, d]));
-    const shippedMap = new Map();
-    state.shippedOrders.forEach(s => {
-        const key = s.cr650_cust_po_number;
-        if (!shippedMap.has(key)) shippedMap.set(key, []);
-        shippedMap.get(key).push(s);
+
+    // =============================================
+    // Build lookup maps using MULTIPLE join strategies
+    // =============================================
+
+    // 1. AR Reports: group by DCL Master lookup AND by customer PO
+    const arByDclId = new Map();
+    const arByPO = new Map();
+
+    state.arReports.forEach(ar => {
+        // Primary join: lookup field linking AR to DCL Master
+        const dclLookup = ar._cr650_dcl_number_value || ar._cr650_dcl_master_value;
+        if (dclLookup) {
+            if (!arByDclId.has(dclLookup)) arByDclId.set(dclLookup, []);
+            arByDclId.get(dclLookup).push(ar);
+        }
+        // Secondary join: by customer PO number matching DCL PI number
+        const po = ar.cr650_customerponumber;
+        if (po) {
+            if (!arByPO.has(po)) arByPO.set(po, []);
+            arByPO.get(po).push(ar);
+        }
     });
-    
-    // Group documents by DCL master ID
+
+    // 2. Documents: group by DCL Master ID (via lookup)
     const docsMap = new Map();
     state.dclDocuments.forEach(doc => {
         const key = doc._cr650_dcl_number_value;
-        if (!docsMap.has(key)) docsMap.set(key, []);
-        docsMap.get(key).push(doc);
+        if (key) {
+            if (!docsMap.has(key)) docsMap.set(key, []);
+            docsMap.get(key).push(doc);
+        }
     });
-    
+
+    // 3. Shipped Orders: group by DCL lookup AND by customer PO
+    const shippedByDclId = new Map();
+    const shippedByPO = new Map();
+
+    state.shippedOrders.forEach(s => {
+        const dclLookup = s._cr650_dcl_number_value || s._cr650_dcl_master_value;
+        if (dclLookup) {
+            if (!shippedByDclId.has(dclLookup)) shippedByDclId.set(dclLookup, []);
+            shippedByDclId.get(dclLookup).push(s);
+        }
+        const po = s.cr650_cust_po_number;
+        if (po) {
+            if (!shippedByPO.has(po)) shippedByPO.set(po, []);
+            shippedByPO.get(po).push(s);
+        }
+    });
+
+    // 4. Discounts & Charges: group by DCL Master lookup
+    const discChargesMap = new Map();
+    state.discountsCharges.forEach(dc => {
+        const key = dc._cr650_dclreference_value;
+        if (key) {
+            if (!discChargesMap.has(key)) discChargesMap.set(key, []);
+            discChargesMap.get(key).push(dc);
+        }
+    });
+
     state.allData = [];
-    
-    // Primary loop through AR Reports (main data source)
+    const processedArIds = new Set();
+
+    // =============================================
+    // PRIMARY LOOP: Iterate over ALL DCL Masters
+    // This ensures Draft and Submitted DCLs all appear
+    // =============================================
+    state.dclMasters.forEach(dcl => {
+        const dclId = dcl.cr650_dcl_masterid;
+        const piNumber = dcl.cr650_pinumber;
+
+        // Find related AR reports (try lookup first, then PI number match)
+        let relatedAR = arByDclId.get(dclId) || [];
+        if (relatedAR.length === 0 && piNumber) {
+            relatedAR = arByPO.get(piNumber) || [];
+        }
+
+        // Find related documents (by DCL master ID)
+        const docs = docsMap.get(dclId) || [];
+        const docCharges = extractDocCharges(docs);
+
+        // Find discounts/charges (by DCL master ID)
+        const discCharges = discChargesMap.get(dclId) || [];
+        const extraCharges = extractDiscountCharges(discCharges);
+
+        // Find shipped orders (try lookup first, then PI number)
+        let shippedList = shippedByDclId.get(dclId) || [];
+        if (shippedList.length === 0 && piNumber) {
+            shippedList = shippedByPO.get(piNumber) || [];
+        }
+        const shipped = shippedList[0];
+
+        if (relatedAR.length > 0) {
+            // Has AR reports - create one row per AR line item
+            relatedAR.forEach(ar => {
+                processedArIds.add(ar.cr650_dcl_ar_reportid);
+                const record = buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges);
+                applyFormulas(record);
+                state.allData.push(record);
+            });
+        } else {
+            // No AR reports (likely Draft DCL) - still create a row from Master data
+            const record = buildMergedRecord(dcl, null, shipped, docCharges, extraCharges);
+            applyFormulas(record);
+            state.allData.push(record);
+        }
+    });
+
+    // =============================================
+    // SECONDARY: Check for orphaned AR reports (no matching DCL Master)
+    // =============================================
     state.arReports.forEach(ar => {
+        if (processedArIds.has(ar.cr650_dcl_ar_reportid)) return;
+
         const customerPO = ar.cr650_customerponumber;
-        const dcl = dclMap.get(customerPO);
-        const shipped = shippedMap.get(customerPO)?.[0]; // Take first shipment
-        const docs = dcl ? docsMap.get(dcl.cr650_dcl_masterid) || [] : [];
-        
-        // Extract charges from documents
-        const charges = extractCharges(docs);
-        
-        // Build merged record with correct mappings
-        const record = {
-            // System generated from AR
-            dclNumber: dcl?.cr650_dclnumber || "N/A",
-            businessUnit: ar.cr650_businessunit || "N/A",
-            salesperson: ar.cr650_salesperson || "N/A",
-            customerPO: customerPO || "N/A",
-            itemBrand: ar.cr650_itemtype || "N/A",
-            customerClass: ar.cr650_customerclassofbusiness || "N/A",
-            customerNumber: ar.cr650_customernumber || "N/A",
-            customerName: ar.cr650_customername || "N/A",
-            country: ar.cr650_country || "N/A",
-            
-            // Ensure numeric values are converted from strings
-            qtyBBL: parseFloat(ar.cr650_qtybbl) || 0,
-            qtyMT: parseFloat(ar.cr650_qtymt) || 0,
-            qty: parseFloat(ar.cr650_qty) || 0,
-            unitPIFreight: parseFloat(ar.cr650_price) || 0,
-            
-            oraclePO: ar.cr650_salesordernumber || "N/A",
-            
-            // From DCL Masters
-            exportExecutive: dcl?.cr650_submitter_name || "N/A",
-            incoterms: dcl?.cr650_incoterms || "N/A",
-            containerType: dcl ? buildContainerType(dcl) : "N/A",
-            
-            // From Shipped Orders (CORRECTED SOURCE)
-            shipmentMonth: shipped ? extractMonth(shipped.cr650_shipment_date) : "N/A",
-            shippingLine: shipped?.cr650_shippingline || dcl?.cr650_shippingline || "N/A",
-            blNumber: shipped?.cr650_blnumber || dcl?.cr650_blnumber || "N/A",
-            
-            // Quantities with conversion
-            qtyLtrs: parseFloat(ar.cr650_qty) || 0, // May need UOM conversion
-            
-            // ✅ Charges FULLY automated from Documents table
-            cooCharges: parseFloat(charges.cooCharges) || 0,
-            mofaCharges: parseFloat(charges.mofaCharges) || 0,
-            docCharges: parseFloat(charges.documentationCharges) || 0,
-            insuranceCharges: parseFloat(charges.insuranceCharges) || 0,
-            inspectionCharges: parseFloat(charges.inspectionCharges) || 0,
+        const shipped = shippedByPO.get(customerPO)?.[0];
+        const emptyCharges = { cooCharges: 0, mofaCharges: 0, documentationCharges: 0, insuranceCharges: 0, inspectionCharges: 0 };
+        const emptyExtra = { freightCharges: 0, flexiBagsCharges: 0, otherCharges: 0 };
 
-            // ✅ ONLY remaining true manual fields
-            unitActualFreight: 0,   // USER MUST ENTER
-            supplier: "N/A",       // USER MUST ENTER
-            vendorInvoice: "N/A",  // Optional manual
-            vendorInvoiceDate: "N/A", // Optional manual
-
-            // Calculated fields (computed on-the-fly)
-            totalFreight: 0,
-            perLtrCost: 0,
-            perMTCost: 0,
-            
-            // Metadata
-            _arId: ar.cr650_dcl_ar_reportid,
-            _dclId: dcl?.cr650_dcl_masterid,
-            _shippedId: shipped?.cr650_dcl_shipped_ordersid
-
-            
-        };
-        
-        // Apply formulas
+        const record = buildMergedRecord(null, ar, shipped, emptyCharges, emptyExtra);
         applyFormulas(record);
-        
         state.allData.push(record);
     });
-    
+
     console.timeEnd("Data Merge");
-    console.log(`Merged ${state.allData.length} records`);
+    console.log(`Merged ${state.allData.length} records (${state.dclMasters.length} DCL Masters, ${state.arReports.length - processedArIds.size} orphaned AR reports)`);
 }
 
-function extractCharges(docs) {
+function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges) {
+    return {
+        // DCL Status
+        status: dcl?.cr650_status || "N/A",
+
+        // System generated from DCL Master + AR
+        dclNumber: dcl?.cr650_dclnumber || "N/A",
+        businessUnit: ar?.cr650_businessunit || "N/A",
+        salesperson: ar?.cr650_salesperson || "N/A",
+        customerPO: ar?.cr650_customerponumber || dcl?.cr650_pinumber || dcl?.cr650_po_customer_number || "N/A",
+        itemBrand: ar?.cr650_itemtype || "N/A",
+        customerClass: ar?.cr650_customerclassofbusiness || "N/A",
+        customerNumber: ar?.cr650_customernumber || "N/A",
+        customerName: ar?.cr650_customername || dcl?.cr650_party || dcl?.cr650_consignee || "N/A",
+        country: ar?.cr650_country || dcl?.cr650_country || "N/A",
+
+        // Quantities (from AR Reports)
+        qtyBBL: parseFloat(ar?.cr650_qtybbl) || 0,
+        qtyMT: parseFloat(ar?.cr650_qtymt) || 0,
+        qty: parseFloat(ar?.cr650_qty) || 0,
+        unitPIFreight: parseFloat(ar?.cr650_price) || 0,
+
+        oraclePO: ar?.cr650_salesordernumber || "N/A",
+
+        // From DCL Masters
+        exportExecutive: dcl?.cr650_submitter_name || "N/A",
+        incoterms: dcl?.cr650_incoterms || "N/A",
+        containerType: dcl ? buildContainerType(dcl) : "N/A",
+
+        // From Shipped Orders
+        shipmentMonth: shipped ? extractMonth(shipped.cr650_shipment_date) : "N/A",
+        shippingLine: shipped?.cr650_shippingline || dcl?.cr650_shippingline || "N/A",
+        blNumber: shipped?.cr650_blnumber || dcl?.cr650_blnumber || "N/A",
+
+        // Quantities with conversion
+        qtyLtrs: parseFloat(ar?.cr650_qty) || 0,
+
+        // Charges from Documents table (cr650_dcl_documents)
+        cooCharges: parseFloat(docCharges.cooCharges) || 0,
+        mofaCharges: parseFloat(docCharges.mofaCharges) || 0,
+        docCharges: parseFloat(docCharges.documentationCharges) || 0,
+        insuranceCharges: parseFloat(docCharges.insuranceCharges) || 0,
+        inspectionCharges: parseFloat(docCharges.inspectionCharges) || 0,
+
+        // Charges from Discounts/Charges table (cr650_dcl_discounts_chargeses)
+        freightCharges: parseFloat(extraCharges.freightCharges) || 0,
+
+        // Manual fields
+        unitActualFreight: 0,
+        supplier: "N/A",
+        vendorInvoice: "N/A",
+        vendorInvoiceDate: "N/A",
+
+        // Calculated fields
+        totalFreight: 0,
+        perLtrCost: 0,
+        perMTCost: 0,
+
+        // Metadata
+        _arId: ar?.cr650_dcl_ar_reportid,
+        _dclId: dcl?.cr650_dcl_masterid,
+        _shippedId: shipped?.cr650_dcl_shipped_ordersid
+    };
+}
+
+function extractDocCharges(docs) {
   const charges = {
     cooCharges: 0,
     mofaCharges: 0,
@@ -359,17 +460,59 @@ function extractCharges(docs) {
   };
 
   docs.forEach(doc => {
-    const type = (doc.cr650_doc_type || "").toLowerCase();
+    const type = (doc.cr650_doc_type || "").toLowerCase().trim();
     const amount = Number(doc.cr650_chargeamount || 0);
 
-    if (type.includes("coo")) charges.cooCharges = amount;
-    else if (type.includes("mofa")) charges.mofaCharges = amount;
-    else if (type.includes("documentation")) charges.documentationCharges = amount;
-    else if (type.includes("insurance")) charges.insuranceCharges = amount;
-    else if (type.includes("inspection")) charges.inspectionCharges = amount;
+    if (!amount) return;
+
+    // Match COO / Certificate of Origin / Customer Exit/Entry Certificate
+    if (type.includes("coo") || type.includes("certificate of origin") || type.includes("exit") || type.includes("entry certificate")) {
+      charges.cooCharges += amount;
+    }
+    // Match MOFA
+    else if (type.includes("mofa")) {
+      charges.mofaCharges += amount;
+    }
+    // Match Documentation charges
+    else if (type.includes("documentation")) {
+      charges.documentationCharges += amount;
+    }
+    // Match Insurance
+    else if (type.includes("insurance")) {
+      charges.insuranceCharges += amount;
+    }
+    // Match Inspection
+    else if (type.includes("inspection")) {
+      charges.inspectionCharges += amount;
+    }
   });
 
   return charges;
+}
+
+function extractDiscountCharges(discCharges) {
+  const result = {
+    freightCharges: 0,
+    flexiBagsCharges: 0,
+    otherCharges: 0
+  };
+
+  discCharges.forEach(dc => {
+    const type = (dc.cr650_name || "").toLowerCase().trim();
+    const amount = Number(dc.cr650_amount || dc.cr650_totalimpact || 0);
+
+    if (!amount) return;
+
+    if (type.includes("freight")) {
+      result.freightCharges += amount;
+    } else if (type.includes("flexi")) {
+      result.flexiBagsCharges += amount;
+    } else if (type.includes("insurance") || type.includes("documentation") || type.includes("other")) {
+      result.otherCharges += amount;
+    }
+  });
+
+  return result;
 }
 
 
@@ -439,17 +582,18 @@ function restoreFromCache() {
    9) FILTERING & SEARCH
 ---------------------------------------------------*/
 function populateFilters() {
+    populateDropdown("filterStatus", unique(state.allData.map(x => x.status)));
     populateDropdown("filterExportExec", unique(state.allData.map(x => x.exportExecutive)));
     populateDropdown("filterBusinessUnit", unique(state.allData.map(x => x.businessUnit)));
     populateDropdown("filterCustomer", unique(state.allData.map(x => x.customerName)));
     populateDropdown("filterCountry", unique(state.allData.map(x => x.country)));
-    
+
     // Years from shipment dates
     const years = unique(
         state.allData
             .map(r => r.shipmentMonth)
             .filter(m => m !== "N/A")
-            .map(m => new Date().getFullYear()) // Simplified - enhance if year data available
+            .map(m => new Date().getFullYear())
     );
     populateDropdown("filterYear", years);
 }
@@ -477,6 +621,7 @@ function unique(arr) {
 
 function applyFilters() {
     const filters = {
+        status: getValue("filterStatus"),
         exec: getValue("filterExportExec"),
         month: getValue("filterMonth"),
         year: getValue("filterYear"),
@@ -485,9 +630,10 @@ function applyFilters() {
         country: getValue("filterCountry"),
         search: getValue("searchInput")?.toLowerCase()
     };
-    
+
     state.filteredData = state.allData.filter(record => {
         // Filter by dropdowns
+        if (filters.status && record.status !== filters.status) return false;
         if (filters.exec && record.exportExecutive !== filters.exec) return false;
         if (filters.bu && record.businessUnit !== filters.bu) return false;
         if (filters.customer && record.customerName !== filters.customer) return false;
@@ -498,6 +644,7 @@ function applyFilters() {
         if (filters.search) {
             const searchable = [
                 record.dclNumber,
+                record.status,
                 record.customerPO,
                 record.customerName,
                 record.exportExecutive,
@@ -517,7 +664,7 @@ function applyFilters() {
 }
 
 function resetFilters() {
-    ["filterExportExec", "filterMonth", "filterYear", "filterBusinessUnit", "filterCustomer", "filterCountry", "searchInput"]
+    ["filterStatus", "filterExportExec", "filterMonth", "filterYear", "filterBusinessUnit", "filterCustomer", "filterCountry", "searchInput"]
         .forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = "";
