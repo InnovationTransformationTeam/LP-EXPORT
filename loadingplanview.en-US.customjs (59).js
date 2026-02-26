@@ -6544,6 +6544,191 @@
       };
     }
 
+    /* =============================
+       PDF ITEM SELECTION MODAL
+       Shows parsed PDF items so the user can pick which to import.
+       Returns a promise → array of chosen pdfItems (or null if cancelled).
+       ============================= */
+    function showPdfItemSelectionModal(pdfItems, orderNo, existingKeys, outstandingIndex) {
+      return new Promise((resolve) => {
+        const overlay = d.createElement("div");
+        overlay.id = "itemSelectModal";
+
+        // track selection
+        const selected = new Set();
+        const dupFlags = pdfItems.map(p => existingKeys.has(`${p.orderNo}|${p.itemCode}`));
+        const selectableCount = dupFlags.filter(f => !f).length;
+
+        // helpers
+        function renderCounter() {
+          const counter = overlay.querySelector(".ism-counter");
+          if (counter) counter.innerHTML = `<strong>${selected.size}</strong> of ${selectableCount} selected`;
+          const importBtn = overlay.querySelector(".ism-btn-import");
+          if (importBtn) {
+            importBtn.disabled = selected.size === 0;
+            importBtn.textContent = selected.size
+              ? `Import ${selected.size} Item${selected.size > 1 ? "s" : ""}`
+              : "Import Selected";
+          }
+        }
+
+        function isVisibleIdx(idx) {
+          const card = overlay.querySelector(`.ism-item[data-idx="${idx}"]`);
+          return card && card.style.display !== "none";
+        }
+
+        function syncSelectAll() {
+          const cb = overlay.querySelector("#ismSelectAll");
+          if (!cb) return;
+          let visibleSelectable = 0, visibleSelected = 0;
+          pdfItems.forEach((_, i) => {
+            if (dupFlags[i]) return;
+            if (!isVisibleIdx(i)) return;
+            visibleSelectable++;
+            if (selected.has(i)) visibleSelected++;
+          });
+          cb.checked = visibleSelectable > 0 && visibleSelected === visibleSelectable;
+          cb.indeterminate = visibleSelected > 0 && visibleSelected < visibleSelectable;
+        }
+
+        // build HTML
+        overlay.innerHTML = `
+          <div class="ism-panel">
+            <div class="ism-header">
+              <h3><i class="fas fa-list-check"></i> Select Items to Import</h3>
+              <button class="ism-close" title="Close">&times;</button>
+            </div>
+
+            <div class="ism-toolbar">
+              <input type="text" class="ism-search" placeholder="Search by item code, description…">
+              <label class="ism-select-all-wrap">
+                <input type="checkbox" id="ismSelectAll">
+                <span>Select All</span>
+              </label>
+              <span class="ism-counter"></span>
+            </div>
+
+            <div class="ism-list"></div>
+
+            <div class="ism-footer">
+              <button class="ism-btn ism-btn-cancel">Cancel</button>
+              <button class="ism-btn ism-btn-import" disabled>Import Selected</button>
+            </div>
+          </div>
+        `;
+
+        // populate list
+        const listEl = overlay.querySelector(".ism-list");
+
+        if (!pdfItems.length) {
+          listEl.innerHTML = '<div class="ism-empty"><i class="fas fa-inbox"></i>No order items found in this PDF.</div>';
+        } else {
+          pdfItems.forEach((pdfItem, idx) => {
+            const isDup = dupFlags[idx];
+            const card = d.createElement("div");
+            card.className = "ism-item" + (isDup ? " ism-duplicate" : "");
+            card.dataset.idx = idx;
+
+            // lookup released flag from outstanding data
+            let releasedFlag = "N";
+            if (outstandingIndex) {
+              const osRow = outstandingIndex.get(pdfItem.itemCode);
+              if (osRow) releasedFlag = String(osRow.cr650_released_flag || "").toUpperCase() === "Y" ? "Y" : "N";
+            }
+            const relBadge = releasedFlag === "Y"
+              ? '<span class="ism-badge ism-badge-released">Released</span>'
+              : '<span class="ism-badge ism-badge-notrel">Not Released</span>';
+            const dupBadge = isDup ? '<span class="ism-badge ism-badge-dup">Already Imported</span>' : "";
+
+            card.innerHTML = `
+              <input type="checkbox" ${isDup ? "disabled" : ""}>
+              <div class="ism-item-info">
+                <div class="ism-item-top">
+                  <span class="ism-item-code">${escapeHtml(pdfItem.itemCode)}</span>
+                  <span class="ism-badge ism-badge-order">SO# ${escapeHtml(pdfItem.orderNo || orderNo)}</span>
+                  ${relBadge}${dupBadge}
+                </div>
+                <div class="ism-item-desc" title="${escapeHtml(pdfItem.description)}">${escapeHtml(pdfItem.description)}</div>
+                <div class="ism-item-meta">
+                  <span><i class="fas fa-cubes"></i> Qty: ${Number(pdfItem.quantity || 0).toLocaleString()}</span>
+                  <span><i class="fas fa-hashtag"></i> Line ${pdfItem.lineNo}</span>
+                  <span><i class="fas fa-box"></i> ${escapeHtml(pdfItem.unitsCode || "—")}</span>
+                </div>
+              </div>
+            `;
+
+            // toggle selection
+            if (!isDup) {
+              const toggle = () => {
+                const cb = card.querySelector("input[type=checkbox]");
+                if (selected.has(idx)) { selected.delete(idx); card.classList.remove("selected"); cb.checked = false; }
+                else { selected.add(idx); card.classList.add("selected"); cb.checked = true; }
+                renderCounter();
+                syncSelectAll();
+              };
+              card.addEventListener("click", (e) => { if (e.target.tagName !== "INPUT") toggle(); });
+              card.querySelector("input[type=checkbox]").addEventListener("change", () => toggle());
+            }
+
+            listEl.appendChild(card);
+          });
+        }
+
+        renderCounter();
+
+        // search / filter
+        overlay.querySelector(".ism-search").addEventListener("input", (e) => {
+          const q = e.target.value.toLowerCase().trim();
+          overlay.querySelectorAll(".ism-item").forEach(card => {
+            const idx = Number(card.dataset.idx);
+            const row = pdfItems[idx];
+            if (!q) { card.style.display = ""; return; }
+            const haystack = `${row.orderNo} ${row.itemCode} ${row.description}`.toLowerCase();
+            card.style.display = haystack.includes(q) ? "" : "none";
+          });
+          syncSelectAll();
+        });
+
+        // select all
+        overlay.querySelector("#ismSelectAll").addEventListener("change", (e) => {
+          const checked = e.target.checked;
+          pdfItems.forEach((_, i) => {
+            if (dupFlags[i]) return;
+            if (!isVisibleIdx(i)) return;
+            const card = overlay.querySelector(`.ism-item[data-idx="${i}"]`);
+            const cb = card.querySelector("input[type=checkbox]");
+            if (checked) { selected.add(i); card.classList.add("selected"); cb.checked = true; }
+            else { selected.delete(i); card.classList.remove("selected"); cb.checked = false; }
+          });
+          renderCounter();
+        });
+
+        // cancel / close
+        const close = () => {
+          overlay.classList.remove("active");
+          setTimeout(() => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 200);
+          resolve(null);
+        };
+        overlay.querySelector(".ism-close").addEventListener("click", close);
+        overlay.querySelector(".ism-btn-cancel").addEventListener("click", close);
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+        // import
+        overlay.querySelector(".ism-btn-import").addEventListener("click", () => {
+          const chosen = [...selected].sort((a, b) => a - b).map(i => pdfItems[i]);
+          overlay.classList.remove("active");
+          setTimeout(() => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 200);
+          resolve(chosen);
+        });
+
+        // show
+        d.body.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add("active"));
+        overlay.querySelector(".ism-search").focus();
+      });
+    }
+
+
     // --- Import from PDF button handler ---
     const pdfImportBtn = Q("#importFromPdfBtn");
     const pdfFileInput = Q("#pdfFileInput");
@@ -6557,47 +6742,79 @@
 
         pdfImportBtn.disabled = true;
         const oldText = pdfImportBtn.textContent;
-        pdfImportBtn.textContent = "Importing…";
+        pdfImportBtn.textContent = "Reading PDF…";
         setLoading(true, "Extracting data from PDF…");
+
+        let parsedOrderNo = "";
+        let parsedItems = [];
+        let outstandingIndex = new Map();
+        let existingKeys = new Set();
 
         try {
           // 1) Extract text from PDF
           const text = await extractTextFromPdf(file);
 
           // 2) Parse into structured items
-          const { orderNo, items } = parseOrderPdfText(text);
+          const result = parseOrderPdfText(text);
+          parsedOrderNo = result.orderNo;
+          parsedItems = result.items;
 
-          if (!items.length) {
+          if (!parsedItems.length) {
             alert("No order items found in this PDF. Please check the file format.");
             return;
           }
 
           // 3) Query outstanding report to get released_flag for each item
           setLoading(true, "Looking up released status…");
-          var outstandingIndex = new Map();
           try {
-            var osRows = await fetchOrderLines(orderNo);
+            var osRows = await fetchOrderLines(parsedOrderNo);
             osRows.forEach(function (r) {
               var code = (r.cr650_product_no || "").trim();
               if (code && !outstandingIndex.has(code)) outstandingIndex.set(code, r);
             });
           } catch (osErr) {
-            console.warn("Could not fetch outstanding report for order " + orderNo + ":", osErr);
-            // Continue without released data — items will default to "N"
+            console.warn("Could not fetch outstanding report for order " + parsedOrderNo + ":", osErr);
           }
 
-          // 4) Duplicate check — same logic as Oracle import
-          const existingKeys = new Set();
+          // 4) Build existing keys for duplicate detection
           QA("#itemsTableBody tr.lp-data-row").forEach(r => {
             const oNo = (r.querySelector(".order-no")?.textContent || "").trim();
             const iCode = (r.querySelector(".item-code")?.textContent || "").trim();
             if (oNo || iCode) existingKeys.add(`${oNo}|${iCode}`);
           });
 
+        } catch (err) {
+          console.error("PDF parse error:", err);
+          alert("Error reading PDF: " + err.message);
+          pdfImportBtn.disabled = false;
+          pdfImportBtn.textContent = oldText || "Import from PDF";
+          setLoading(false);
+          e.target.value = "";
+          return;
+        }
+
+        // Hide loader before showing the selection modal
+        pdfImportBtn.disabled = false;
+        pdfImportBtn.textContent = oldText || "Import from PDF";
+        setLoading(false);
+
+        // 5) Show selection modal — let the user pick items
+        const chosen = await showPdfItemSelectionModal(parsedItems, parsedOrderNo, existingKeys, outstandingIndex);
+        if (!chosen || !chosen.length) {
+          e.target.value = "";
+          return; // user cancelled
+        }
+
+        // 6) Import only the selected items
+        pdfImportBtn.disabled = true;
+        pdfImportBtn.textContent = "Importing…";
+        setLoading(true, "Importing selected items…");
+
+        try {
           let skippedCount = 0;
           const newItems = [];
 
-          for (const pdfItem of items) {
+          for (const pdfItem of chosen) {
             const key = `${pdfItem.orderNo}|${pdfItem.itemCode}`;
             if (existingKeys.has(key)) {
               skippedCount++;
@@ -6608,34 +6825,34 @@
           }
 
           if (!newItems.length) {
-            alert(`All ${items.length} item(s) already exist in the table. Nothing new to import.`);
+            alert(`All ${chosen.length} selected item(s) already exist in the table. Nothing new to import.`);
             return;
           }
 
-          // 5) Convert to order items and compute data using existing pipeline
+          // Convert to order items and compute data
           const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
           const computed = newItems.map((pdfItem, idx) =>
             computeItemData(pdfItemToOrderItem(pdfItem, outstandingIndex), baseCount + idx, itemMaster, null)
           );
 
-          // 6) Render and persist using existing function
+          // Render and persist
           const tbody = Q("#itemsTableBody");
           if (tbody) {
             await appendAndPersistItems(computed, tbody);
           }
 
-          // 7) Post-import UI updates
+          // Post-import UI updates
           await ensureContainerItemsForCurrentDcl();
           rebuildAssignmentTable();
           renderContainerSummaries();
 
-          let msg = `Successfully imported ${newItems.length} item(s) from PDF (Order ${orderNo}).`;
+          let msg = `Successfully imported ${newItems.length} item(s) from PDF (Order ${parsedOrderNo}).`;
           if (skippedCount > 0) msg += ` ${skippedCount} duplicate(s) skipped.`;
           showValidation("info", msg);
 
         } catch (err) {
           console.error("PDF import error:", err);
-          alert("Error importing PDF: " + err.message);
+          alert("Error importing items: " + err.message);
         } finally {
           pdfImportBtn.disabled = false;
           pdfImportBtn.textContent = oldText || "Import from PDF";
