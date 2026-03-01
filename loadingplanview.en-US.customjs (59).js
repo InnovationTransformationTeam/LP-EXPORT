@@ -1129,23 +1129,79 @@
   /* =============================
      4) PACK / NORMALIZERS
      ============================= */
+
+  /** Pack code → { packaging description, UOM (liters/kg) } */
+  const PACK_CODE_MAP = {
+    "35": { packaging: "208 Drums",       uom: 208 },
+    "58": { packaging: "6x5 Ltr CARTON",  uom: 30 },
+    "56": { packaging: "24x1 LTR",        uom: 24 },
+    "72": { packaging: "1x10 LTR",        uom: 10 },
+    "77": { packaging: "6x3 LTR",         uom: 18 },
+    "27": { packaging: "1x20 LTR",        uom: 20 },
+    "26": { packaging: "1x20 LTR",        uom: 20 },
+    "19": { packaging: "6X4 LTR",         uom: 24 },
+    "06": { packaging: "12X0.7 LTR",      uom: 8.4 },
+    "86": { packaging: "1X25 LTR",        uom: 25 },
+    "76": { packaging: "1X8 LTR",         uom: 8 },
+    "73": { packaging: "6X2.5 LTR",       uom: 15 },
+    "57": { packaging: "12X1 LTR",        uom: 12 },
+    "78": { packaging: "IBC 1000 LTR",    uom: 1000 },
+    "42": { packaging: "1X30 LTR",        uom: 30 },
+    "87": { packaging: "6X3.5LTR",        uom: 21 },
+    "23": { packaging: "24X0.9L",         uom: 21.6 },
+    "59": { packaging: "4X5LTR",          uom: 20 },
+    "84": { packaging: "4X4 LTR CTN",     uom: 16 },
+    "31": { packaging: "180Kg. Drum",      uom: 180 },
+    "55": { packaging: "24X500ml",        uom: 12 },
+    "29": { packaging: "24X2lb",          uom: 22 },
+    "43": { packaging: "24X1lb",          uom: 11 },
+    "66": { packaging: "1X15Kg",          uom: 15 },
+    "16": { packaging: "1X16Kg",          uom: 16 },
+    "67": { packaging: "4X6 LTR CTN",     uom: 24 },
+    "85": { packaging: "208 Drums",       uom: 208 },
+    "88": { packaging: "18Ltr Pail",      uom: 18 },
+    "17": { packaging: "6x5 Ltr",         uom: 30 },
+    "63": { packaging: "6X1US Gallon",    uom: 22.7 },
+    "51": { packaging: "12x2LB",          uom: 11 },
+    "65": { packaging: "1X7 LTR",         uom: 7 },
+    "64": { packaging: "1X16Kg",          uom: 16 },
+    "10": { packaging: "24X250ml",        uom: 6 }
+  };
+
+  /** Look up pack code in the mapping table */
+  function lookupPackCode(code) {
+    if (!code) return null;
+    const key = String(code).trim();
+    return PACK_CODE_MAP[key] || null;
+  }
+
   function parsePackLiters(packDesc) {
     if (!packDesc) return 0;
     const s = String(packDesc).replace(/\s+/g, "").toUpperCase();
 
-    // Pattern 1: "5x4L" or "5X4L" (with L) → 5 * 4 = 20
+    // Check PACK_CODE_MAP by matching packaging text (reverse lookup)
+    const mapEntry = Object.values(PACK_CODE_MAP).find(
+      e => e.packaging.replace(/\s+/g, "").toUpperCase() === s
+    );
+    if (mapEntry) return mapEntry.uom;
+
+    // Pattern 1: "5x4L" or "5X4LTR" → 5 * 4 = 20
     const mMultiWithL = s.match(/(\d+)[X×](\d+(\.\d+)?)L/);
     if (mMultiWithL) return Number(mMultiWithL[1]) * Number(mMultiWithL[2]);
 
-    // Pattern 2: "5x4" or "5X4" (without L) → 5 * 4 = 20  ✅ NEW
+    // Pattern 2: ml units — "24X500ML" → 24 * 0.5 = 12, "24X250ML" → 24 * 0.25 = 6
+    const mMultiMl = s.match(/(\d+)[X×](\d+(\.\d+)?)ML/);
+    if (mMultiMl) return Number(mMultiMl[1]) * Number(mMultiMl[2]) / 1000;
+
+    // Pattern 3: "5x4" or "5X4" (without unit) → 5 * 4 = 20
     const mMultiNoL = s.match(/^(\d+)[X×](\d+(\.\d+)?)$/);
     if (mMultiNoL) return Number(mMultiNoL[1]) * Number(mMultiNoL[2]);
 
-    // Pattern 3: "20L" or "20 LITER" → 20
+    // Pattern 4: "20L" or "20 LITER" → 20
     const mSingle = s.match(/(\d+(\.\d+)?)L/);
     if (mSingle) return Number(mSingle[1]);
 
-    // Pattern 4: Just a number "208" → 208
+    // Pattern 5: Just a number "208" → 208
     const mNum = s.match(/(\d+)/);
     return mNum ? Number(mNum[1]) : 0;
   }
@@ -1172,9 +1228,15 @@
 
     const releaseStatus = (String(orderItem.released_flag || "").toUpperCase() === "Y") ? "Y" : "N";
 
-    const packaging = orderItem.pack_desc || orderItem.uom1 || orderItem.pack || "";
-    const uomPackSz = parsePackLiters(orderItem.pack_desc);
-    const pack = normalizePack(orderItem.pack);
+    // Try pack code lookup first, then fall back to regex parsing
+    const packCodeMatch = lookupPackCode(orderItem.pack);
+    const packaging = packCodeMatch
+      ? packCodeMatch.packaging
+      : (orderItem.pack_desc || orderItem.uom1 || orderItem.pack || "");
+    const uomPackSz = packCodeMatch
+      ? packCodeMatch.uom
+      : parsePackLiters(orderItem.pack_desc);
+    const pack = normalizePack(packCodeMatch ? packCodeMatch.packaging : orderItem.pack);
 
     const orderQty = Number(orderItem.original_order_qty) || 0;
     const loadingQty = orderQty;
