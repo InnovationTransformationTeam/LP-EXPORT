@@ -1015,17 +1015,25 @@
         const num = Number(s);
         if (!Number.isNaN(num)) {
           switch (num) {
-            case 1: return "20 ft";
-            case 2: return "40 ft";
-            case 3: return "Trucks";
-            case 4: return "Bulk Tanker";
+            case 1: return "20ft Container";
+            case 2: return "40ft Container";
+            case 3: return "40ft High Cube";
+            case 4: return "ISO Tank Container";
+            case 5: return "Flexi Bag 20ft";
+            case 6: return "Flexi Bag 40ft";
+            case 7: return "Bulk Tanker";
+            case 8: return "Truck";
           }
         }
         const lower = s.toLowerCase();
-        if (lower === "1" || lower.includes("20")) return "20 ft";
-        if (lower === "2" || lower.includes("40")) return "40 ft";
-        if (lower === "3" || lower.includes("truck")) return "Trucks";
-        if (lower === "4" || lower.includes("bulk")) return "Bulk Tanker";
+        if (lower.includes("flexi") && lower.includes("20")) return "Flexi Bag 20ft";
+        if (lower.includes("flexi") && lower.includes("40")) return "Flexi Bag 40ft";
+        if (lower.includes("iso")) return "ISO Tank Container";
+        if (lower.includes("high") && lower.includes("cube")) return "40ft High Cube";
+        if (lower.includes("20")) return "20ft Container";
+        if (lower.includes("40")) return "40ft Container";
+        if (lower.includes("bulk")) return "Bulk Tanker";
+        if (lower.includes("truck")) return "Truck";
         return s;
       }
 
@@ -1607,18 +1615,29 @@
 
         function mapContainerType(raw) {
           if (raw === null || raw === undefined || raw === "") return "";
-          const s = String(raw).trim().toLowerCase();
+          const s = String(raw).trim();
+          const lower = s.toLowerCase();
           const num = Number(s);
           if (!isNaN(num)) {
-            if (num === 1) return "20ft";
-            if (num === 2) return "40ft";
-            if (num === 3) return "Trucks";
-            if (num === 4) return "Bulk Tanker";
+            switch (num) {
+              case 1: return "20ft Container";
+              case 2: return "40ft Container";
+              case 3: return "40ft High Cube";
+              case 4: return "ISO Tank Container";
+              case 5: return "Flexi Bag 20ft";
+              case 6: return "Flexi Bag 40ft";
+              case 7: return "Bulk Tanker";
+              case 8: return "Truck";
+            }
           }
-          if (s.includes("20")) return "20ft";
-          if (s.includes("40")) return "40ft";
-          if (s.includes("truck")) return "Trucks";
-          if (s.includes("bulk")) return "Bulk Tanker";
+          if (lower.includes("flexi") && lower.includes("20")) return "Flexi Bag 20ft";
+          if (lower.includes("flexi") && lower.includes("40")) return "Flexi Bag 40ft";
+          if (lower.includes("iso")) return "ISO Tank Container";
+          if (lower.includes("high") && lower.includes("cube")) return "40ft High Cube";
+          if (lower.includes("20")) return "20ft Container";
+          if (lower.includes("40")) return "40ft Container";
+          if (lower.includes("bulk")) return "Bulk Tanker";
+          if (lower.includes("truck")) return "Truck";
           return s;
         }
 
