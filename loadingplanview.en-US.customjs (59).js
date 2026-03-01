@@ -1506,6 +1506,29 @@
     });
   }
 
+  /* --- Debounce utility for performance --- */
+  function debounce(fn, ms) {
+    let timer;
+    return function (...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
+  /* --- Cached LP row index (invalidated on changes) --- */
+  let _lpRowIndexCache = null;
+  function invalidateLpRowIndexCache() { _lpRowIndexCache = null; }
+  function getCachedLpRowIndex() {
+    if (!_lpRowIndexCache) {
+      _lpRowIndexCache = new Map();
+      QA("#itemsTableBody tr.lp-data-row").forEach(tr => {
+        const id = (tr.dataset.serverId || "").toLowerCase();
+        if (id) _lpRowIndexCache.set(id, tr);
+      });
+    }
+    return _lpRowIndexCache;
+  }
+
   async function patchDclMasterTotals(totals) {
     if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return;
 
@@ -1625,6 +1648,20 @@
 
     // Keep toolbar button state and status bar in sync whenever totals change
     updateToolbarState();
+  }
+
+  // Debounced version — use for input/blur handlers to batch rapid edits
+  const recomputeTotalsDebounced = debounce(recomputeTotals, 250);
+
+  /**
+   * Unified post-mutation refresh: queries rows ONCE, does recalc + renumber + totals.
+   * Use this instead of the triple pattern: recalcAllRows() + recomputeTotals() + rebuildAssignmentTable()
+   */
+  function fullRecalcAndRefresh() {
+    invalidateLpRowIndexCache();
+    recalcAllRows();
+    recomputeTotals();    // already calls renumberRows, renderContainerSummaries, updateToolbarState
+    rebuildAssignmentTable();
   }
 
 
@@ -1970,11 +2007,8 @@
 
           // UI cleanup
           tr.remove();
-          recalcAllRows();
-          recomputeTotals();
-
           await ensureContainerItemsForCurrentDcl();
-          rebuildAssignmentTable();
+          fullRecalcAndRefresh();
           renderContainerCards();
           renderContainerSummaries();
     
@@ -2138,12 +2172,9 @@
               .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
               .map(mapContainerItemRowToState);
 
-            rebuildAssignmentTable();
+            fullRecalcAndRefresh();
             renderContainerCards();
             renderContainerSummaries();
-      
-            recalcAllRows();
-            recomputeTotals();
 
             showValidation("success", `Split successful! Original: ${remainingQty} units, New: ${splitQty} units`);
           } catch (err) {
@@ -2293,12 +2324,9 @@
               .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
               .map(mapContainerItemRowToState);
 
-            rebuildAssignmentTable();
+            fullRecalcAndRefresh();
             renderContainerCards();
             renderContainerSummaries();
-      
-            recalcAllRows();
-            recomputeTotals();
 
             showValidation('success',
               `Split complete! Created ${distribution.length} loading plan records:\n` +
@@ -2322,6 +2350,7 @@
       if (!row) return;
 
       const tdCE = e.target.closest("td.ce, td.ce-num, td.ce-editing");
+      let needsRowRecalc = false;
 
       // Handle packaging changes → clear UOM and all downstream overrides
       if (tdCE && tdCE.classList.contains("packaging")) {
@@ -2329,13 +2358,7 @@
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
         });
-        recalcRow(row);
-        recomputeTotals();
-      }
-
-      // Handle pack type changes
-      if (tdCE && tdCE.classList.contains("pack")) {
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle description changes (COOLANT detection) → clear net weight and gross weight overrides
@@ -2344,13 +2367,7 @@
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
         });
-        recalcRow(row);
-        recomputeTotals();
-      }
-
-      // Handle order qty changes → only affects pending qty (computed in recomputeTotals)
-      if (tdCE && tdCE.classList.contains("order-qty")) {
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle UOM changes → mark as overridden, clear downstream
@@ -2361,8 +2378,7 @@
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
         });
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle loading qty changes → clear downstream overrides
@@ -2371,8 +2387,7 @@
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
         });
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle # pallets input changes → recalc pallet weight + gross weight
@@ -2390,8 +2405,14 @@
 
         const gw = row.querySelector(".gross-weight");
         if (gw) delete gw.dataset.manualOverride;
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
+      }
+
+      // Single recalc pass for all input changes
+      if (needsRowRecalc) recalcRow(row);
+      // Debounced totals — batches rapid keystrokes
+      if (needsRowRecalc || (tdCE && (tdCE.classList.contains("pack") || tdCE.classList.contains("order-qty")))) {
+        recomputeTotalsDebounced();
       }
     });
 
@@ -2429,12 +2450,10 @@
           ci.containerGuid = newGuid;
 
           await refreshContainerItemsState();
-          recalcAllRows();
-          recomputeTotals();
-          rebuildAssignmentTable();
+          fullRecalcAndRefresh();
           renderContainerCards();
           renderContainerSummaries();
-    
+
         } catch (err) {
           console.error("Failed to update container assignment", err);
           showValidation("error", "Failed to update container assignment.");
@@ -2551,103 +2570,69 @@
           if (cell) delete cell.dataset.manualOverride;
         });
         recalcRow(row);
-        recomputeTotals();
+        recomputeTotalsDebounced();
         handleCellChange(row, e.target);
       }
     });
+
+    // Helper: clear manual override flags on downstream calculated cells
+    function clearDownstream(tr, ...cellClasses) {
+      cellClasses.forEach(cls => {
+        const cell = tr.querySelector("." + cls);
+        if (cell) delete cell.dataset.manualOverride;
+      });
+    }
 
     tbody.addEventListener("blur", (e) => {
       const row = e.target.closest("tr.lp-data-row");
       if (!row) return;
 
-      // Handle order-no blur
-      const orderNoTd = e.target.closest("td.order-no");
-      if (orderNoTd && orderNoTd.isContentEditable) {
-        recomputeTotals();
-      }
-
-      // Handle item-code blur
-      const itemCodeTd = e.target.closest("td.item-code");
-      if (itemCodeTd && itemCodeTd.isContentEditable) {
-        recomputeTotals();
-      }
-
-      // Helper: clear manual override flags on downstream calculated cells
-      function clearDownstream(tr, ...cellClasses) {
-        cellClasses.forEach(cls => {
-          const cell = tr.querySelector("." + cls);
-          if (cell) delete cell.dataset.manualOverride;
-        });
-      }
+      // Determine which field was blurred and whether recalcRow is needed
+      let needsRowRecalc = false;
+      const td = e.target.closest("td");
+      if (!td || !td.isContentEditable) return; // Only handle editable cells
 
       // Handle packaging blur → recalc UOM and all downstream
-      const packagingTd = e.target.closest("td.packaging");
-      if (packagingTd && packagingTd.isContentEditable) {
+      if (td.classList.contains("packaging")) {
         clearDownstream(row, "uom", "total-liters", "net-weight", "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
-      }
-
-      // Handle pack blur
-      const packTd = e.target.closest("td.pack");
-      if (packTd && packTd.isContentEditable) {
-        recomputeTotals();
-      }
-
-      // Handle order-qty blur → recalc pending qty
-      const orderQtyTd = e.target.closest("td.order-qty");
-      if (orderQtyTd && orderQtyTd.isContentEditable) {
-        recomputeTotals();
-      }
-
-      // Handle pallets (# of pallets) blur
-      const palletsTd = e.target.closest("td.pallets");
-      if (palletsTd && palletsTd.isContentEditable) {
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle description blur (COOLANT detection) → recalc net weight and gross weight
-      const descTd = e.target.closest("td.description");
-      if (descTd && descTd.isContentEditable) {
+      if (td.classList.contains("description")) {
         clearDownstream(row, "net-weight", "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle UOM blur → mark as overridden, recalc total liters and downstream
-      const uomTd = e.target.closest("td.uom");
-      if (uomTd && uomTd.isContentEditable) {
-        uomTd.dataset.manualOverride = "true";
+      if (td.classList.contains("uom")) {
+        td.dataset.manualOverride = "true";
         clearDownstream(row, "total-liters", "net-weight", "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle total-liters blur → mark as overridden, recalc net weight and gross weight
-      const totalLitersTd = e.target.closest("td.total-liters");
-      if (totalLitersTd && totalLitersTd.isContentEditable) {
-        totalLitersTd.dataset.manualOverride = "true";
+      if (td.classList.contains("total-liters")) {
+        td.dataset.manualOverride = "true";
         clearDownstream(row, "net-weight", "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle net-weight blur → mark as overridden, recalc gross weight
-      const netWeightTd = e.target.closest("td.net-weight");
-      if (netWeightTd && netWeightTd.isContentEditable) {
-        netWeightTd.dataset.manualOverride = "true";
+      if (td.classList.contains("net-weight")) {
+        td.dataset.manualOverride = "true";
         clearDownstream(row, "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle gross weight blur → mark as overridden (no downstream)
-      const grossWeightTd = e.target.closest("td.gross-weight");
-      if (grossWeightTd && grossWeightTd.isContentEditable) {
-        grossWeightTd.dataset.manualOverride = "true";
-        recomputeTotals();
+      if (td.classList.contains("gross-weight")) {
+        td.dataset.manualOverride = "true";
       }
+
+      // Single recalc pass: recalcRow if needed, then debounced totals
+      if (needsRowRecalc) recalcRow(row);
+      recomputeTotalsDebounced();
     }, true);
   }
 
@@ -2852,6 +2837,7 @@
       newRows.push(tr);
     }
 
+    invalidateLpRowIndexCache();
     attachRowEvents(tbody);
     recalcAllRows();
     recomputeTotals();
@@ -4548,30 +4534,35 @@
 
     let success = 0;
     let failed = 0;
+    const BATCH_SIZE = 5;
 
-    for (const { ci, ciId, tr } of toPatch) {
-      try {
-        await safeAjax({
-          type: "PATCH",
-          url: `${DCL_CONTAINER_ITEMS_API}(${ciId})`,
-          data: JSON.stringify({
-            "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${containerGuid})`
-          }),
-          contentType: "application/json; charset=utf-8",
-          headers: {
-            Accept: "application/json;odata.metadata=minimal",
-            "If-Match": "*"
-          },
-          dataType: "json"
-        });
+    for (let start = 0; start < toPatch.length; start += BATCH_SIZE) {
+      const batch = toPatch.slice(start, start + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(({ ci, ciId }) =>
+          safeAjax({
+            type: "PATCH",
+            url: `${DCL_CONTAINER_ITEMS_API}(${ciId})`,
+            data: JSON.stringify({
+              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${containerGuid})`
+            }),
+            contentType: "application/json; charset=utf-8",
+            headers: {
+              Accept: "application/json;odata.metadata=minimal",
+              "If-Match": "*"
+            },
+            dataType: "json"
+          }).then(() => { ci.containerGuid = containerGuid; })
+        )
+      );
 
-        // Update local state
-        ci.containerGuid = containerGuid;
-        success++;
-      } catch (e) {
-        console.error(`[Bulk Assign] Failed to assign row ${ciId}`, e);
-        failed++;
-      }
+      results.forEach((r, idx) => {
+        if (r.status === "fulfilled") success++;
+        else {
+          console.error(`[Bulk Assign] Failed to assign row ${batch[idx].ciId}`, r.reason);
+          failed++;
+        }
+      });
 
       setLoading(true, `Assigning items… ${success + failed}/${toPatch.length}`);
     }
@@ -4588,6 +4579,7 @@
     updateBulkDeleteRowsButton();
 
     // Refresh all UI
+    invalidateLpRowIndexCache();
     rebuildAssignmentTable();
     renderContainerCards();
     renderContainerSummaries();
@@ -4618,44 +4610,58 @@
     let failed = 0;
     const total = rows.length;
 
+    // Phase 1: Collect all delete operations
+    const deleteOps = [];
     for (const tr of rows) {
-      try {
-        const serverId = tr.dataset.serverId;
-        const containerItemId = tr.dataset.containerItemId;
+      const serverId = tr.dataset.serverId;
 
-        // Find all container-items linked to this LP row
-        const linkedCIs = serverId
-          ? DCL_CONTAINER_ITEMS_STATE.filter(
-              ci => ci.lpId && ci.lpId.toLowerCase() === serverId.toLowerCase()
-            )
-          : [];
+      // Find all container-items linked to this LP row
+      const linkedCIs = serverId
+        ? DCL_CONTAINER_ITEMS_STATE.filter(
+            ci => ci.lpId && ci.lpId.toLowerCase() === serverId.toLowerCase()
+          )
+        : [];
 
-        // Delete container items first
-        for (const ci of linkedCIs) {
-          try {
-            await deleteContainerItem(ci.id);
+      deleteOps.push({ tr, serverId, linkedCIs });
+    }
+
+    // Phase 2: Delete all container items in parallel batches
+    const BATCH_SIZE = 5;
+    const allCIDeletes = deleteOps.flatMap(op => op.linkedCIs);
+    for (let start = 0; start < allCIDeletes.length; start += BATCH_SIZE) {
+      const batch = allCIDeletes.slice(start, start + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map(ci =>
+          deleteContainerItem(ci.id).then(() => {
             const idx = DCL_CONTAINER_ITEMS_STATE.findIndex(c => c.id === ci.id);
             if (idx >= 0) DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
-          } catch (ciErr) {
-            console.error(`[Bulk Delete] Failed to delete CI ${ci.id}`, ciErr);
-          }
-        }
-
-        // Delete the LP row from server
-        if (serverId) {
-          await deleteServerRow(serverId);
-        }
-
-        // Remove from DOM
-        tr.remove();
-        deleted++;
-      } catch (err) {
-        console.error("[Bulk Delete] Failed to delete row", err);
-        failed++;
-      }
-
-      setLoading(true, `Deleting items… ${deleted + failed}/${total}`);
+          }).catch(err => console.error(`[Bulk Delete] Failed to delete CI ${ci.id}`, err))
+        )
+      );
     }
+
+    // Phase 3: Delete all LP rows in parallel batches
+    const lpDeletes = deleteOps.filter(op => op.serverId);
+    for (let start = 0; start < lpDeletes.length; start += BATCH_SIZE) {
+      const batch = lpDeletes.slice(start, start + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(op => deleteServerRow(op.serverId))
+      );
+      results.forEach((r, idx) => {
+        if (r.status === "rejected") {
+          console.error("[Bulk Delete] Failed to delete row", r.reason);
+          failed++;
+        }
+      });
+      setLoading(true, `Deleting items… ${start + batch.length}/${total}`);
+    }
+
+    // Phase 4: Remove all rows from DOM at once
+    for (const { tr } of deleteOps) {
+      tr.remove();
+      deleted++;
+    }
+    deleted -= failed;
 
     setLoading(false);
 
@@ -4668,10 +4674,8 @@
     updateBulkDeleteRowsButton();
     updateBulkAssignButton();
 
-    // Refresh all UI
-    recalcAllRows();
-    recomputeTotals();
-    rebuildAssignmentTable();
+    // Refresh all UI — single pass
+    fullRecalcAndRefresh();
     renderContainerCards();
     renderContainerSummaries();
 
@@ -4688,12 +4692,7 @@
      ============================= */
 
   function buildLpRowIndex() {
-    const map = new Map();
-    QA("#itemsTableBody tr.lp-data-row").forEach(tr => {
-      const id = (tr.dataset.serverId || "").toLowerCase();
-      if (id) map.set(id, tr);
-    });
-    return map;
+    return getCachedLpRowIndex();
   }
 
   async function hydrateLpRowServerIds() {
@@ -5589,12 +5588,10 @@
 
         // 2️⃣ Refresh LP DOM (volume depends on this)
         await refreshOrderItemsDisplay();
-        recalcAllRows();
-        recomputeTotals();
 
-        // 3️⃣ Render everything from fresh state
-        rebuildAssignmentTable();
-        renderContainerCards();       // ✅ REQUIRED
+        // 3️⃣ Render everything from fresh state — single pass
+        fullRecalcAndRefresh();
+        renderContainerCards();
         renderContainerSummaries();
   
       })
@@ -6381,13 +6378,9 @@
 
         // STEP 4: Refresh all UI from current local state
         await refreshOrderItemsDisplay();
-        recalcAllRows();
-        recomputeTotals();
-        rebuildAssignmentTable();
+        fullRecalcAndRefresh();
         renderContainerCards();
         renderContainerSummaries();
-  
-        updateToolbarState();
 
         // Show result
         const totalAssigned = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
@@ -6446,7 +6439,7 @@
         attachRowEvents(tbody);
 
         recalcRow(tr);
-        recalcAllRows();
+        invalidateLpRowIndexCache();
         recomputeTotals();
       });
     }
