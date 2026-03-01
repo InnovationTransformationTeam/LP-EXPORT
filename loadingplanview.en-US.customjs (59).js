@@ -1405,7 +1405,7 @@
 
     <td class="row-actions" style="white-space:nowrap;">
       <button class="split-item" type="button" title="Split across containers"
-              style="background:none;border:none;color:#1a7f37;font-size:0.8rem;padding:2px 6px;cursor:pointer;text-decoration:underline;">Split</button>
+              style="display:none;background:none;border:none;color:#1a7f37;font-size:0.8rem;padding:2px 6px;cursor:pointer;text-decoration:underline;">Split</button>
       <button class="row-remove" type="button"
               style="background:#dc3545;color:white;border:none;padding:2px 6px;font-size:0.75rem;border-radius:3px;cursor:pointer;">Remove</button>
     </td>
@@ -4393,6 +4393,12 @@
             ? "Sync changes and assign unassigned items"
             : "Create allocations and assign to containers";
     }
+
+    // Split buttons — only visible after container items exist
+    const splitDisplay = hasContainerItems ? "" : "none";
+    QA("#itemsTableBody .split-item").forEach(btn => {
+      btn.style.display = splitDisplay;
+    });
 
     refreshBulkAssignToolbar();
     updateAllocationStatusBar();
