@@ -1,0 +1,421 @@
+<!-- Top Loader -->
+<div id="top-loader" aria-hidden="true" class="top-loader hidden"
+  style="position: fixed; top: 0px; left: 0px; width: 100%; height: 4px; z-index: 9999; overflow-x: hidden; overflow-y: hidden; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: transparent; display: none;">
+</div>
+<section id="dcl-create" aria-labelledby="pageTitle" class="main-section"
+  style="max-width: 1400px; margin-top: 0px; margin-right: auto; margin-bottom: 0px; margin-left: auto; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem;">
+  <!-- Dashboard Header -->
+  <div class="dashboard-header"
+    style="color: var(--dark-gray); text-align: center; padding-top: 3rem; padding-right: 2rem; padding-bottom: 3rem; padding-left: 2rem; margin-bottom: 2rem; box-shadow: var(--shadow-lg); position: relative; overflow-x: hidden; overflow-y: hidden;">
+    <h1 id="pageTitle"
+      style="font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; position: relative; z-index: 1; color: var(--white); -webkit-text-fill-color: transparent; background-clip: text;">
+      <i aria-hidden="true" class="fas fa-file-alt"
+        style="margin-right: 1rem; color: var(--primary-green); -webkit-text-fill-color: var(--primary-green);"></i> DCL
+      Management System
+    </h1>
+    <p style="font-size: 1.125rem; color: var(--neutral-gray); font-weight: 400; position: relative; z-index: 1;">Create
+      a new DCL header. You can fill loading plan and documents later.</p>
+  </div>
+  <div id="dclWizard" class="wizard-container"
+    style="padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; box-shadow: var(--shadow-md); margin-bottom: 2rem;">
+    <!-- DCL Header -->
+    <div class="dcl-header"
+      style="color: var(--white); padding-top: 1.5rem; padding-right: 2rem; padding-bottom: 1.5rem; padding-left: 2rem; border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom-right-radius: 16px; border-bottom-left-radius: 16px; margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; position: relative; overflow-x: hidden; overflow-y: hidden;">
+      <div class="dcl-info">
+        <h3 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--white);">DCL Number</h3>
+        <p style="opacity: 0.9; font-size: 0.95rem; color: var(--light-gray);">Document Control List Reference</p>
+      </div>
+      <div class="dcl-number"
+        style="background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgba(255, 255, 255, 0.2); padding-top: 0.75rem; padding-right: 1.5rem; padding-bottom: 0.75rem; padding-left: 1.5rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-weight: 700; font-size: 1.1rem; backdrop-filter: blur(10px); border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: rgba(255, 255, 255, 0.3); border-right-color: rgba(255, 255, 255, 0.3); border-bottom-color: rgba(255, 255, 255, 0.3); border-left-color: rgba(255, 255, 255, 0.3); border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial;">
+        <span id="dclNumber">-</span>
+      </div>
+    </div>
+    <!-- Basic Info -->
+    <div id="step1" class="step-content active"
+      style="animation-duration: 0.5s; animation-timing-function: ease-out; animation-delay: 0s; animation-iteration-count: 1; animation-direction: normal; animation-fill-mode: none; animation-play-state: running; animation-name: fadeInUp; animation-timeline: auto; animation-range-start: normal; animation-range-end: normal; display: block;">
+      <div class="step-header"
+        style="text-align: center; margin-bottom: 3rem; padding-top: 2rem; padding-right: 2rem; padding-bottom: 2rem; padding-left: 2rem; border-top-left-radius: 20px; border-top-right-radius: 20px; border-bottom-right-radius: 20px; border-bottom-left-radius: 20px; box-shadow: var(--shadow-light);">
+        <h2
+          style="font-size: 2rem; font-weight: 700; color: var(--primary-green); margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: center; row-gap: 0.75rem; column-gap: 0.75rem;">
+          <i aria-hidden="true" class="fas fa-info-circle"></i> Basic Information
+        </h2>
+        <p style="font-size: 1.1rem; color: var(--neutral-gray);">Enter the shipment, customer, commercial, and
+          transport details that identify this DCL.</p>
+      </div>
+      <!-- Customer & Commercial Details -->
+      <div class="info-section"
+        style="border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom-right-radius: 16px; border-bottom-left-radius: 16px; box-shadow: var(--card-shadow); margin-bottom: 18px; overflow-x: hidden; overflow-y: hidden; margin-top: 18px; margin-right: 0px; margin-left: 0px; border-left-color: var(--card-border); border-right-color: var(--card-border);">
+        <button type="button" aria-controls="customer-commercial-section" aria-expanded="true" class="section-header"
+          style="display: flex; align-items: center; justify-content: space-between; width: 100%; border-top-width: 0px; border-right-width: 0px; border-bottom-width: 0px; border-left-width: 0px; border-top-style: initial; border-right-style: initial; border-bottom-style: initial; border-left-style: initial; border-top-color: initial; border-bottom-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; padding-top: 16px; padding-right: 18px; padding-bottom: 16px; padding-left: 18px; color: var(--pri); font-weight: 700; font-size: 16px; line-height: 1.2; border-left-color: var(--card-border); border-right-color: var(--card-border);">
+          <h3
+            style="color: var(--primary-green); display: flex; align-items: center; row-gap: 10px; column-gap: 10px; margin-top: 0px; margin-right: 0px; margin-bottom: 0px; margin-left: 0px; font-size: 16px; font-weight: 700;">
+            <i aria-hidden="true" class="fas fa-users" style="font-size: 18px; color: var(--pri);"></i> Customer &amp;
+            Commercial Details
+          </h3>
+          <i id="customer-commercial-section-icon" aria-hidden="true" class="fas fa-chevron-down toggle-icon"
+            style="font-size: 16px; color: var(--pri-600); transition-behavior: normal; transition-duration: 0.2s; transition-timing-function: ease; transition-delay: 0s; transition-property: transform;"></i>
+        </button>
+        <div id="customer-commercial-section" class="section-content"
+          style="display: none; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(255, 255, 255); padding-top: 18px; padding-right: 18px; padding-bottom: 18px; padding-left: 18px;">
+          <div class="form-grid"
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); row-gap: 16px; column-gap: 16px; align-items: stretch;">
+            <!-- CUSTOMER: now just a required dropdown -->
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label for="customerPicker"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Customer
+                *</label><select id="customerPicker" aria-label="Pick customer" required=""
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem; width: 100%;">
+                <option value="">Select Customer</option>
+                <!-- options populated by script -->
+              </select>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="customerNumber"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Customer
+                Number</label><input type="text" id="customerNumber" placeholder="Auto-filled"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+            <!-- After Customer Number field -->
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label for="companyType"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">
+                Company Type *
+              </label>
+              <div style="position: relative;">
+                <select id="companyType" name="companyType" required class="company-type-select"
+                  style="padding: 0.875rem 1rem; border-radius: 12px; font-size: 0.95rem; font-weight: 600; transition: all 0.3s ease; width: 100%;">
+                  <option value="">Select Company Type</option>
+                  <option value="1">Petrolube</option>
+                  <option value="0">Technolube</option>
+                </select>
+                <span id="companyTypeIcon"
+                  style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); font-size: 1.2rem; pointer-events: none; display: none;"></span>
+              </div>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="country"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Country</label><input
+                type="text" id="country" placeholder="Auto-filled"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="orgID"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Organization
+                ID</label><input type="text" id="orgID" placeholder="Auto-filled"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="COB"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">COB</label><input
+                type="text" id="COB" placeholder="Auto-filled"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="COO"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Country of
+                origin</label><input type="text" id="COO" name="COO" placeholder="Enter Country Of Origin"
+                maxlength="20" value="United Arab Emirates"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="PaymentTerms"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Payment
+                Terms</label><input type="text" id="PaymentTerms" placeholder="Auto-filled"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label for="currency"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Currency</label><select
+                id="currency" name="currency" class="currency-select"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;">
+                <option value="">Select Currency</option>
+                <!-- options populated by script -->
+              </select>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label for="incoterms"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Incoterms
+                *</label><select id="incoterms" required=""
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;">
+                <option value="">Select Incoterms</option>
+                <option value="EXW">Ex Works (EXW)</option>
+                <option value="FCA">Free Carrier (FCA)</option>
+                <option value="FAS">Free Alongside Ship (FAS)</option>
+                <option value="FOB">Free on Board (FOB)</option>
+                <option value="CFR">Cost and Freight (CFR)</option>
+                <option value="CIF">Cost, Insurance &amp; Freight (CIF)</option>
+                <option value="CPT">Carriage Paid To (CPT)</option>
+                <option value="CIP">Carriage and Insurance Paid To (CIP)</option>
+                <option value="DAP">Delivered at Place (DAP)</option>
+                <option value="DPU">Delivered at Place Unloaded (DPU)</option>
+                <option value="DDP">Delivered Duty Paid (DDP)</option>
+              </select>
+            </div>
+
+            <!-- Customer Models Section -->
+            <div class="form-group full-width"
+              style="display: flex; flex-direction: column; grid-column-start: 1; grid-column-end: -1;">
+              <label for="customerModelsContainer"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">
+                <i class="fas fa-cube" style="margin-right: 6px; color: var(--primary-green);"></i>
+                Customer Models
+              </label>
+              <p style="font-size: 0.85rem; color: var(--neutral-gray); margin-bottom: 12px;">
+                Select a customer to view their models. Click "Use" to add a model to this DCL.
+              </p>
+              <!-- Customer models list renders here -->
+              <div id="customerModelsContainer" style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="text-align: center; padding: 20px; background: #f9f9f9; border: 1px dashed #ccc; border-radius: 8px;">
+                  <i class="fas fa-inbox" style="font-size: 2rem; color: #999; margin-bottom: 8px;"></i>
+                  <p style="color: #666; margin: 0;">No customer models available.</p>
+                  <p style="color: #999; font-size: 0.85rem; margin-top: 4px;">Select a customer to see their models.</p>
+                </div>
+              </div>
+              <!-- Add model form -->
+              <div id="addModelForm" style="margin-top: 16px; padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                <div style="margin-bottom: 12px;">
+                  <label for="newModelName" style="font-weight: 600; font-size: 0.875rem; color: #333; display: block; margin-bottom: 4px;">Model Name *</label>
+                  <input type="text" id="newModelName" placeholder="Enter model name" style="width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem;" />
+                </div>
+                <div style="margin-bottom: 12px;">
+                  <label for="newModelInfo" style="font-weight: 600; font-size: 0.875rem; color: #333; display: block; margin-bottom: 4px;">Model Information</label>
+                  <textarea id="newModelInfo" rows="3" placeholder="Enter model details/address information" style="width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem;"></textarea>
+                </div>
+                <button type="button" id="btnAddCustomerModel" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; background: var(--primary-green, #28a745); color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                  <i class="fas fa-plus"></i> Add Model to DCL
+                </button>
+              </div>
+            </div>
+            <!-- DCL Models Added Section -->
+            <div class="form-group full-width"
+              style="display: flex; flex-direction: column; grid-column-start: 1; grid-column-end: -1; margin-top: 16px;">
+              <label style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">
+                <i class="fas fa-list" style="margin-right: 6px; color: var(--primary-green);"></i>
+                Models Added to This DCL
+              </label>
+              <div id="dclModelsContainer" style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="text-align: center; padding: 16px; background: #fff8e1; border: 1px dashed #ffcc80; border-radius: 8px;">
+                  <p style="color: #f57c00; margin: 0; font-size: 0.9rem;"><i class="fas fa-info-circle" style="margin-right: 6px;"></i>No models added yet. Use models from above or add a new one.</p>
+                </div>
+              </div>
+            </div>
+            <!-- Notify Party -->
+            <div class="form-group full-width"
+              style="display: flex; flex-direction: column; grid-column-start: 1; grid-column-end: -1;">
+              <label for="notifyPartyContainer"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Notify
+                Party</label>
+              <div id="notifyPartyContainer" class="notify-list"
+                style="display: flex; flex-direction: column; row-gap: 12px; column-gap: 12px;"></div>
+              <button type="button" id="btnAddNotifyParty" aria-label="+ Add Notify Party"
+                class="btn btn-primary btn-add-notify"
+                style="display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; width: 100%; margin-top: 10px; height: auto; line-height: 1.2; color: rgb(255, 255, 255); padding-top: 10px; padding-right: 16px; padding-bottom: 10px; padding-left: 16px; border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-right-radius: 10px; border-bottom-left-radius: 10px; font-weight: 600;">+
+                Add Notify Party</button>
+            </div>
+            <!-- Order Numbers -->
+            <div class="form-group form-section" style="display: flex; flex-direction: column; max-width: 300px;">
+              <label for="orderNumberSelect"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Order
+                Number *</label><select id="orderNumberSelect"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;">
+                <option value="">Select Order Number</option>
+              </select><button type="button" id="addOrderBtn" class="btn btn-outline"
+                style="display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(255, 255, 255); color: var(--pri); padding-top: 8px; padding-right: 12px; padding-bottom: 8px; padding-left: 12px; border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-right-radius: 10px; border-bottom-left-radius: 10px; font-weight: 600;">Add</button>
+              <div id="orderNumbersTableSection" style="margin-top: 20px; display: none;">
+                <label
+                  style="color: var(--dark-gray); font-size: 0.95rem; font-weight: normal; margin-bottom: 5px; display: block;">Order
+                  Numbers *</label>
+                <table id="orderNumbersTable"
+                  style="-webkit-border-horizontal-spacing: 0px; -webkit-border-vertical-spacing: 0px; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; overflow-x: hidden; overflow-y: hidden; box-shadow: var(--shadow-light); width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #22097e; border-radius: 6px; overflow: hidden;">
+                  <thead style="background-color: #f5f5f5;" bgcolor="#f5f5f5">
+                    <tr>
+                      <th
+                        style="padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; text-align: left; font-weight: 700; color: var(--primary-green); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; padding: 12px; border-bottom: 1px solid #ccc; width: 45%;"
+                        align="left">Order Number</th>
+                      <th
+                        style="padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; text-align: left; font-weight: 700; color: var(--primary-green); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; padding: 12px; border-bottom: 1px solid #ccc; width: 35%;"
+                        align="left">CI#</th>
+                      <th
+                        style="padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; text-align: left; font-weight: 700; color: var(--primary-green); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; padding: 12px; border-bottom: 1px solid #ccc; width: 20%;"
+                        align="left">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="row">
+                      <td class="cell"
+                        style="padding-top: 1rem; padding-right: 1rem; padding-bottom: 1rem; padding-left: 1rem; text-align: left; border-bottom-width: initial; border-bottom-style: none; border-bottom-color: initial;"
+                        align="left"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <!-- .form-grid -->
+        </div>
+        <!-- .section-content -->
+      </div>
+      <!-- .info-section --><!-- Shipping & Transport Details -->
+      <div class="info-section"
+        style="border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom-right-radius: 16px; border-bottom-left-radius: 16px; box-shadow: var(--card-shadow); margin-bottom: 18px; overflow-x: hidden; overflow-y: hidden; margin-top: 18px; margin-right: 0px; margin-left: 0px; border-left-color: var(--card-border); border-right-color: var(--card-border);">
+        <button type="button" aria-controls="shipping-transport-section" aria-expanded="true" class="section-header"
+          style="display: flex; align-items: center; justify-content: space-between; width: 100%; border-top-width: 0px; border-right-width: 0px; border-bottom-width: 0px; border-left-width: 0px; border-top-style: initial; border-right-style: initial; border-bottom-style: initial; border-left-style: initial; border-top-color: initial; border-bottom-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; padding-top: 16px; padding-right: 18px; padding-bottom: 16px; padding-left: 18px; color: var(--pri); font-weight: 700; font-size: 16px; line-height: 1.2; border-left-color: var(--card-border); border-right-color: var(--card-border);">
+          <h3
+            style="color: var(--primary-green); display: flex; align-items: center; row-gap: 10px; column-gap: 10px; margin-top: 0px; margin-right: 0px; margin-bottom: 0px; margin-left: 0px; font-size: 16px; font-weight: 700;">
+            <i aria-hidden="true" class="fas fa-ship" style="font-size: 18px; color: var(--pri);"></i> Shipping &amp;
+            Transport Details
+          </h3>
+          <i id="shipping-transport-section-icon" aria-hidden="true" class="fas fa-chevron-down toggle-icon"
+            style="font-size: 16px; color: var(--pri-600); transition-behavior: normal; transition-duration: 0.2s; transition-timing-function: ease; transition-delay: 0s; transition-property: transform;"></i>
+        </button>
+        <div id="shipping-transport-section" class="section-content"
+          style="display: none; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(255, 255, 255); padding-top: 18px; padding-right: 18px; padding-bottom: 18px; padding-left: 18px;">
+          <div class="form-grid"
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); row-gap: 16px; column-gap: 16px; align-items: stretch;">
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label for="shippingLineSelect"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Shipping
+                Line</label><select id="shippingLineSelect" onchange="handleShippingLineChange(this)"
+                class="shipping-line-select"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;">
+                <option value="">Select Shipping Line</option>
+                <option value="Maersk">Maersk</option>
+                <option value="MSC">MSC</option>
+                <option value="CMA CGM">CMA CGM</option>
+                <option value="__add_new__">+ Add new shipping line</option>
+              </select>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="loadingPort"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Port of Loading</label><input type="text" id="loadingPort" placeholder="Enter Port of Loading" maxlength="50"
+                value="Jebel Ali, Dubai"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="destinationPort"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Port of Discharge</label><input type="text" id="destinationPort" placeholder="Enter Port of Discharge" maxlength="50"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label for="actualRednessDate"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Actual
+                Readiness Date (ARD)</label>
+              <input type="date" id="actualRednessDate" name="actualRednessDate"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="loadingDate"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Loading
+                Date</label><input type="date" id="loadingDate"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+
+            <!-- ← ADD THIS NEW FORM GROUP -->
+            <div class="form-group">
+              <label for="sailingDate" class="sailing-label">Sailing Date</label>
+              <input type="date" id="sailingDate" class="sailing-input" />
+            </div>
+
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label for="loadingTimeType"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Loading
+                Time</label><select id="loadingTimeType" onchange="toggleLoadingTimeInput()"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;">
+                <option value="">Select Time Option</option>
+                <option value="specific">Specific Time</option>
+                <option value="shift">Shift</option>
+              </select>
+              <div id="specificTimeInput" style="display: none; margin-top: 8px;"><input type="time" id="loadingTime"
+                  placeholder="HH:MM" class="form-control"
+                  style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+              </div>
+              <div id="shiftInput" style="display: none; margin-top: 8px;">
+                <select id="loadingShift" class="form-control"
+                  style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;">
+                  <option value="">Select Shift</option>
+                  <option value="day">Day Shift</option>
+                  <option value="night">Night Shift</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label for="transportation"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Transportation
+                Mode</label><select id="transportation" required=""
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;">
+                <option value="">Select Transportation</option>
+                <option value="sea">By Sea</option>
+                <option value="road">By Road</option>
+                <option value="launch">By Launch</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Brand & Sales Information -->
+      <div class="info-section"
+        style="border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom-right-radius: 16px; border-bottom-left-radius: 16px; box-shadow: var(--card-shadow); margin-bottom: 18px; overflow-x: hidden; overflow-y: hidden; margin-top: 18px; margin-right: 0px; margin-left: 0px; border-left-color: var(--card-border); border-right-color: var(--card-border);">
+        <button type="button" aria-controls="brand-sales-section" aria-expanded="true" class="section-header"
+          style="display: flex; align-items: center; justify-content: space-between; width: 100%; border-top-width: 0px; border-right-width: 0px; border-bottom-width: 0px; border-left-width: 0px; border-top-style: initial; border-right-style: initial; border-bottom-style: initial; border-left-style: initial; border-top-color: initial; border-bottom-color: initial; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; padding-top: 16px; padding-right: 18px; padding-bottom: 16px; padding-left: 18px; color: var(--pri); font-weight: 700; font-size: 16px; line-height: 1.2; border-left-color: var(--card-border); border-right-color: var(--card-border);">
+          <h3
+            style="color: var(--primary-green); display: flex; align-items: center; row-gap: 10px; column-gap: 10px; margin-top: 0px; margin-right: 0px; margin-bottom: 0px; margin-left: 0px; font-size: 16px; font-weight: 700;">
+            <i aria-hidden="true" class="fas fa-tag" style="font-size: 18px; color: var(--pri);"></i> Brand &amp; Sales
+            Information
+          </h3>
+          <i id="brand-sales-section-icon" aria-hidden="true" class="fas fa-chevron-down toggle-icon"
+            style="font-size: 16px; color: var(--pri-600); transition-behavior: normal; transition-duration: 0.2s; transition-timing-function: ease; transition-delay: 0s; transition-property: transform;"></i>
+        </button>
+        <div id="brand-sales-section" class="section-content"
+          style="display: none; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(255, 255, 255); padding-top: 18px; padding-right: 18px; padding-bottom: 18px; padding-left: 18px;">
+          <div class="form-grid"
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); row-gap: 16px; column-gap: 16px; align-items: stretch;">
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label for="brandSelect"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Brand
+                *</label>
+              <div style="display: flex; gap: 8px;">
+                <select id="brandSelect" aria-required="true"
+                  style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;">
+                  <option value="">Loading brands…</option>
+                  <!-- Brands populated from Dataverse by script -->
+                </select><button type="button" id="addBrandBtn" class="btn btn-outline"
+                  style="display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; background-image: initial; background-position-x: initial; background-position-y: initial; background-size: initial; background-repeat: initial; background-attachment: initial; background-origin: initial; background-clip: initial; background-color: rgb(255, 255, 255); color: var(--pri); padding-top: 8px; padding-right: 12px; padding-bottom: 8px; padding-left: 12px; border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-right-radius: 10px; border-bottom-left-radius: 10px; font-weight: 600;"><i
+                    aria-hidden="true" class="fas fa-plus"></i> Add</button>
+              </div>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;">
+              <label
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Selected
+                Brands</label>
+              <div id="brandList" class="brand-list"
+                style="display: flex; flex-wrap: wrap; row-gap: 8px; column-gap: 8px; margin-top: 10px;"></div>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column;"><label for="salesRep"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Sales
+                Representative Name</label><input type="text" id="salesRep" placeholder="Auto-filled"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem;" />
+            </div>
+            <div class="form-group full-width" style="display: flex; flex-direction: column; grid-column: 1 / -1;">
+              <label for="descriptionGoodsServices"
+                style="font-weight: 600; color: var(--dark-gray); margin-bottom: 0.5rem; font-size: 0.95rem;">Description of Goods and/or Services</label>
+              <textarea id="descriptionGoodsServices" rows="4" placeholder="Enter description of goods and/or services"
+                style="padding-top: 0.875rem; padding-right: 1rem; padding-bottom: 0.875rem; padding-left: 1rem; border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom-right-radius: 12px; border-bottom-left-radius: 12px; font-size: 0.95rem; resize: vertical; min-height: 100px;"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- /#step1 --><!-- Final Action Button -->
+    <nav aria-label="Create DCL" class="navigation-buttons"
+      style="display: flex; justify-content: space-between; margin-top: 3rem; row-gap: 1rem; column-gap: 1rem;">
+      <button type="button" class="btn btn-primary"
+        style="display: inline-flex; align-items: center; row-gap: 0.5rem; column-gap: 0.5rem; border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px; border-top-style: solid; border-right-style: solid; border-bottom-style: solid; border-left-style: solid; border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent; border-left-color: transparent; border-image-source: initial; border-image-slice: initial; border-image-width: initial; border-image-outset: initial; border-image-repeat: initial; cursor: pointer; text-decoration-line: none; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: initial; color: rgb(255, 255, 255); padding-top: 10px; padding-right: 16px; padding-bottom: 10px; padding-left: 16px; border-top-left-radius: 10px; border-top-right-radius: 10px; border-bottom-right-radius: 10px; border-bottom-left-radius: 10px; font-weight: 600;">
+        <i aria-hidden="true" class="fas fa-plus-circle"></i>
+        Create New DCL
+      </button>
+    </nav>
+  </div>
+  <!-- /#dclWizard -->
+</section>
+<div class="row sectionBlockLayout text-start"
+  style="display: flex; flex-wrap: wrap; margin: 0px; min-height: auto; padding: 8px;">
+  <div class="container" style="padding: 0px; display: flex; flex-wrap: wrap;">
+    <div class="col-lg-12 columnBlockLayout"
+      style="flex-grow: 1; display: flex; flex-direction: column; min-width: 250px;"></div>
+  </div>
+</div>
+
+<input type="hidden" id="user-username" value="{{ user.fullname }}" />
+<input type="hidden" id="user-emailaddress" value="{{ user.emailaddress1 }}" />
