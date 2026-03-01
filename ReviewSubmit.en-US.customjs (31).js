@@ -1021,15 +1021,18 @@ function renderMandatoryDocsChecklist() {
   const customerName = STATE.dclMasterData?.cr650_customername || 'Customer';
 
   // Check each mandatory doc against uploaded documents (cr650_dcl_documents)
+  // "Others" items are advisory only — excluded from progress count
   let uploadedCount = 0;
-  const totalRequired = STATE.customerMandatoryDocs.length;
+  let totalRequired = 0;
   const docItems = STATE.customerMandatoryDocs.map(doc => {
+    if (doc.isOther) return { ...doc, isUploaded: false };
+    totalRequired++;
     const isUploaded = isMandatoryDocPresent(doc.search);
     if (isUploaded) uploadedCount++;
     return { ...doc, isUploaded };
   });
 
-  const allComplete = uploadedCount === totalRequired;
+  const allComplete = totalRequired === 0 || uploadedCount === totalRequired;
   const progressPct = totalRequired > 0 ? Math.round((uploadedCount / totalRequired) * 100) : 0;
 
   let html = `
@@ -1058,13 +1061,22 @@ function renderMandatoryDocsChecklist() {
   `;
 
   docItems.forEach(doc => {
-    const statusIcon = doc.isUploaded
-      ? '<i class="fas fa-check-circle" style="color: #059669; font-size: 1.15rem;"></i>'
-      : '<i class="fas fa-times-circle" style="color: #dc2626; font-size: 1.15rem;"></i>';
+    let statusIcon, statusBadge, textColor;
 
-    const statusBadge = doc.isUploaded
-      ? '<span style="background: #ecfdf5; color: #059669; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Uploaded</span>'
-      : '<span style="background: #fef2f2; color: #dc2626; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Missing</span>';
+    if (doc.isOther) {
+      // "Others" items are advisory — shown as info reminder, never blocking
+      statusIcon = '<i class="fas fa-info-circle" style="color: #2563eb; font-size: 1.15rem;"></i>';
+      statusBadge = '<span style="background: #eff6ff; color: #2563eb; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Advisory</span>';
+      textColor = '#1e40af';
+    } else if (doc.isUploaded) {
+      statusIcon = '<i class="fas fa-check-circle" style="color: #059669; font-size: 1.15rem;"></i>';
+      statusBadge = '<span style="background: #ecfdf5; color: #059669; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Uploaded</span>';
+      textColor = '#374151';
+    } else {
+      statusIcon = '<i class="fas fa-times-circle" style="color: #dc2626; font-size: 1.15rem;"></i>';
+      statusBadge = '<span style="background: #fef2f2; color: #dc2626; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Missing</span>';
+      textColor = '#991b1b';
+    }
 
     const displayName = doc.isOther
       ? `Other: ${escapeHtml(doc.label)}`
@@ -1076,7 +1088,7 @@ function renderMandatoryDocsChecklist() {
       <div class="mandatory-doc-row" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 0.5rem; border-bottom: 1px solid #f3f4f6; transition: background 0.2s;">
         ${statusIcon}
         <div style="flex: 1; min-width: 0;">
-          <span style="font-size: 0.9rem; font-weight: 500; color: ${doc.isUploaded ? '#374151' : '#991b1b'};">${displayName}</span>${shortCode}
+          <span style="font-size: 0.9rem; font-weight: 500; color: ${textColor};">${displayName}</span>${shortCode}
         </div>
         ${statusBadge}
       </div>
@@ -1223,6 +1235,8 @@ function validateMandatoryDocuments() {
   const missing = [];
 
   for (const doc of STATE.customerMandatoryDocs) {
+    // "Others" items are advisory only — never block submission
+    if (doc.isOther) continue;
     if (!isMandatoryDocPresent(doc.search)) {
       missing.push(doc.label);
     }
