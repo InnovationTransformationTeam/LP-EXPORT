@@ -4584,6 +4584,11 @@
       containers.map(c =>
         `<option value="${escapeHtml(c.dataverseId)}">${escapeHtml(c.id || c.type || "Container")}</option>`
       ).join("");
+
+    // Apply searchable dropdown to bulk assign selector
+    _csdEnsureGlobalHandler();
+    const utilMap = _csdBuildUtilMap();
+    _csdInitForSelect(sel, utilMap);
   }
 
   /** Show/hide the bulk toolbar when LP rows exist; conditionally show assign controls */
@@ -5283,6 +5288,231 @@
      17) SYNC CONTAINER ASSIGNMENTS IN UNIFIED TABLE
      ============================= */
 
+  /* =============================
+     SEARCHABLE CONTAINER DROPDOWN
+     ============================= */
+
+  /** Compute lightweight utilization map: containerGuid (lowercase) → { pct, color } */
+  function _csdBuildUtilMap() {
+    const utilMap = new Map(); // guid → { weight, maxWeight }
+    const lpIndex = buildLpRowIndex();
+
+    DCL_CONTAINERS_STATE.forEach(c => {
+      if (!c.dataverseId) return;
+      const constraints = CONTAINER_CONSTRAINTS[c.type] || {};
+      const maxWeight = c.maxWeight || constraints.maxWeight || 25000;
+      utilMap.set(c.dataverseId.toLowerCase(), { weight: 0, maxWeight });
+    });
+
+    DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
+      if (!ci.containerGuid) return;
+      const key = ci.containerGuid.toLowerCase();
+      const entry = utilMap.get(key);
+      if (!entry) return;
+      const lpRow = lpIndex.get((ci.lpId || "").toLowerCase());
+      if (!lpRow) return;
+      const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
+      const loadingQty = asNum(lpRow.querySelector(".loading-qty")?.value);
+      if (loadingQty > 0 && totalGross > 0) {
+        entry.weight += (totalGross / loadingQty) * ci.quantity;
+      }
+    });
+
+    // Convert to pct + color
+    const result = new Map();
+    utilMap.forEach((v, guid) => {
+      const pct = v.maxWeight > 0 ? Math.round((v.weight / v.maxWeight) * 100) : 0;
+      let color = "#28a745"; // green
+      if (pct > 100) color = "#dc3545";
+      else if (pct > 90) color = "#ff6b6b";
+      else if (pct > 70) color = "#ffc107";
+      result.set(guid, { pct, color });
+    });
+    return result;
+  }
+
+  /** Close all open searchable dropdowns */
+  function _csdCloseAll() {
+    QA(".csd-panel.csd-visible").forEach(p => p.classList.remove("csd-visible"));
+    QA(".csd-trigger.csd-open").forEach(t => t.classList.remove("csd-open"));
+  }
+
+  // Global click-outside handler (registered once)
+  let _csdGlobalHandlerAttached = false;
+  function _csdEnsureGlobalHandler() {
+    if (_csdGlobalHandlerAttached) return;
+    _csdGlobalHandlerAttached = true;
+    d.addEventListener("mousedown", function (e) {
+      if (!e.target.closest(".csd-wrapper")) _csdCloseAll();
+    });
+    d.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") _csdCloseAll();
+    });
+  }
+
+  /** Create or update searchable dropdown for a given hidden <select> */
+  function _csdInitForSelect(selectEl, utilMap) {
+    if (!selectEl) return;
+    const cell = selectEl.closest("td") || selectEl.parentElement;
+    if (!cell) return;
+
+    // Hide the native select (screen-reader accessible)
+    selectEl.classList.add("csd-hidden");
+
+    // Reuse or create wrapper
+    let wrapper = cell.querySelector(".csd-wrapper");
+    const isNew = !wrapper;
+    if (isNew) {
+      wrapper = d.createElement("div");
+      wrapper.className = "csd-wrapper";
+      cell.appendChild(wrapper);
+    }
+
+    // Disabled state
+    const isDisabled = selectEl.disabled;
+
+    // Build options data from the select
+    const options = [];
+    for (const opt of selectEl.options) {
+      options.push({ value: opt.value, label: opt.text, title: opt.title || opt.text });
+    }
+
+    // Current value
+    const currentVal = selectEl.value;
+    const currentLabel = currentVal
+      ? (options.find(o => o.value === currentVal)?.label || "--")
+      : "--";
+
+    // Build utilization info for each option
+    function utilHtml(guid) {
+      if (!guid) return "";
+      const u = utilMap.get(guid.toLowerCase());
+      if (!u) return "";
+      const pctClamped = Math.min(u.pct, 100);
+      return `<span class="csd-option-util">
+        <span class="csd-option-bar"><span class="csd-option-bar-fill" style="width:${pctClamped}%;background:${u.color};"></span></span>
+        <span class="csd-option-pct" style="color:${u.color}">${u.pct}%</span>
+      </span>`;
+    }
+
+    // Build options HTML
+    const optionsHtml = options.map(o => {
+      const isSelected = o.value === currentVal;
+      if (!o.value) {
+        // Unassign option
+        return `<div class="csd-option${isSelected ? ' csd-selected' : ''}" data-value="">
+          <span class="csd-option-name csd-option-unassign">-- None --</span>
+        </div>`;
+      }
+      return `<div class="csd-option${isSelected ? ' csd-selected' : ''}" data-value="${escapeHtml(o.value)}">
+        <span class="csd-option-name" title="${escapeHtml(o.title)}">${escapeHtml(o.label)}</span>
+        ${utilHtml(o.value)}
+      </div>`;
+    }).join("");
+
+    wrapper.innerHTML = `
+      <div class="csd-trigger${isDisabled ? ' csd-disabled' : ''}">
+        <span class="csd-trigger-label${currentVal ? '' : ' csd-placeholder'}">${currentVal ? escapeHtml(currentLabel) : '--'}</span>
+        <i class="fas fa-chevron-down csd-chevron"></i>
+      </div>
+      <div class="csd-panel">
+        <div class="csd-search-wrap">
+          <input type="text" class="csd-search" placeholder="Search containers..." autocomplete="off" />
+        </div>
+        <div class="csd-options">${optionsHtml}</div>
+      </div>
+    `;
+
+    if (isDisabled) return; // Don't attach events to disabled dropdowns
+
+    // --- Event handlers ---
+    const trigger = wrapper.querySelector(".csd-trigger");
+    const panel = wrapper.querySelector(".csd-panel");
+    const searchInput = wrapper.querySelector(".csd-search");
+    const optionsList = wrapper.querySelector(".csd-options");
+
+    // Toggle panel
+    trigger.addEventListener("click", function (e) {
+      e.stopPropagation();
+      const isOpen = panel.classList.contains("csd-visible");
+
+      // Close all others first
+      _csdCloseAll();
+
+      if (!isOpen) {
+        panel.classList.add("csd-visible");
+        trigger.classList.add("csd-open");
+        searchInput.value = "";
+        _csdFilterOptions(optionsList, "");
+        // Focus search after a tiny delay so the panel is rendered
+        setTimeout(() => searchInput.focus(), 30);
+      }
+    });
+
+    // Search filter
+    searchInput.addEventListener("input", function () {
+      _csdFilterOptions(optionsList, this.value);
+    });
+
+    // Prevent panel click from closing
+    panel.addEventListener("mousedown", function (e) {
+      e.stopPropagation();
+    });
+
+    // Option selection
+    optionsList.addEventListener("click", function (e) {
+      const optEl = e.target.closest(".csd-option");
+      if (!optEl) return;
+
+      const newVal = optEl.dataset.value;
+
+      // Update the hidden select
+      selectEl.value = newVal;
+
+      // Dispatch change event so existing handlers fire
+      selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+
+      // Close panel
+      _csdCloseAll();
+    });
+  }
+
+  /** Filter options in a dropdown by search text */
+  function _csdFilterOptions(optionsList, query) {
+    const q = (query || "").toLowerCase().trim();
+    let anyVisible = false;
+
+    optionsList.querySelectorAll(".csd-option").forEach(opt => {
+      const name = (opt.querySelector(".csd-option-name")?.textContent || "").toLowerCase();
+      const match = !q || name.includes(q);
+      opt.style.display = match ? "" : "none";
+      if (match) anyVisible = true;
+    });
+
+    // Show/hide no-results message
+    let noResults = optionsList.querySelector(".csd-no-results");
+    if (!anyVisible && q) {
+      if (!noResults) {
+        noResults = d.createElement("div");
+        noResults.className = "csd-no-results";
+        optionsList.appendChild(noResults);
+      }
+      noResults.textContent = "No containers match \"" + query + "\"";
+      noResults.style.display = "";
+    } else if (noResults) {
+      noResults.style.display = "none";
+    }
+  }
+
+  /** Initialize searchable dropdowns for all container selects in the items table */
+  function initSearchableContainerDropdowns() {
+    _csdEnsureGlobalHandler();
+    const utilMap = _csdBuildUtilMap();
+    QA("#itemsTableBody .assign-container").forEach(sel => {
+      _csdInitForSelect(sel, utilMap);
+    });
+  }
+
   /**
    * Syncs container dropdown selections and palletized data in the unified
    * Order Items table based on DCL_CONTAINER_ITEMS_STATE.
@@ -5368,6 +5598,9 @@
     });
 
     console.log("✅ Unified table container assignments synced");
+
+    // Refresh searchable container dropdowns
+    initSearchableContainerDropdowns();
   }
 
   // ===== RECOMMENDED: SIMPLIFIED SPLIT (No Container Creation) =====
