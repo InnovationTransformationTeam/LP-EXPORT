@@ -3963,7 +3963,6 @@
       badge = d.createElement("div");
       badge.id = "containerBadgeStrip";
       badge.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;background:#f0f7ff;border:1px solid #bdd7ee;border-radius:6px;margin-bottom:8px;font-size:12px;color:#1a3e5c;";
-      // Insert at the top of the order items section
       section.insertBefore(badge, section.firstChild);
     }
 
@@ -3972,21 +3971,71 @@
     const assignedItems = (DCL_CONTAINER_ITEMS_STATE || []).filter(ci => ci.containerGuid).length;
     const unassigned = totalItems - assignedItems;
 
-    const chips = containers.map(c => {
+    // Separate containers with items from empty ones
+    const withItems = [];
+    const empty = [];
+    containers.forEach(c => {
       const itemsInContainer = (DCL_CONTAINER_ITEMS_STATE || []).filter(
         ci => ci.containerGuid && c.dataverseId && ci.containerGuid.toLowerCase() === c.dataverseId.toLowerCase()
       ).length;
+      if (itemsInContainer > 0) {
+        withItems.push({ container: c, count: itemsInContainer });
+      } else {
+        empty.push(c);
+      }
+    });
+
+    // Build chips only for containers that have items
+    const chips = withItems.map(({ container: c, count }) => {
       return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#fff;border:1px solid #d0dbe7;border-radius:4px;font-size:11px;white-space:nowrap;">
         <i class="fas fa-box" style="font-size:9px;color:#5b8db8;"></i>
-        ${escapeHtml(c.id || c.type)} <span style="color:#888;">(${itemsInContainer})</span>
+        ${escapeHtml(c.id || c.type)} <span style="color:#888;">(${count})</span>
       </span>`;
     }).join("");
 
+    // Compact summary for empty containers — expandable on click
+    let emptyHtml = "";
+    if (empty.length > 0) {
+      const emptyChips = empty.map(c => {
+        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#fff;border:1px solid #e5e7eb;border-radius:4px;font-size:11px;white-space:nowrap;color:#999;">
+          <i class="fas fa-box-open" style="font-size:9px;color:#ccc;"></i>
+          ${escapeHtml(c.id || c.type)} <span style="color:#bbb;">(0)</span>
+        </span>`;
+      }).join("");
+
+      emptyHtml = `<span id="containerBadgeEmptyToggle" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;font-size:11px;white-space:nowrap;color:#6b7280;cursor:pointer;user-select:none;" title="Click to show/hide empty containers">
+        <i class="fas fa-box-open" style="font-size:9px;color:#9ca3af;"></i>
+        + ${empty.length} empty
+        <i class="fas fa-chevron-down" style="font-size:8px;margin-left:2px;transition:transform 0.2s;"></i>
+      </span>
+      <div id="containerBadgeEmptyList" style="display:none;flex-basis:100%;flex-wrap:wrap;gap:4px;padding-top:6px;">
+        ${emptyChips}
+      </div>`;
+    }
+
     badge.innerHTML = `
       <span style="font-weight:600;margin-right:4px;"><i class="fas fa-boxes" style="margin-right:4px;"></i>Containers:</span>
+      <span style="display:inline-flex;align-items:center;padding:3px 8px;background:#e0e7ff;border:1px solid #a5b4fc;border-radius:4px;font-size:11px;font-weight:600;color:#3730a3;white-space:nowrap;">
+        ${containers.length} total
+      </span>
       ${chips}
+      ${emptyHtml}
       ${unassigned > 0 ? `<span style="margin-left:auto;color:#b45309;font-weight:500;"><i class="fas fa-exclamation-circle" style="margin-right:3px;"></i>${unassigned} item${unassigned !== 1 ? 's' : ''} unassigned</span>` : `<span style="margin-left:auto;color:#15803d;font-weight:500;"><i class="fas fa-check-circle" style="margin-right:3px;"></i>All items assigned</span>`}
     `;
+
+    // Toggle expand/collapse for empty containers
+    const toggleBtn = d.getElementById("containerBadgeEmptyToggle");
+    const emptyList = d.getElementById("containerBadgeEmptyList");
+    if (toggleBtn && emptyList) {
+      toggleBtn.onclick = function () {
+        const isHidden = emptyList.style.display === "none";
+        emptyList.style.display = isHidden ? "flex" : "none";
+        const chevron = toggleBtn.querySelector(".fa-chevron-down");
+        if (chevron) {
+          chevron.style.transform = isHidden ? "rotate(180deg)" : "rotate(0deg)";
+        }
+      };
+    }
   }
 
   window.renderContainerCards = renderContainerCards;
