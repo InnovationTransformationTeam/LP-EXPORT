@@ -3793,30 +3793,22 @@
     });
     console.groupEnd();
 
-    // Separate containers into ones with items and empty ones
-    const containersWithItems = [];
-    const emptyContainers = [];
-
-    DCL_CONTAINERS_STATE.forEach(c => {
-      const usage = usageMap.get(c.id);
-      if (usage && usage.itemCount > 0) {
-        containersWithItems.push(c);
-      } else {
-        emptyContainers.push(c);
-      }
-    });
-
-    // Helper: render a full container card
-    function renderFullCard(c) {
+    grid.innerHTML = DCL_CONTAINERS_STATE.map(c => {
       const isSaved = !!c.dataverseId;
       const statusBadge = isSaved
         ? '<span style="background:#28a745;color:white;padding:2px 6px;border-radius:3px;font-size:11px;margin-left:8px;">✓ Saved</span>'
         : '<span style="background:#ffc107;color:#333;padding:2px 6px;border-radius:3px;font-size:11px;margin-left:8px;">Unsaved</span>';
 
+      // Get real-time usage data
       const usage = usageMap.get(c.id) || {
-        weight: 0, volume: 0, itemCount: 0, fgMatched: 0, fgMissing: 0
+        weight: 0,
+        volume: 0,
+        itemCount: 0,
+        fgMatched: 0,
+        fgMissing: 0
       };
 
+      // Get capacity constraints
       const constraints = CONTAINER_CONSTRAINTS[c.type] || {};
       const maxWeight = c.maxWeight || constraints.maxWeight || 25000;
       const maxVolume = constraints.maxVolume || null;
@@ -3825,21 +3817,28 @@
       const usedVolume = usage.volume;
       const itemCount = usage.itemCount;
 
+      // Calculate utilization percentages
       const weightUtil = maxWeight > 0 ? ((usedWeight / maxWeight) * 100) : 0;
       const volumeUtil = maxVolume > 0 ? ((usedVolume / maxVolume) * 100) : 0;
 
-      let statusColor = "#28a745";
+      // Determine status color based on highest utilization
+      let statusColor = "#28a745"; // green
       let statusText = "Available";
+
       const highestUtil = Math.max(weightUtil, volumeUtil);
 
       if (highestUtil > 100) {
-        statusColor = "#dc3545"; statusText = "OVER CAPACITY";
+        statusColor = "#dc3545"; // red
+        statusText = "OVER CAPACITY";
       } else if (highestUtil > 90) {
-        statusColor = "#ff6b6b"; statusText = "Near Full";
+        statusColor = "#ff6b6b"; // light red
+        statusText = "Near Full";
       } else if (highestUtil > 70) {
-        statusColor = "#ffc107"; statusText = "Filling Up";
+        statusColor = "#ffc107"; // yellow
+        statusText = "Filling Up";
       }
 
+      // Determine if weight or volume is exceeded
       const weightExceeded = weightUtil > 100;
       const volumeExceeded = volumeUtil > 100;
 
@@ -3929,102 +3928,7 @@
           ` : ''}
         </div>
       `;
-    }
-
-    // Build the grid HTML: active cards first, then collapsed empty section
-    let gridHtml = "";
-
-    // Render full cards for containers with items
-    gridHtml += containersWithItems.map(c => renderFullCard(c)).join("");
-
-    // Render collapsed section for empty containers
-    if (emptyContainers.length > 0) {
-      // Group empty containers by type for a compact summary
-      const emptyByType = {};
-      emptyContainers.forEach(c => {
-        const t = c.type || "Unknown";
-        if (!emptyByType[t]) emptyByType[t] = [];
-        emptyByType[t].push(c);
-      });
-
-      const typeSummary = Object.entries(emptyByType)
-        .map(([type, arr]) => `${arr.length} × ${type}`)
-        .join(", ");
-
-      // Compact table rows for each empty container (shown when expanded)
-      const emptyRows = emptyContainers.map(c => {
-        const isSaved = !!c.dataverseId;
-        const constraints = CONTAINER_CONSTRAINTS[c.type] || {};
-        const maxWeight = c.maxWeight || constraints.maxWeight || 25000;
-        const maxVolume = constraints.maxVolume || null;
-        return `<tr style="border-bottom:1px solid #f0f0f0;">
-          <td style="padding:6px 8px;">
-            <input type="checkbox" class="container-select-cb" data-container-id="${escapeHtml(c.id)}" />
-          </td>
-          <td style="padding:6px 8px;font-weight:500;font-size:12px;">${escapeHtml(c.id)}</td>
-          <td style="padding:6px 8px;font-size:11px;color:#6c757d;">${escapeHtml(c.type || "Unknown")}</td>
-          <td style="padding:6px 8px;font-size:11px;color:#6c757d;">${maxWeight.toLocaleString()} kg</td>
-          <td style="padding:6px 8px;font-size:11px;color:#6c757d;">${maxVolume ? maxVolume + " m³" : "—"}</td>
-          <td style="padding:6px 8px;">
-            ${isSaved
-              ? '<span style="background:#28a745;color:white;padding:1px 5px;border-radius:3px;font-size:10px;">✓ Saved</span>'
-              : '<span style="background:#ffc107;color:#333;padding:1px 5px;border-radius:3px;font-size:10px;">Unsaved</span>'
-            }
-          </td>
-        </tr>`;
-      }).join("");
-
-      gridHtml += `
-        <div style="grid-column:1/-1;margin-top:4px;">
-          <div id="emptyContainersToggle" style="
-            display:flex;align-items:center;gap:8px;padding:10px 14px;
-            background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;
-            cursor:pointer;user-select:none;
-          " title="Click to show/hide empty containers">
-            <i class="fas fa-box-open" style="color:#9ca3af;font-size:14px;"></i>
-            <span style="font-weight:600;font-size:13px;color:#4b5563;">
-              ${emptyContainers.length} Empty Container${emptyContainers.length !== 1 ? "s" : ""}
-            </span>
-            <span style="font-size:11px;color:#9ca3af;">(${typeSummary})</span>
-            <i class="fas fa-chevron-down" id="emptyContainersChevron" style="margin-left:auto;font-size:11px;color:#9ca3af;transition:transform 0.2s;"></i>
-          </div>
-
-          <div id="emptyContainersList" style="display:none;margin-top:6px;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;background:white;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-              <thead>
-                <tr style="background:#f3f4f6;border-bottom:1px solid #e5e7eb;">
-                  <th style="padding:6px 8px;width:30px;"></th>
-                  <th style="padding:6px 8px;text-align:left;font-weight:600;color:#374151;">Container</th>
-                  <th style="padding:6px 8px;text-align:left;font-weight:600;color:#374151;">Type</th>
-                  <th style="padding:6px 8px;text-align:left;font-weight:600;color:#374151;">Max Weight</th>
-                  <th style="padding:6px 8px;text-align:left;font-weight:600;color:#374151;">Max Volume</th>
-                  <th style="padding:6px 8px;text-align:left;font-weight:600;color:#374151;">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${emptyRows}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-    }
-
-    grid.innerHTML = gridHtml;
-
-    // Toggle expand/collapse for empty containers section
-    const emptyToggle = d.getElementById("emptyContainersToggle");
-    const emptyList = d.getElementById("emptyContainersList");
-    const emptyChevron = d.getElementById("emptyContainersChevron");
-    if (emptyToggle && emptyList) {
-      emptyToggle.addEventListener("click", function () {
-        const isHidden = emptyList.style.display === "none";
-        emptyList.style.display = isHidden ? "block" : "none";
-        if (emptyChevron) {
-          emptyChevron.style.transform = isHidden ? "rotate(180deg)" : "rotate(0deg)";
-        }
-      });
-    }
+    }).join("");
 
     // Attach checkbox event listeners for bulk selection
     attachContainerSelectionEvents(grid);
@@ -4584,11 +4488,6 @@
       containers.map(c =>
         `<option value="${escapeHtml(c.dataverseId)}">${escapeHtml(c.id || c.type || "Container")}</option>`
       ).join("");
-
-    // Apply searchable dropdown to bulk assign selector
-    _csdEnsureGlobalHandler();
-    const utilMap = _csdBuildUtilMap();
-    _csdInitForSelect(sel, utilMap);
   }
 
   /** Show/hide the bulk toolbar when LP rows exist; conditionally show assign controls */
@@ -5288,231 +5187,6 @@
      17) SYNC CONTAINER ASSIGNMENTS IN UNIFIED TABLE
      ============================= */
 
-  /* =============================
-     SEARCHABLE CONTAINER DROPDOWN
-     ============================= */
-
-  /** Compute lightweight utilization map: containerGuid (lowercase) → { pct, color } */
-  function _csdBuildUtilMap() {
-    const utilMap = new Map(); // guid → { weight, maxWeight }
-    const lpIndex = buildLpRowIndex();
-
-    DCL_CONTAINERS_STATE.forEach(c => {
-      if (!c.dataverseId) return;
-      const constraints = CONTAINER_CONSTRAINTS[c.type] || {};
-      const maxWeight = c.maxWeight || constraints.maxWeight || 25000;
-      utilMap.set(c.dataverseId.toLowerCase(), { weight: 0, maxWeight });
-    });
-
-    DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
-      if (!ci.containerGuid) return;
-      const key = ci.containerGuid.toLowerCase();
-      const entry = utilMap.get(key);
-      if (!entry) return;
-      const lpRow = lpIndex.get((ci.lpId || "").toLowerCase());
-      if (!lpRow) return;
-      const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
-      const loadingQty = asNum(lpRow.querySelector(".loading-qty")?.value);
-      if (loadingQty > 0 && totalGross > 0) {
-        entry.weight += (totalGross / loadingQty) * ci.quantity;
-      }
-    });
-
-    // Convert to pct + color
-    const result = new Map();
-    utilMap.forEach((v, guid) => {
-      const pct = v.maxWeight > 0 ? Math.round((v.weight / v.maxWeight) * 100) : 0;
-      let color = "#28a745"; // green
-      if (pct > 100) color = "#dc3545";
-      else if (pct > 90) color = "#ff6b6b";
-      else if (pct > 70) color = "#ffc107";
-      result.set(guid, { pct, color });
-    });
-    return result;
-  }
-
-  /** Close all open searchable dropdowns */
-  function _csdCloseAll() {
-    QA(".csd-panel.csd-visible").forEach(p => p.classList.remove("csd-visible"));
-    QA(".csd-trigger.csd-open").forEach(t => t.classList.remove("csd-open"));
-  }
-
-  // Global click-outside handler (registered once)
-  let _csdGlobalHandlerAttached = false;
-  function _csdEnsureGlobalHandler() {
-    if (_csdGlobalHandlerAttached) return;
-    _csdGlobalHandlerAttached = true;
-    d.addEventListener("mousedown", function (e) {
-      if (!e.target.closest(".csd-wrapper")) _csdCloseAll();
-    });
-    d.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") _csdCloseAll();
-    });
-  }
-
-  /** Create or update searchable dropdown for a given hidden <select> */
-  function _csdInitForSelect(selectEl, utilMap) {
-    if (!selectEl) return;
-    const cell = selectEl.closest("td") || selectEl.parentElement;
-    if (!cell) return;
-
-    // Hide the native select (screen-reader accessible)
-    selectEl.classList.add("csd-hidden");
-
-    // Reuse or create wrapper
-    let wrapper = cell.querySelector(".csd-wrapper");
-    const isNew = !wrapper;
-    if (isNew) {
-      wrapper = d.createElement("div");
-      wrapper.className = "csd-wrapper";
-      cell.appendChild(wrapper);
-    }
-
-    // Disabled state
-    const isDisabled = selectEl.disabled;
-
-    // Build options data from the select
-    const options = [];
-    for (const opt of selectEl.options) {
-      options.push({ value: opt.value, label: opt.text, title: opt.title || opt.text });
-    }
-
-    // Current value
-    const currentVal = selectEl.value;
-    const currentLabel = currentVal
-      ? (options.find(o => o.value === currentVal)?.label || "--")
-      : "--";
-
-    // Build utilization info for each option
-    function utilHtml(guid) {
-      if (!guid) return "";
-      const u = utilMap.get(guid.toLowerCase());
-      if (!u) return "";
-      const pctClamped = Math.min(u.pct, 100);
-      return `<span class="csd-option-util">
-        <span class="csd-option-bar"><span class="csd-option-bar-fill" style="width:${pctClamped}%;background:${u.color};"></span></span>
-        <span class="csd-option-pct" style="color:${u.color}">${u.pct}%</span>
-      </span>`;
-    }
-
-    // Build options HTML
-    const optionsHtml = options.map(o => {
-      const isSelected = o.value === currentVal;
-      if (!o.value) {
-        // Unassign option
-        return `<div class="csd-option${isSelected ? ' csd-selected' : ''}" data-value="">
-          <span class="csd-option-name csd-option-unassign">-- None --</span>
-        </div>`;
-      }
-      return `<div class="csd-option${isSelected ? ' csd-selected' : ''}" data-value="${escapeHtml(o.value)}">
-        <span class="csd-option-name" title="${escapeHtml(o.title)}">${escapeHtml(o.label)}</span>
-        ${utilHtml(o.value)}
-      </div>`;
-    }).join("");
-
-    wrapper.innerHTML = `
-      <div class="csd-trigger${isDisabled ? ' csd-disabled' : ''}">
-        <span class="csd-trigger-label${currentVal ? '' : ' csd-placeholder'}">${currentVal ? escapeHtml(currentLabel) : '--'}</span>
-        <i class="fas fa-chevron-down csd-chevron"></i>
-      </div>
-      <div class="csd-panel">
-        <div class="csd-search-wrap">
-          <input type="text" class="csd-search" placeholder="Search containers..." autocomplete="off" />
-        </div>
-        <div class="csd-options">${optionsHtml}</div>
-      </div>
-    `;
-
-    if (isDisabled) return; // Don't attach events to disabled dropdowns
-
-    // --- Event handlers ---
-    const trigger = wrapper.querySelector(".csd-trigger");
-    const panel = wrapper.querySelector(".csd-panel");
-    const searchInput = wrapper.querySelector(".csd-search");
-    const optionsList = wrapper.querySelector(".csd-options");
-
-    // Toggle panel
-    trigger.addEventListener("click", function (e) {
-      e.stopPropagation();
-      const isOpen = panel.classList.contains("csd-visible");
-
-      // Close all others first
-      _csdCloseAll();
-
-      if (!isOpen) {
-        panel.classList.add("csd-visible");
-        trigger.classList.add("csd-open");
-        searchInput.value = "";
-        _csdFilterOptions(optionsList, "");
-        // Focus search after a tiny delay so the panel is rendered
-        setTimeout(() => searchInput.focus(), 30);
-      }
-    });
-
-    // Search filter
-    searchInput.addEventListener("input", function () {
-      _csdFilterOptions(optionsList, this.value);
-    });
-
-    // Prevent panel click from closing
-    panel.addEventListener("mousedown", function (e) {
-      e.stopPropagation();
-    });
-
-    // Option selection
-    optionsList.addEventListener("click", function (e) {
-      const optEl = e.target.closest(".csd-option");
-      if (!optEl) return;
-
-      const newVal = optEl.dataset.value;
-
-      // Update the hidden select
-      selectEl.value = newVal;
-
-      // Dispatch change event so existing handlers fire
-      selectEl.dispatchEvent(new Event("change", { bubbles: true }));
-
-      // Close panel
-      _csdCloseAll();
-    });
-  }
-
-  /** Filter options in a dropdown by search text */
-  function _csdFilterOptions(optionsList, query) {
-    const q = (query || "").toLowerCase().trim();
-    let anyVisible = false;
-
-    optionsList.querySelectorAll(".csd-option").forEach(opt => {
-      const name = (opt.querySelector(".csd-option-name")?.textContent || "").toLowerCase();
-      const match = !q || name.includes(q);
-      opt.style.display = match ? "" : "none";
-      if (match) anyVisible = true;
-    });
-
-    // Show/hide no-results message
-    let noResults = optionsList.querySelector(".csd-no-results");
-    if (!anyVisible && q) {
-      if (!noResults) {
-        noResults = d.createElement("div");
-        noResults.className = "csd-no-results";
-        optionsList.appendChild(noResults);
-      }
-      noResults.textContent = "No containers match \"" + query + "\"";
-      noResults.style.display = "";
-    } else if (noResults) {
-      noResults.style.display = "none";
-    }
-  }
-
-  /** Initialize searchable dropdowns for all container selects in the items table */
-  function initSearchableContainerDropdowns() {
-    _csdEnsureGlobalHandler();
-    const utilMap = _csdBuildUtilMap();
-    QA("#itemsTableBody .assign-container").forEach(sel => {
-      _csdInitForSelect(sel, utilMap);
-    });
-  }
-
   /**
    * Syncs container dropdown selections and palletized data in the unified
    * Order Items table based on DCL_CONTAINER_ITEMS_STATE.
@@ -5598,9 +5272,6 @@
     });
 
     console.log("✅ Unified table container assignments synced");
-
-    // Refresh searchable container dropdowns
-    initSearchableContainerDropdowns();
   }
 
   // ===== RECOMMENDED: SIMPLIFIED SPLIT (No Container Creation) =====
