@@ -10204,26 +10204,6 @@
     min-width: 180px;
     cursor: pointer;
   }
-  .bulk-assign-dropdown.csd-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0,0,0,0);
-    border: 0;
-    padding: 0;
-    margin: -1px;
-  }
-  .lp-bulk-toolbar .csd-wrapper {
-    min-width: 200px;
-    max-width: 260px;
-  }
-  .lp-bulk-toolbar .csd-trigger {
-    height: 32px;
-    font-size: 13px;
-    padding: 5px 10px;
-    border-radius: 6px;
-  }
 
   .bulk-assign-dropdown:focus {
     border-color: #2563eb;
@@ -11619,7 +11599,7 @@
   margin: 0 4px;
 }
 
-/* Container dropdown in unified table — hidden when searchable dropdown is active */
+/* Container dropdown in unified table */
 .items-table .assign-container {
   width: 130px;
   padding: 4px 6px;
@@ -11629,174 +11609,10 @@
   background: #fff;
   cursor: pointer;
 }
-.items-table .assign-container.csd-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0,0,0,0);
-  border: 0;
-  padding: 0;
-  margin: -1px;
-}
 .items-table .assign-container:focus {
   border-color: var(--primary-green);
   outline: none;
   box-shadow: 0 0 0 2px rgba(0,102,51,0.15);
-}
-
-/* ── Searchable Container Dropdown ── */
-.csd-wrapper {
-  position: relative;
-  display: inline-block;
-  width: 100%;
-  min-width: 155px;
-}
-.csd-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  width: 100%;
-  padding: 4px 8px;
-  font-size: 0.78rem;
-  color: #1f2937;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 5px;
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  height: 28px;
-  box-sizing: border-box;
-}
-.csd-trigger:hover { border-color: #9ca3af; }
-.csd-trigger.csd-open {
-  border-color: var(--primary-green, #006633);
-  box-shadow: 0 0 0 2px rgba(0,102,51,0.12);
-}
-.csd-trigger.csd-disabled {
-  background: #f3f4f6;
-  color: #9ca3af;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-.csd-trigger-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-}
-.csd-trigger-label.csd-placeholder { color: #9ca3af; }
-.csd-chevron {
-  flex-shrink: 0;
-  font-size: 9px;
-  color: #9ca3af;
-  transition: transform 0.2s;
-}
-.csd-open .csd-chevron { transform: rotate(180deg); }
-
-/* Dropdown panel */
-.csd-panel {
-  display: none;
-  position: absolute;
-  top: calc(100% + 3px);
-  left: 0;
-  width: 240px;
-  max-height: 260px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.10), 0 1px 3px rgba(0,0,0,0.06);
-  z-index: 9999;
-  overflow: hidden;
-  display: none;
-  flex-direction: column;
-}
-.csd-panel.csd-visible {
-  display: flex;
-}
-
-/* Search input */
-.csd-search-wrap {
-  padding: 6px 8px;
-  border-bottom: 1px solid #f0f0f0;
-  background: #fafafa;
-}
-.csd-search {
-  width: 100%;
-  padding: 5px 8px 5px 26px;
-  font-size: 0.78rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
-  outline: none;
-  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239ca3af' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242.156a5 5 0 1 1 0-10 5 5 0 0 1 0 10z'/%3E%3C/svg%3E") no-repeat 8px center;
-  box-sizing: border-box;
-  transition: border-color 0.15s;
-}
-.csd-search:focus { border-color: var(--primary-green, #006633); }
-.csd-search::placeholder { color: #c0c0c0; }
-
-/* Options list */
-.csd-options {
-  overflow-y: auto;
-  max-height: 200px;
-  padding: 4px 0;
-}
-.csd-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  font-size: 0.78rem;
-  color: #374151;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.csd-option:hover { background: #f3f4f6; }
-.csd-option.csd-selected { background: #ecfdf5; font-weight: 600; }
-.csd-option-name {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.csd-option-unassign {
-  color: #9ca3af;
-  font-style: italic;
-}
-/* Mini utilization bar in option */
-.csd-option-util {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-.csd-option-bar {
-  width: 36px;
-  height: 4px;
-  background: #e9ecef;
-  border-radius: 2px;
-  overflow: hidden;
-}
-.csd-option-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.2s;
-}
-.csd-option-pct {
-  font-size: 0.68rem;
-  color: #9ca3af;
-  min-width: 28px;
-  text-align: right;
-}
-.csd-no-results {
-  padding: 12px 10px;
-  font-size: 0.78rem;
-  color: #9ca3af;
-  text-align: center;
 }
 
 /* Palletized select in unified table */
