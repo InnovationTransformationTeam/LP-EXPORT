@@ -2032,10 +2032,6 @@
 
         const originalQty = asNum(tr.querySelector('.loading-qty')?.value) || 0;
 
-        if (ci.isSplitItem) {
-          showValidation("info", "This item is already part of a split group and cannot be split further.");
-          return;
-        }
         if (originalQty <= 1) {
           showValidation("warning", "Cannot split: Quantity must be greater than 1.");
           return;
