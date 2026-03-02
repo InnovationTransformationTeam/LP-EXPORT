@@ -191,9 +191,8 @@
         "#addItemBtn, " +
         "#importFromOracleBtn, " +
         "#updateAllBtn, " +
-        "#allocateItemsBtn, " +
+        "#assignToContainersBtn, " +
         "#addContainerBtn, " +
-        "#autoAssignBtn, " +
         "#addDiscountChargeBtn, " +
         "#saveDiscountsBtn, " +
         "#loadDiscountsBtn, " +
@@ -1130,23 +1129,79 @@
   /* =============================
      4) PACK / NORMALIZERS
      ============================= */
+
+  /** Pack code → { packaging description, UOM (liters/kg) } */
+  const PACK_CODE_MAP = {
+    "35": { packaging: "208 Drums",       uom: 208 },
+    "58": { packaging: "6x5 Ltr CARTON",  uom: 30 },
+    "56": { packaging: "24x1 LTR",        uom: 24 },
+    "72": { packaging: "1x10 LTR",        uom: 10 },
+    "77": { packaging: "6x3 LTR",         uom: 18 },
+    "27": { packaging: "1x20 LTR",        uom: 20 },
+    "26": { packaging: "1x20 LTR",        uom: 20 },
+    "19": { packaging: "6X4 LTR",         uom: 24 },
+    "06": { packaging: "12X0.7 LTR",      uom: 8.4 },
+    "86": { packaging: "1X25 LTR",        uom: 25 },
+    "76": { packaging: "1X8 LTR",         uom: 8 },
+    "73": { packaging: "6X2.5 LTR",       uom: 15 },
+    "57": { packaging: "12X1 LTR",        uom: 12 },
+    "78": { packaging: "IBC 1000 LTR",    uom: 1000 },
+    "42": { packaging: "1X30 LTR",        uom: 30 },
+    "87": { packaging: "6X3.5LTR",        uom: 21 },
+    "23": { packaging: "24X0.9L",         uom: 21.6 },
+    "59": { packaging: "4X5LTR",          uom: 20 },
+    "84": { packaging: "4X4 LTR CTN",     uom: 16 },
+    "31": { packaging: "180Kg. Drum",      uom: 180 },
+    "55": { packaging: "24X500ml",        uom: 12 },
+    "29": { packaging: "24X2lb",          uom: 22 },
+    "43": { packaging: "24X1lb",          uom: 11 },
+    "66": { packaging: "1X15Kg",          uom: 15 },
+    "16": { packaging: "1X16Kg",          uom: 16 },
+    "67": { packaging: "4X6 LTR CTN",     uom: 24 },
+    "85": { packaging: "208 Drums",       uom: 208 },
+    "88": { packaging: "18Ltr Pail",      uom: 18 },
+    "17": { packaging: "6x5 Ltr",         uom: 30 },
+    "63": { packaging: "6X1US Gallon",    uom: 22.7 },
+    "51": { packaging: "12x2LB",          uom: 11 },
+    "65": { packaging: "1X7 LTR",         uom: 7 },
+    "64": { packaging: "1X16Kg",          uom: 16 },
+    "10": { packaging: "24X250ml",        uom: 6 }
+  };
+
+  /** Look up pack code in the mapping table */
+  function lookupPackCode(code) {
+    if (!code) return null;
+    const key = String(code).trim();
+    return PACK_CODE_MAP[key] || null;
+  }
+
   function parsePackLiters(packDesc) {
     if (!packDesc) return 0;
     const s = String(packDesc).replace(/\s+/g, "").toUpperCase();
 
-    // Pattern 1: "5x4L" or "5X4L" (with L) → 5 * 4 = 20
+    // Check PACK_CODE_MAP by matching packaging text (reverse lookup)
+    const mapEntry = Object.values(PACK_CODE_MAP).find(
+      e => e.packaging.replace(/\s+/g, "").toUpperCase() === s
+    );
+    if (mapEntry) return mapEntry.uom;
+
+    // Pattern 1: "5x4L" or "5X4LTR" → 5 * 4 = 20
     const mMultiWithL = s.match(/(\d+)[X×](\d+(\.\d+)?)L/);
     if (mMultiWithL) return Number(mMultiWithL[1]) * Number(mMultiWithL[2]);
 
-    // Pattern 2: "5x4" or "5X4" (without L) → 5 * 4 = 20  ✅ NEW
+    // Pattern 2: ml units — "24X500ML" → 24 * 0.5 = 12, "24X250ML" → 24 * 0.25 = 6
+    const mMultiMl = s.match(/(\d+)[X×](\d+(\.\d+)?)ML/);
+    if (mMultiMl) return Number(mMultiMl[1]) * Number(mMultiMl[2]) / 1000;
+
+    // Pattern 3: "5x4" or "5X4" (without unit) → 5 * 4 = 20
     const mMultiNoL = s.match(/^(\d+)[X×](\d+(\.\d+)?)$/);
     if (mMultiNoL) return Number(mMultiNoL[1]) * Number(mMultiNoL[2]);
 
-    // Pattern 3: "20L" or "20 LITER" → 20
+    // Pattern 4: "20L" or "20 LITER" → 20
     const mSingle = s.match(/(\d+(\.\d+)?)L/);
     if (mSingle) return Number(mSingle[1]);
 
-    // Pattern 4: Just a number "208" → 208
+    // Pattern 5: Just a number "208" → 208
     const mNum = s.match(/(\d+)/);
     return mNum ? Number(mNum[1]) : 0;
   }
@@ -1173,9 +1228,15 @@
 
     const releaseStatus = (String(orderItem.released_flag || "").toUpperCase() === "Y") ? "Y" : "N";
 
-    const packaging = orderItem.pack_desc || orderItem.uom1 || orderItem.pack || "";
-    const uomPackSz = parsePackLiters(orderItem.pack_desc);
-    const pack = normalizePack(orderItem.pack);
+    // Try pack code lookup first, then fall back to regex parsing
+    const packCodeMatch = lookupPackCode(orderItem.pack);
+    const packaging = packCodeMatch
+      ? packCodeMatch.packaging
+      : (orderItem.pack_desc || orderItem.uom1 || orderItem.pack || "");
+    const uomPackSz = packCodeMatch
+      ? packCodeMatch.uom
+      : parsePackLiters(orderItem.pack_desc);
+    const pack = normalizePack(packCodeMatch ? packCodeMatch.packaging : orderItem.pack);
 
     const orderQty = Number(orderItem.original_order_qty) || 0;
     const loadingQty = orderQty;
@@ -1344,7 +1405,7 @@
 
     <td class="row-actions" style="white-space:nowrap;">
       <button class="split-item" type="button" title="Split across containers"
-              style="background:none;border:none;color:#1a7f37;font-size:0.8rem;padding:2px 6px;cursor:pointer;text-decoration:underline;">Split</button>
+              style="display:none;background:none;border:none;color:#1a7f37;font-size:0.8rem;padding:2px 6px;cursor:pointer;text-decoration:underline;">Split</button>
       <button class="row-remove" type="button"
               style="background:#dc3545;color:white;border:none;padding:2px 6px;font-size:0.75rem;border-radius:3px;cursor:pointer;">Remove</button>
     </td>
@@ -1443,6 +1504,29 @@
         snCell.textContent = String(i + 1);
       }
     });
+  }
+
+  /* --- Debounce utility for performance --- */
+  function debounce(fn, ms) {
+    let timer;
+    return function (...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
+  /* --- Cached LP row index (invalidated on changes) --- */
+  let _lpRowIndexCache = null;
+  function invalidateLpRowIndexCache() { _lpRowIndexCache = null; }
+  function getCachedLpRowIndex() {
+    if (!_lpRowIndexCache) {
+      _lpRowIndexCache = new Map();
+      QA("#itemsTableBody tr.lp-data-row").forEach(tr => {
+        const id = (tr.dataset.serverId || "").toLowerCase();
+        if (id) _lpRowIndexCache.set(id, tr);
+      });
+    }
+    return _lpRowIndexCache;
   }
 
   async function patchDclMasterTotals(totals) {
@@ -1561,6 +1645,23 @@
     });
 
     renderContainerSummaries();
+
+    // Keep toolbar button state and status bar in sync whenever totals change
+    updateToolbarState();
+  }
+
+  // Debounced version — use for input/blur handlers to batch rapid edits
+  const recomputeTotalsDebounced = debounce(recomputeTotals, 250);
+
+  /**
+   * Unified post-mutation refresh: queries rows ONCE, does recalc + renumber + totals.
+   * Use this instead of the triple pattern: recalcAllRows() + recomputeTotals() + rebuildAssignmentTable()
+   */
+  function fullRecalcAndRefresh() {
+    invalidateLpRowIndexCache();
+    recalcAllRows();
+    recomputeTotals();    // already calls renumberRows, renderContainerSummaries, updateToolbarState
+    rebuildAssignmentTable();
   }
 
 
@@ -1654,112 +1755,40 @@
   }
 
   async function ensureContainerItemsForCurrentDcl(freshLpRowsOpt) {
-    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
-      console.warn("ensureContainerItemsForCurrentDcl: no valid CURRENT_DCL_ID");
-      return;
-    }
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return;
 
-    const dclLower = CURRENT_DCL_ID.toLowerCase();
-
-    // MODE A: called with no LP rows => just load what exists for this DCL
+    // No LP rows provided — just load existing state
     if (!Array.isArray(freshLpRowsOpt) || !freshLpRowsOpt.length) {
-      const allCi = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-      const relevantCi = (allCi || []).filter(ci => {
-        const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
-        return masterLower === dclLower;
-      });
-
-      DCL_CONTAINER_ITEMS_STATE = relevantCi.map(mapContainerItemRowToState);
+      await refreshContainerItemsState();
       return;
     }
 
-    // MODE B: called from Start Allocation with the fresh LP rows
-    const lpRows = freshLpRowsOpt;
-
-    const lpIdSet = new Set(
-      (lpRows || [])
-        .map(r => (r.cr650_dcl_loading_planid || "").toLowerCase())
-        .filter(Boolean)
-    );
-
-    // 1) Load existing container-items for this DCL
-    const allCiBefore = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-    const ciByLp = new Map();
-    (allCiBefore || []).forEach(ci => {
-      const lpIdLower = String(ci._cr650_loadingplanitem_value || "").toLowerCase();
-      if (!lpIdLower) return;
-      if (!ciByLp.has(lpIdLower)) {
-        ciByLp.set(lpIdLower, []);
-      }
-      ciByLp.get(lpIdLower).push(ci);
+    // Find which LP rows already have container items
+    const existing = await fetchAllContainerItems(CURRENT_DCL_ID);
+    const hasCI = new Set();
+    (existing || []).forEach(ci => {
+      const lpId = (ci._cr650_loadingplanitem_value || "").toLowerCase();
+      if (lpId) hasCI.add(lpId);
     });
 
-    // 2) Create missing container-item rows (one per LP row with loaded quantity)
-    let createdCount = 0;
-    for (const lpRow of (lpRows || [])) {
-      const lpId = lpRow.cr650_dcl_loading_planid;
-      if (!lpId) continue;
-      const lpIdLower = lpId.toLowerCase();
-
-      const existingForLp = ciByLp.get(lpIdLower) || [];
-      if (existingForLp.length) continue;
-
-      const qty = asNum(lpRow.cr650_loadedquantity);
+    // Create container items for LP rows that don't have one
+    let created = 0;
+    for (const lp of freshLpRowsOpt) {
+      const lpId = lp.cr650_dcl_loading_planid;
+      if (!lpId || hasCI.has(lpId.toLowerCase())) continue;
+      const qty = asNum(lp.cr650_loadedquantity);
       if (!qty) continue;
-
       try {
         await createContainerItemOnServer(lpId, qty, null, false);
-        createdCount++;
+        created++;
       } catch (err) {
-        console.error("ensureContainerItemsForCurrentDcl: failed to create CI for LP", lpId, err);
+        console.error("Failed to create CI for LP", lpId, err);
       }
     }
 
-    // ✅ 3) Wait briefly if we created records, to allow server to commit
-    if (createdCount > 0) {
-      console.log(`Created ${createdCount} container items. Waiting for server commit...`);
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    // ✅ 4) Re-fetch with retry logic
-    let allCiAfter = [];
-    let retries = 3;
-
-    while (retries > 0) {
-      allCiAfter = await fetchAllContainerItems(CURRENT_DCL_ID);
-
-      const relevantCiFinal = (allCiAfter || []).filter(ci => {
-        const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
-        const lpLower = String(ci._cr650_loadingplanitem_value || "").toLowerCase();
-        return masterLower === dclLower || (lpLower && lpIdSet.has(lpLower));
-      });
-
-      // ✅ Check if we got all expected container items
-      if (relevantCiFinal.length >= lpRows.length || createdCount === 0) {
-        DCL_CONTAINER_ITEMS_STATE = relevantCiFinal.map(mapContainerItemRowToState);
-        console.log(`Successfully loaded ${DCL_CONTAINER_ITEMS_STATE.length} container items into state`);
-        return;
-      }
-
-      // ✅ Not all items loaded yet, wait and retry
-      retries--;
-      if (retries > 0) {
-        console.log(`Only ${relevantCiFinal.length} of ${lpRows.length} items loaded. Retrying... (${retries} attempts left)`);
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    }
-
-    // ✅ Final attempt - use whatever we got
-    const relevantCiFinal = (allCiAfter || []).filter(ci => {
-      const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
-      const lpLower = String(ci._cr650_loadingplanitem_value || "").toLowerCase();
-      return masterLower === dclLower || (lpLower && lpIdSet.has(lpLower));
-    });
-
-    DCL_CONTAINER_ITEMS_STATE = relevantCiFinal.map(mapContainerItemRowToState);
-    console.log(`Loaded ${DCL_CONTAINER_ITEMS_STATE.length} container items into state (after retries)`);
+    // Fetch authoritative state (wait briefly if records were just created)
+    if (created > 0) await new Promise(r => setTimeout(r, 500));
+    await refreshContainerItemsState();
   }
 
   async function refreshContainerItemsState() {
@@ -1870,7 +1899,7 @@
       await ensureContainerItemsForCurrentDcl();
       rebuildAssignmentTable();
       renderContainerSummaries();
-      refreshAIAnalysis();
+
 
     } catch (e) {
       console.error("Save failed", e);
@@ -1891,6 +1920,7 @@
         const tr = e.target.closest("tr.lp-data-row");
         if (tr) tr.classList.toggle("row-selected", e.target.checked);
         updateBulkAssignButton();
+        updateBulkDeleteRowsButton();
         syncLpRowSelectAll();
       }
     });
@@ -1977,14 +2007,11 @@
 
           // UI cleanup
           tr.remove();
-          recalcAllRows();
-          recomputeTotals();
-
           await ensureContainerItemsForCurrentDcl();
-          rebuildAssignmentTable();
+          fullRecalcAndRefresh();
           renderContainerCards();
           renderContainerSummaries();
-          refreshAIAnalysis();
+    
 
         } catch (err) {
           console.error("DELETE failed", err);
@@ -1999,16 +2026,12 @@
         const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
 
         if (!ci) {
-          showValidation("warning", "No container item found for this row. Run 'Allocate Items' first.");
+          showValidation("warning", "No container item found for this row. Run 'Assign to Containers' first.");
           return;
         }
 
         const originalQty = asNum(tr.querySelector('.loading-qty')?.value) || 0;
 
-        if (ci.isSplitItem) {
-          showValidation("info", "This item is already part of a split group and cannot be split further.");
-          return;
-        }
         if (originalQty <= 1) {
           showValidation("warning", "Cannot split: Quantity must be greater than 1.");
           return;
@@ -2074,8 +2097,16 @@
             const origPwCell = tr.querySelector(".pallet-weight");
             if (origPwCell) origPwCell.textContent = fmt2(origSplitPalletWeight);
             const tl = tr.querySelector(".total-liters"); if (tl) { tl.textContent = fmt2(origTotalLiters * ratio); tl.dataset.manualOverride = "true"; }
-            const nw = tr.querySelector(".net-weight"); if (nw) { nw.textContent = fmt2(origNetWeight * ratio); nw.dataset.manualOverride = "true"; }
-            const gw = tr.querySelector(".gross-weight"); if (gw) { gw.textContent = fmt2(origGrossWeight * ratio); gw.dataset.manualOverride = "true"; }
+            // Compute NW once, use for both cell display and GW formula
+            const origRemainNW = asNum(fmt2(origNetWeight * ratio));
+            const nw = tr.querySelector(".net-weight"); if (nw) { nw.textContent = fmt2(origRemainNW); nw.dataset.manualOverride = "true"; }
+            // Gross Weight = PalletWeight + NetWeight + LoadingQty (formula-based, not ratio, because pallet rounding causes drift)
+            const origRemainGW = origSplitPalletWeight + origRemainNW + remainingQty;
+            const gw = tr.querySelector(".gross-weight"); if (gw) { gw.textContent = fmt2(origRemainGW); gw.dataset.manualOverride = "true"; }
+
+            // Set pending qty BEFORE server save (stale DOM value would be saved otherwise)
+            const origPendCell = tr.querySelector(".pending-qty");
+            if (origPendCell) origPendCell.textContent = fmt2(Math.max(0, asNum(tr.querySelector(".order-qty")?.textContent) - remainingQty));
 
             await updateServerRowFromTr(tr, CURRENT_DCL_ID);
             await patchContainerItem(ci.id, { cr650_quantity: remainingQty, cr650_issplititem: true });
@@ -2101,8 +2132,15 @@
             const newPwCell = newLpRow.querySelector(".pallet-weight");
             if (newPwCell) newPwCell.textContent = fmt2(newSplitPalletWeight);
             const ntl = newLpRow.querySelector(".total-liters"); if (ntl) { ntl.textContent = fmt2(origTotalLiters * splitRatio); ntl.dataset.manualOverride = "true"; }
-            const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(origNetWeight * splitRatio); nnw.dataset.manualOverride = "true"; }
-            const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(origGrossWeight * splitRatio); ngw.dataset.manualOverride = "true"; }
+            const newSplitNW = asNum(fmt2(origNetWeight * splitRatio));
+            const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(newSplitNW); nnw.dataset.manualOverride = "true"; }
+            // Gross Weight from formula: PalletWeight + NetWeight + LoadingQty
+            const newSplitGW = newSplitPalletWeight + newSplitNW + splitQty;
+            const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(newSplitGW); ngw.dataset.manualOverride = "true"; }
+
+            // Set pending qty BEFORE server save
+            const newPendCell = newLpRow.querySelector(".pending-qty");
+            if (newPendCell) newPendCell.textContent = fmt2(Math.max(0, asNum(newLpRow.querySelector(".order-qty")?.textContent) - splitQty));
 
             tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
             await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
@@ -2130,12 +2168,9 @@
               .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
               .map(mapContainerItemRowToState);
 
-            rebuildAssignmentTable();
+            fullRecalcAndRefresh();
             renderContainerCards();
             renderContainerSummaries();
-            refreshAIAnalysis();
-            recalcAllRows();
-            recomputeTotals();
 
             showValidation("success", `Split successful! Original: ${remainingQty} units, New: ${splitQty} units`);
           } catch (err) {
@@ -2205,8 +2240,15 @@
             const origNWCell = tr.querySelector(".net-weight");
             const origGWCell = tr.querySelector(".gross-weight");
             if (origTLCell) { origTLCell.textContent = fmt2(origTotalLiters * firstRatio); origTLCell.dataset.manualOverride = "true"; }
-            if (origNWCell) { origNWCell.textContent = fmt2(origNetWeight * firstRatio); origNWCell.dataset.manualOverride = "true"; }
-            if (origGWCell) { origGWCell.textContent = fmt2(origGrossWeight * firstRatio); origGWCell.dataset.manualOverride = "true"; }
+            const mFirstNW = asNum(fmt2(origNetWeight * firstRatio));
+            if (origNWCell) { origNWCell.textContent = fmt2(mFirstNW); origNWCell.dataset.manualOverride = "true"; }
+            // Gross Weight from formula: PW + NW + Loading (not ratio, because pallet rounding causes drift)
+            const mFirstGW = firstPalletWeight + mFirstNW + firstQty;
+            if (origGWCell) { origGWCell.textContent = fmt2(mFirstGW); origGWCell.dataset.manualOverride = "true"; }
+
+            // Set pending qty BEFORE server save (stale DOM value would be saved otherwise)
+            const mOrigPendCell = tr.querySelector(".pending-qty");
+            if (mOrigPendCell) mOrigPendCell.textContent = fmt2(Math.max(0, asNum(tr.querySelector(".order-qty")?.textContent) - firstQty));
 
             await updateServerRowFromTr(tr, CURRENT_DCL_ID);
             await patchContainerItem(ci.id, { cr650_quantity: firstQty, cr650_issplititem: true });
@@ -2240,8 +2282,15 @@
               const mNewPwCell = newLpRow.querySelector(".pallet-weight");
               if (mNewPwCell) mNewPwCell.textContent = fmt2(mNewPalletWeight);
               const newTLCell = newLpRow.querySelector(".total-liters"); if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
-              const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(origNetWeight * ratio); newNWCell.dataset.manualOverride = "true"; }
-              const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(origGrossWeight * ratio); newGWCell.dataset.manualOverride = "true"; }
+              const mLoopNW = asNum(fmt2(origNetWeight * ratio));
+              const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(mLoopNW); newNWCell.dataset.manualOverride = "true"; }
+              // Gross Weight from formula: PW + NW + Loading (not ratio)
+              const mLoopGW = mNewPalletWeight + mLoopNW + qty;
+              const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(mLoopGW); newGWCell.dataset.manualOverride = "true"; }
+
+              // Set pending qty BEFORE server save
+              const mNewPendCell = newLpRow.querySelector(".pending-qty");
+              if (mNewPendCell) mNewPendCell.textContent = fmt2(Math.max(0, asNum(newLpRow.querySelector(".order-qty")?.textContent) - qty));
 
               tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
               await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
@@ -2271,12 +2320,9 @@
               .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
               .map(mapContainerItemRowToState);
 
-            rebuildAssignmentTable();
+            fullRecalcAndRefresh();
             renderContainerCards();
             renderContainerSummaries();
-            refreshAIAnalysis();
-            recalcAllRows();
-            recomputeTotals();
 
             showValidation('success',
               `Split complete! Created ${distribution.length} loading plan records:\n` +
@@ -2300,6 +2346,7 @@
       if (!row) return;
 
       const tdCE = e.target.closest("td.ce, td.ce-num, td.ce-editing");
+      let needsRowRecalc = false;
 
       // Handle packaging changes → clear UOM and all downstream overrides
       if (tdCE && tdCE.classList.contains("packaging")) {
@@ -2307,13 +2354,7 @@
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
         });
-        recalcRow(row);
-        recomputeTotals();
-      }
-
-      // Handle pack type changes
-      if (tdCE && tdCE.classList.contains("pack")) {
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle description changes (COOLANT detection) → clear net weight and gross weight overrides
@@ -2322,13 +2363,7 @@
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
         });
-        recalcRow(row);
-        recomputeTotals();
-      }
-
-      // Handle order qty changes → only affects pending qty (computed in recomputeTotals)
-      if (tdCE && tdCE.classList.contains("order-qty")) {
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle UOM changes → mark as overridden, clear downstream
@@ -2339,8 +2374,7 @@
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
         });
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle loading qty changes → clear downstream overrides
@@ -2349,8 +2383,7 @@
           const c = row.querySelector("." + cls);
           if (c) delete c.dataset.manualOverride;
         });
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle # pallets input changes → recalc pallet weight + gross weight
@@ -2368,8 +2401,14 @@
 
         const gw = row.querySelector(".gross-weight");
         if (gw) delete gw.dataset.manualOverride;
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
+      }
+
+      // Single recalc pass for all input changes
+      if (needsRowRecalc) recalcRow(row);
+      // Debounced totals — batches rapid keystrokes
+      if (needsRowRecalc || (tdCE && (tdCE.classList.contains("pack") || tdCE.classList.contains("order-qty")))) {
+        recomputeTotalsDebounced();
       }
     });
 
@@ -2390,7 +2429,7 @@
         if (!ci) {
           // No container item exists yet — revert dropdown and warn
           e.target.value = "";
-          showValidation("warning", "No container item found for this row. Run 'Allocate Items' first.");
+          showValidation("warning", "No container item found for this row. Run 'Assign to Containers' first.");
           return;
         }
 
@@ -2407,15 +2446,34 @@
           ci.containerGuid = newGuid;
 
           await refreshContainerItemsState();
-          recalcAllRows();
-          recomputeTotals();
-          rebuildAssignmentTable();
+          fullRecalcAndRefresh();
           renderContainerCards();
           renderContainerSummaries();
-          refreshAIAnalysis();
+
         } catch (err) {
           console.error("Failed to update container assignment", err);
           showValidation("error", "Failed to update container assignment.");
+        }
+      }
+
+      // === Loading qty change → sync CI quantity ===
+      if (e.target.classList.contains("loading-qty")) {
+        const ciId = row.dataset.ciId;
+        if (ciId) {
+          const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
+          if (ci) {
+            const newQty = asNum(e.target.value);
+            if (ci.quantity !== newQty && newQty > 0) {
+              try {
+                await patchContainerItem(ciId, { cr650_quantity: newQty });
+                ci.quantity = newQty;
+                renderContainerCards();
+                renderContainerSummaries();
+              } catch (err) {
+                console.error("Failed to sync CI quantity:", err);
+              }
+            }
+          }
         }
       }
 
@@ -2508,103 +2566,69 @@
           if (cell) delete cell.dataset.manualOverride;
         });
         recalcRow(row);
-        recomputeTotals();
+        recomputeTotalsDebounced();
         handleCellChange(row, e.target);
       }
     });
+
+    // Helper: clear manual override flags on downstream calculated cells
+    function clearDownstream(tr, ...cellClasses) {
+      cellClasses.forEach(cls => {
+        const cell = tr.querySelector("." + cls);
+        if (cell) delete cell.dataset.manualOverride;
+      });
+    }
 
     tbody.addEventListener("blur", (e) => {
       const row = e.target.closest("tr.lp-data-row");
       if (!row) return;
 
-      // Handle order-no blur
-      const orderNoTd = e.target.closest("td.order-no");
-      if (orderNoTd && orderNoTd.isContentEditable) {
-        recomputeTotals();
-      }
-
-      // Handle item-code blur
-      const itemCodeTd = e.target.closest("td.item-code");
-      if (itemCodeTd && itemCodeTd.isContentEditable) {
-        recomputeTotals();
-      }
-
-      // Helper: clear manual override flags on downstream calculated cells
-      function clearDownstream(tr, ...cellClasses) {
-        cellClasses.forEach(cls => {
-          const cell = tr.querySelector("." + cls);
-          if (cell) delete cell.dataset.manualOverride;
-        });
-      }
+      // Determine which field was blurred and whether recalcRow is needed
+      let needsRowRecalc = false;
+      const td = e.target.closest("td");
+      if (!td || !td.isContentEditable) return; // Only handle editable cells
 
       // Handle packaging blur → recalc UOM and all downstream
-      const packagingTd = e.target.closest("td.packaging");
-      if (packagingTd && packagingTd.isContentEditable) {
+      if (td.classList.contains("packaging")) {
         clearDownstream(row, "uom", "total-liters", "net-weight", "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
-      }
-
-      // Handle pack blur
-      const packTd = e.target.closest("td.pack");
-      if (packTd && packTd.isContentEditable) {
-        recomputeTotals();
-      }
-
-      // Handle order-qty blur → recalc pending qty
-      const orderQtyTd = e.target.closest("td.order-qty");
-      if (orderQtyTd && orderQtyTd.isContentEditable) {
-        recomputeTotals();
-      }
-
-      // Handle pallets (# of pallets) blur
-      const palletsTd = e.target.closest("td.pallets");
-      if (palletsTd && palletsTd.isContentEditable) {
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle description blur (COOLANT detection) → recalc net weight and gross weight
-      const descTd = e.target.closest("td.description");
-      if (descTd && descTd.isContentEditable) {
+      if (td.classList.contains("description")) {
         clearDownstream(row, "net-weight", "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle UOM blur → mark as overridden, recalc total liters and downstream
-      const uomTd = e.target.closest("td.uom");
-      if (uomTd && uomTd.isContentEditable) {
-        uomTd.dataset.manualOverride = "true";
+      if (td.classList.contains("uom")) {
+        td.dataset.manualOverride = "true";
         clearDownstream(row, "total-liters", "net-weight", "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle total-liters blur → mark as overridden, recalc net weight and gross weight
-      const totalLitersTd = e.target.closest("td.total-liters");
-      if (totalLitersTd && totalLitersTd.isContentEditable) {
-        totalLitersTd.dataset.manualOverride = "true";
+      if (td.classList.contains("total-liters")) {
+        td.dataset.manualOverride = "true";
         clearDownstream(row, "net-weight", "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle net-weight blur → mark as overridden, recalc gross weight
-      const netWeightTd = e.target.closest("td.net-weight");
-      if (netWeightTd && netWeightTd.isContentEditable) {
-        netWeightTd.dataset.manualOverride = "true";
+      if (td.classList.contains("net-weight")) {
+        td.dataset.manualOverride = "true";
         clearDownstream(row, "gross-weight");
-        recalcRow(row);
-        recomputeTotals();
+        needsRowRecalc = true;
       }
 
       // Handle gross weight blur → mark as overridden (no downstream)
-      const grossWeightTd = e.target.closest("td.gross-weight");
-      if (grossWeightTd && grossWeightTd.isContentEditable) {
-        grossWeightTd.dataset.manualOverride = "true";
-        recomputeTotals();
+      if (td.classList.contains("gross-weight")) {
+        td.dataset.manualOverride = "true";
       }
+
+      // Single recalc pass: recalcRow if needed, then debounced totals
+      if (needsRowRecalc) recalcRow(row);
+      recomputeTotalsDebounced();
     }, true);
   }
 
@@ -2809,6 +2833,7 @@
       newRows.push(tr);
     }
 
+    invalidateLpRowIndexCache();
     attachRowEvents(tbody);
     recalcAllRows();
     recomputeTotals();
@@ -2957,6 +2982,15 @@
           baseItem.LoadingQuantity = ci.cr650_quantity || 0;
           baseItem.PendingQuantity = 0;
 
+          // ✅ Proportionally split order qty and pallets across CIs
+          const totalCiQtyForRatio = ciForThisLp.reduce((sum, c) => sum + asNum(c.cr650_quantity), 0);
+          if (totalCiQtyForRatio > 0) {
+            const ciRatio = (ci.cr650_quantity || 0) / totalCiQtyForRatio;
+            baseItem.OrderQuantity = round2(baseItem.OrderQuantity * ciRatio);
+            baseItem.numberOfPallets = Math.round(baseItem.numberOfPallets * ciRatio);
+            baseItem.palletsWeight = baseItem.palletized === "Yes" ? round2(baseItem.numberOfPallets * 19.38) : 0;
+          }
+
           // ✅ Override container with actual container from container item
           const containerGuid = ci._cr650_dcl_number_value;
           if (containerGuid) {
@@ -2967,11 +3001,13 @@
           }
 
           // ✅ Recalculate weights based on split ratio
-          const originalLoadedQty = asNum(lpRow.cr650_loadedquantity);
+          // Use sum of all CI quantities as denominator (not LP loadedquantity
+          // which may have been updated during split and no longer represents the total)
+          const totalCiQty = ciForThisLp.reduce((sum, c) => sum + asNum(c.cr650_quantity), 0);
           const splitQty = ci.cr650_quantity || 0;
 
-          if (originalLoadedQty > 0) {
-            const ratio = splitQty / originalLoadedQty;
+          if (totalCiQty > 0) {
+            const ratio = splitQty / totalCiQty;
 
             // ✅ FIXED: Use correct property names
             baseItem.grossWeight = round2(asNum(lpRow.cr650_grossweightkg) * ratio);
@@ -3780,7 +3816,6 @@
       const usedWeight = usage.weight;
       const usedVolume = usage.volume;
       const itemCount = usage.itemCount;
-      const fgMatchRate = itemCount > 0 ? Math.round((usage.fgMatched / itemCount) * 100) : 0;
 
       // Calculate utilization percentages
       const weightUtil = maxWeight > 0 ? ((usedWeight / maxWeight) * 100) : 0;
@@ -3806,18 +3841,6 @@
       // Determine if weight or volume is exceeded
       const weightExceeded = weightUtil > 100;
       const volumeExceeded = volumeUtil > 100;
-
-      // FG Master match indicator
-      let fgMatchBadge = "";
-      if (itemCount > 0) {
-        if (fgMatchRate === 100) {
-          fgMatchBadge = '<span style="background:#28a745;color:white;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:4px;" title="All items matched to FG Master">✓ 100% FG Matched</span>';
-        } else if (fgMatchRate > 0) {
-          fgMatchBadge = `<span style="background:#ffc107;color:#333;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:4px;" title="${usage.fgMatched} of ${itemCount} items matched to FG Master">⚠ ${fgMatchRate}% FG Matched</span>`;
-        } else {
-          fgMatchBadge = '<span style="background:#dc3545;color:white;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:4px;" title="No FG Master matches - using estimates">⚠ No FG Match</span>';
-        }
-      }
 
       return `
         <div class="mini-container-card" data-container-id="${escapeHtml(c.id)}" style="
@@ -3846,21 +3869,11 @@
             <span style="color:${statusColor};font-weight:bold;margin-left:8px;">${statusText}</span>
           </div>
 
-          <!-- FG Master Match Status -->
           ${itemCount > 0 ? `
             <div style="margin-bottom:8px;padding:6px;background:#f8f9fa;border-radius:4px;">
               <div style="font-size:11px;color:#666;">
                 Items: <strong>${itemCount}</strong>
-                ${fgMatchBadge}
               </div>
-          ${usage.fgMissing > 0 ? `
-            <div style="margin-top:6px;padding:6px;background:#fff3cd;border-radius:4px;">
-              <div style="font-size:11px;color:#856404;">
-                <i class="fas fa-exclamation-triangle"></i>
-                ${usage.fgMissing} of ${itemCount} item${usage.fgMissing > 1 ? 's' : ''} missing dimensions
-              </div>
-            </div>
-          ` : ''}
             </div>
           ` : `
             <div style="margin-bottom:8px;padding:6px;background:#f8f9fa;border-radius:4px;text-align:center;">
@@ -3950,7 +3963,6 @@
       badge = d.createElement("div");
       badge.id = "containerBadgeStrip";
       badge.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;background:#f0f7ff;border:1px solid #bdd7ee;border-radius:6px;margin-bottom:8px;font-size:12px;color:#1a3e5c;";
-      // Insert at the top of the order items section
       section.insertBefore(badge, section.firstChild);
     }
 
@@ -3959,21 +3971,71 @@
     const assignedItems = (DCL_CONTAINER_ITEMS_STATE || []).filter(ci => ci.containerGuid).length;
     const unassigned = totalItems - assignedItems;
 
-    const chips = containers.map(c => {
+    // Separate containers with items from empty ones
+    const withItems = [];
+    const empty = [];
+    containers.forEach(c => {
       const itemsInContainer = (DCL_CONTAINER_ITEMS_STATE || []).filter(
         ci => ci.containerGuid && c.dataverseId && ci.containerGuid.toLowerCase() === c.dataverseId.toLowerCase()
       ).length;
+      if (itemsInContainer > 0) {
+        withItems.push({ container: c, count: itemsInContainer });
+      } else {
+        empty.push(c);
+      }
+    });
+
+    // Build chips only for containers that have items
+    const chips = withItems.map(({ container: c, count }) => {
       return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#fff;border:1px solid #d0dbe7;border-radius:4px;font-size:11px;white-space:nowrap;">
         <i class="fas fa-box" style="font-size:9px;color:#5b8db8;"></i>
-        ${escapeHtml(c.id || c.type)} <span style="color:#888;">(${itemsInContainer})</span>
+        ${escapeHtml(c.id || c.type)} <span style="color:#888;">(${count})</span>
       </span>`;
     }).join("");
 
+    // Compact summary for empty containers — expandable on click
+    let emptyHtml = "";
+    if (empty.length > 0) {
+      const emptyChips = empty.map(c => {
+        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#fff;border:1px solid #e5e7eb;border-radius:4px;font-size:11px;white-space:nowrap;color:#999;">
+          <i class="fas fa-box-open" style="font-size:9px;color:#ccc;"></i>
+          ${escapeHtml(c.id || c.type)} <span style="color:#bbb;">(0)</span>
+        </span>`;
+      }).join("");
+
+      emptyHtml = `<span id="containerBadgeEmptyToggle" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;font-size:11px;white-space:nowrap;color:#6b7280;cursor:pointer;user-select:none;" title="Click to show/hide empty containers">
+        <i class="fas fa-box-open" style="font-size:9px;color:#9ca3af;"></i>
+        + ${empty.length} empty
+        <i class="fas fa-chevron-down" style="font-size:8px;margin-left:2px;transition:transform 0.2s;"></i>
+      </span>
+      <div id="containerBadgeEmptyList" style="display:none;flex-basis:100%;flex-wrap:wrap;gap:4px;padding-top:6px;">
+        ${emptyChips}
+      </div>`;
+    }
+
     badge.innerHTML = `
       <span style="font-weight:600;margin-right:4px;"><i class="fas fa-boxes" style="margin-right:4px;"></i>Containers:</span>
+      <span style="display:inline-flex;align-items:center;padding:3px 8px;background:#e0e7ff;border:1px solid #a5b4fc;border-radius:4px;font-size:11px;font-weight:600;color:#3730a3;white-space:nowrap;">
+        ${containers.length} total
+      </span>
       ${chips}
+      ${emptyHtml}
       ${unassigned > 0 ? `<span style="margin-left:auto;color:#b45309;font-weight:500;"><i class="fas fa-exclamation-circle" style="margin-right:3px;"></i>${unassigned} item${unassigned !== 1 ? 's' : ''} unassigned</span>` : `<span style="margin-left:auto;color:#15803d;font-weight:500;"><i class="fas fa-check-circle" style="margin-right:3px;"></i>All items assigned</span>`}
     `;
+
+    // Toggle expand/collapse for empty containers
+    const toggleBtn = d.getElementById("containerBadgeEmptyToggle");
+    const emptyList = d.getElementById("containerBadgeEmptyList");
+    if (toggleBtn && emptyList) {
+      toggleBtn.onclick = function () {
+        const isHidden = emptyList.style.display === "none";
+        emptyList.style.display = isHidden ? "flex" : "none";
+        const chevron = toggleBtn.querySelector(".fa-chevron-down");
+        if (chevron) {
+          chevron.style.transform = isHidden ? "rotate(180deg)" : "rotate(0deg)";
+        }
+      };
+    }
   }
 
   window.renderContainerCards = renderContainerCards;
@@ -4175,7 +4237,7 @@
     renderContainerCards();
     renderContainerSummaries();
     rebuildAssignmentTable();
-    refreshAIAnalysis();
+
   }
   w.removeContainerCard = removeContainerCard;
 
@@ -4326,7 +4388,7 @@
     renderContainerCards();
     renderContainerSummaries();
     rebuildAssignmentTable();
-    refreshAIAnalysis();
+
 
     // Show result
     if (failed > 0) {
@@ -4349,29 +4411,27 @@
     const hasContainerItems = DCL_CONTAINER_ITEMS_STATE.length > 0;
     const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
 
-    // Allocate Items — needs LP rows to exist
-    const allocateBtn = Q("#allocateItemsBtn");
-    if (allocateBtn) {
-      allocateBtn.disabled = lpRowCount === 0;
-      allocateBtn.title = lpRowCount === 0
+    // Assign to Containers — needs LP rows and containers
+    const assignBtn = Q("#assignToContainersBtn");
+    if (assignBtn) {
+      const canAssign = lpRowCount > 0 && hasContainers;
+      assignBtn.disabled = !canAssign;
+      assignBtn.title = lpRowCount === 0
         ? "Add or import items first"
-        : hasContainerItems
-          ? "Sync changes (new items, quantity updates)"
-          : "Create container item allocations";
-    }
-
-    // Auto-Assign — needs both container items AND containers
-    const autoBtn = Q("#autoAssignBtn");
-    if (autoBtn) {
-      const canAutoAssign = hasContainerItems && hasContainers;
-      autoBtn.disabled = !canAutoAssign;
-      autoBtn.title = !hasContainerItems
-        ? "Run 'Allocate Items' first"
         : !hasContainers
           ? "Add containers first"
-          : "Auto-assign unassigned items to containers";
+          : hasContainerItems
+            ? "Sync changes and assign unassigned items"
+            : "Create allocations and assign to containers";
     }
 
+    // Split buttons — only visible after container items exist
+    const splitDisplay = hasContainerItems ? "" : "none";
+    QA("#itemsTableBody .split-item").forEach(btn => {
+      btn.style.display = splitDisplay;
+    });
+
+    refreshBulkAssignToolbar();
     updateAllocationStatusBar();
   }
 
@@ -4396,7 +4456,7 @@
       text = "No items yet \u2014 Import from Oracle or Add Items";
       barClass = "status-neutral";
     } else if (ciCount === 0) {
-      text = `${lpRowCount} item${lpRowCount !== 1 ? "s" : ""} loaded \u2014 Click "Allocate Items" to begin`;
+      text = `${lpRowCount} item${lpRowCount !== 1 ? "s" : ""} loaded \u2014 Click "Assign to Containers" to begin`;
       barClass = "status-action";
     } else if (unassignedCount > 0) {
       text = `${ciCount} allocated \u00b7 ${assignedCount} assigned \u00b7 ${unassignedCount} unassigned`;
@@ -4430,12 +4490,21 @@
       ).join("");
   }
 
-  /** Show/hide the bulk toolbar when container-items exist */
+  /** Show/hide the bulk toolbar when LP rows exist; conditionally show assign controls */
   function refreshBulkAssignToolbar() {
     const toolbar = Q("#lpRowBulkToolbar");
     if (!toolbar) return;
+    const hasRows = QA("#itemsTableBody tr.lp-data-row").length > 0;
     const hasCI = DCL_CONTAINER_ITEMS_STATE.length > 0;
-    toolbar.style.display = hasCI ? "flex" : "none";
+
+    // Show toolbar whenever items exist (delete is always available)
+    toolbar.style.display = hasRows ? "flex" : "none";
+
+    // Show/hide assign-specific controls based on container-items
+    const assignDropdown = Q("#bulkAssignContainerSelect");
+    const assignBtn = Q("#bulkAssignBtn");
+    if (assignDropdown) assignDropdown.style.display = hasCI ? "" : "none";
+    if (assignBtn) assignBtn.style.display = hasCI ? "" : "none";
     if (hasCI) refreshBulkAssignDropdown();
   }
 
@@ -4447,6 +4516,16 @@
     const count = checked ? checked.length : 0;
     if (countSpan) countSpan.textContent = count;
     if (btn) btn.disabled = count === 0 || !Q("#bulkAssignContainerSelect")?.value;
+  }
+
+  /** Update counter and disable/enable the Delete Selected (rows) button */
+  function updateBulkDeleteRowsButton() {
+    const checked = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const countSpan = Q("#selectedDeleteCount");
+    const btn = Q("#bulkDeleteRowsBtn");
+    const count = checked ? checked.length : 0;
+    if (countSpan) countSpan.textContent = count;
+    if (btn) btn.disabled = count === 0;
   }
 
   /** Keep header + toolbar Select All checkboxes in sync */
@@ -4467,6 +4546,7 @@
       cb.closest("tr")?.classList.toggle("row-selected", checked);
     });
     updateBulkAssignButton();
+    updateBulkDeleteRowsButton();
   }
 
   /** Bulk assign all selected rows to the chosen container */
@@ -4491,7 +4571,7 @@
     });
 
     if (!toPatch.length) {
-      showValidation("warning", "Selected rows have no container items. Run 'Allocate Items' first.");
+      showValidation("warning", "Selected rows have no container items. Run 'Assign to Containers' first.");
       return;
     }
 
@@ -4499,30 +4579,35 @@
 
     let success = 0;
     let failed = 0;
+    const BATCH_SIZE = 5;
 
-    for (const { ci, ciId, tr } of toPatch) {
-      try {
-        await safeAjax({
-          type: "PATCH",
-          url: `${DCL_CONTAINER_ITEMS_API}(${ciId})`,
-          data: JSON.stringify({
-            "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${containerGuid})`
-          }),
-          contentType: "application/json; charset=utf-8",
-          headers: {
-            Accept: "application/json;odata.metadata=minimal",
-            "If-Match": "*"
-          },
-          dataType: "json"
-        });
+    for (let start = 0; start < toPatch.length; start += BATCH_SIZE) {
+      const batch = toPatch.slice(start, start + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(({ ci, ciId }) =>
+          safeAjax({
+            type: "PATCH",
+            url: `${DCL_CONTAINER_ITEMS_API}(${ciId})`,
+            data: JSON.stringify({
+              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${containerGuid})`
+            }),
+            contentType: "application/json; charset=utf-8",
+            headers: {
+              Accept: "application/json;odata.metadata=minimal",
+              "If-Match": "*"
+            },
+            dataType: "json"
+          }).then(() => { ci.containerGuid = containerGuid; })
+        )
+      );
 
-        // Update local state
-        ci.containerGuid = containerGuid;
-        success++;
-      } catch (e) {
-        console.error(`[Bulk Assign] Failed to assign row ${ciId}`, e);
-        failed++;
-      }
+      results.forEach((r, idx) => {
+        if (r.status === "fulfilled") success++;
+        else {
+          console.error(`[Bulk Assign] Failed to assign row ${batch[idx].ciId}`, r.reason);
+          failed++;
+        }
+      });
 
       setLoading(true, `Assigning items… ${success + failed}/${toPatch.length}`);
     }
@@ -4536,12 +4621,14 @@
     });
     syncLpRowSelectAll();
     updateBulkAssignButton();
+    updateBulkDeleteRowsButton();
 
     // Refresh all UI
+    invalidateLpRowIndexCache();
     rebuildAssignmentTable();
     renderContainerCards();
     renderContainerSummaries();
-    refreshAIAnalysis();
+
 
     if (failed > 0) {
       showValidation("warning", `Assigned ${success} item${success !== 1 ? "s" : ""}. ${failed} failed.`);
@@ -4551,17 +4638,106 @@
     }
   }
 
+  /** Bulk delete all selected LP rows (with their container items) */
+  async function bulkDeleteSelectedRows() {
+    const selectedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const rows = Array.from(selectedCbs).map(cb => cb.closest("tr.lp-data-row")).filter(Boolean);
+    if (!rows.length) return;
+
+    const confirmed = confirm(
+      `Delete ${rows.length} selected item${rows.length > 1 ? "s" : ""}?\n\nThis will also remove any container allocations for these items.\nThis cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setLoading(true, `Deleting ${rows.length} item${rows.length > 1 ? "s" : ""}…`);
+
+    let deleted = 0;
+    let failed = 0;
+    const total = rows.length;
+
+    // Phase 1: Collect all delete operations
+    const deleteOps = [];
+    for (const tr of rows) {
+      const serverId = tr.dataset.serverId;
+
+      // Find all container-items linked to this LP row
+      const linkedCIs = serverId
+        ? DCL_CONTAINER_ITEMS_STATE.filter(
+            ci => ci.lpId && ci.lpId.toLowerCase() === serverId.toLowerCase()
+          )
+        : [];
+
+      deleteOps.push({ tr, serverId, linkedCIs });
+    }
+
+    // Phase 2: Delete all container items in parallel batches
+    const BATCH_SIZE = 5;
+    const allCIDeletes = deleteOps.flatMap(op => op.linkedCIs);
+    for (let start = 0; start < allCIDeletes.length; start += BATCH_SIZE) {
+      const batch = allCIDeletes.slice(start, start + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map(ci =>
+          deleteContainerItem(ci.id).then(() => {
+            const idx = DCL_CONTAINER_ITEMS_STATE.findIndex(c => c.id === ci.id);
+            if (idx >= 0) DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
+          }).catch(err => console.error(`[Bulk Delete] Failed to delete CI ${ci.id}`, err))
+        )
+      );
+    }
+
+    // Phase 3: Delete all LP rows in parallel batches
+    const lpDeletes = deleteOps.filter(op => op.serverId);
+    for (let start = 0; start < lpDeletes.length; start += BATCH_SIZE) {
+      const batch = lpDeletes.slice(start, start + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(op => deleteServerRow(op.serverId))
+      );
+      results.forEach((r, idx) => {
+        if (r.status === "rejected") {
+          console.error("[Bulk Delete] Failed to delete row", r.reason);
+          failed++;
+        }
+      });
+      setLoading(true, `Deleting items… ${start + batch.length}/${total}`);
+    }
+
+    // Phase 4: Remove all rows from DOM at once
+    for (const { tr } of deleteOps) {
+      tr.remove();
+      deleted++;
+    }
+    deleted -= failed;
+
+    setLoading(false);
+
+    // Deselect remaining checkboxes
+    QA("#itemsTableBody .lp-row-select-cb:checked").forEach(cb => {
+      cb.checked = false;
+      cb.closest("tr")?.classList.remove("row-selected");
+    });
+    syncLpRowSelectAll();
+    updateBulkDeleteRowsButton();
+    updateBulkAssignButton();
+
+    // Refresh all UI — single pass
+    fullRecalcAndRefresh();
+    renderContainerCards();
+    renderContainerSummaries();
+
+    // Show result
+    if (failed > 0) {
+      showValidation("warning", `Deleted ${deleted} item${deleted !== 1 ? "s" : ""}. ${failed} failed to delete.`);
+    } else {
+      showValidation("success", `Successfully deleted ${deleted} item${deleted !== 1 ? "s" : ""}.`);
+    }
+  }
+
   /* =============================
      11B) CONTAINER SUMMARY BASED ON CONTAINER-ITEMS
      ============================= */
 
   function buildLpRowIndex() {
-    const map = new Map();
-    QA("#itemsTableBody tr.lp-data-row").forEach(tr => {
-      const id = (tr.dataset.serverId || "").toLowerCase();
-      if (id) map.set(id, tr);
-    });
-    return map;
+    return getCachedLpRowIndex();
   }
 
   async function hydrateLpRowServerIds() {
@@ -4784,7 +4960,7 @@
             // Important: refresh assignment table so the new container appears
             rebuildAssignmentTable();
 
-            refreshAIAnalysis();
+      
           }
         })
         .catch((e) => {
@@ -4881,20 +5057,6 @@
         );
       }
     });
-  }
-
-  /* =============================
-     13) AI PANEL (simplified demo)
-     ============================= */
-  function refreshAIAnalysis(perContOpt) {
-    const perCont = perContOpt || buildContainerSummaryFromContainerItems();
-    const cap = perCont.reduce((s, c) => s + (c.capacityKg || 0), 0);
-    const used = perCont.reduce((s, c) => s + (c.usedKg || 0), 0);
-    const util = cap ? Math.round((used / cap) * 100) : 0;
-
-    setText("#spaceUtilization", util + "%");
-    setText("#weightDistribution", Math.min(100, util + 7) + "%");
-    setText("#costEfficiency", Math.max(0, 100 - Math.abs(70 - util)) + "%");
   }
 
   /* =============================
@@ -5001,7 +5163,7 @@
       await ensureContainerItemsForCurrentDcl();
       rebuildAssignmentTable();
       renderContainerSummaries();
-      refreshAIAnalysis();
+
     } finally {
       setLoading(false);
     }
@@ -5067,8 +5229,14 @@
 
       const items = ciByLp.get(serverId) || [];
       if (items.length > 0) {
-        // Use the first container item's assignment
-        const ci = items[0];
+        // If the row already has a containerItemId (from reload/split), find that specific CI
+        const existingCiId = tr.dataset.containerItemId;
+        let ci;
+        if (existingCiId) {
+          ci = items.find(c => c.id === existingCiId) || items[0];
+        } else {
+          ci = items[0];
+        }
         tr.dataset.ciId = ci.id || "";
 
         if (ci.containerGuid) {
@@ -5361,12 +5529,12 @@
 
       // ========== Helper Functions ==========
 
-      // Split evenly into N parts (remainder goes to last)
+      // Split evenly into N parts (remainder goes to first — consistent with pallet distribution)
       function splitEvenly(total, n) {
         const base = Math.floor(total / n);
         const remainder = total % n;
         return Array.from({ length: n }, (_, i) =>
-          i === n - 1 ? base + remainder : base
+          i === 0 ? base + remainder : base
         );
       }
 
@@ -5451,116 +5619,6 @@
      18) AUTOMATIC ALLOCATION — uses container-items
      ============================= */
 
-  function allocateItemsToContainers() {
-    if (!DCL_CONTAINER_ITEMS_STATE.length) {
-      showValidation("warning", "No container items to allocate. Import or add items first.");
-      return;
-    }
-
-    let containers = DCL_CONTAINERS_STATE
-      .filter(c => c.dataverseId)
-      .map(c => ({
-        id: c.id,
-        dataverseId: c.dataverseId,
-        type: c.type,
-        capacityKg: c.maxWeight || (CONTAINER_CAPACITY_KG[c.type] || 25000),
-        usedKg: 0,
-        items: []
-      }));
-
-    if (!containers.length) {
-      showValidation("warning", "No containers defined. Add containers before allocating items.");
-      return;
-    }
-
-    const lpIndex = buildLpRowIndex();
-
-    // Calculate already-used capacity from existing assignments
-    DCL_CONTAINER_ITEMS_STATE
-      .filter(ci => ci.containerGuid) // Items already assigned
-      .forEach(ci => {
-        const container = containers.find(c => c.dataverseId === ci.containerGuid);
-        if (container) {
-          const weight = computeContainerItemGrossWeight(ci, lpIndex);
-          container.usedKg += weight;
-        }
-      });
-
-    // Only get UNASSIGNED items (items without a container)
-    const unassignedItems = DCL_CONTAINER_ITEMS_STATE
-      .filter(ci => ci.quantity > 0 && !ci.containerGuid) // ✅ Only unassigned items
-      .map(ci => {
-        const weight = computeContainerItemGrossWeight(ci, lpIndex);
-        return {
-          ci,
-          grossKg: weight
-        };
-      });
-
-    if (!unassignedItems.length) {
-      showValidation("info", "All items are already assigned to containers.");
-      return;
-    }
-
-    // Allocate only the unassigned items
-    unassignedItems.forEach(({ ci, grossKg }) => {
-      containers.sort((a, b) => {
-        const aRem = a.capacityKg - a.usedKg;
-        const bRem = b.capacityKg - b.usedKg;
-        return (aRem < bRem) ? 1 : -1;
-      });
-
-      const tgt = containers[0];
-      tgt.items.push(ci);
-      tgt.usedKg += grossKg;
-
-      ci.containerGuid = tgt.dataverseId || null;
-    });
-
-    // Only patch the items that were newly assigned
-    Promise.all(
-      unassignedItems.map(({ ci }) => {
-        return patchContainerItem(ci.id, {
-          "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${ci.containerGuid})`
-        });
-      })
-    )
-      .then(async () => {
-        // 1️⃣ Refresh container-items from Dataverse (SOURCE OF TRUTH)
-        await refreshContainerItemsState();
-
-        // 2️⃣ Refresh LP DOM (needed for volume)
-        await refreshOrderItemsDisplay();
-        recalcAllRows();
-        recomputeTotals();
-
-        // 3️⃣ Render everything from fresh state
-        rebuildAssignmentTable();
-        renderContainerCards();        // ✅ THIS IS THE KEY LINE
-        renderContainerSummaries();    // ❌ no params
-        refreshAIAnalysis();
-
-        const section = Q("#allocationStatusSection");
-        const statusContent = Q("#statusContent");
-        if (section && statusContent) {
-          section.style.display = "block";
-          const alreadyAssigned = DCL_CONTAINER_ITEMS_STATE.length - unassignedItems.length;
-          statusContent.textContent = alreadyAssigned > 0
-            ? `Auto-assigned ${unassignedItems.length} unassigned item(s). ${alreadyAssigned} item(s) kept their existing assignment.`
-            : `Allocated ${unassignedItems.length} item(s) into ${DCL_CONTAINERS_STATE.length} container(s).`;
-        }
-
-        showValidation("success", `Auto-assigned ${unassignedItems.length} unassigned item(s) to containers.`);
-      })
-
-
-
-      .catch(err => {
-        console.error("Failed auto-assign containers", err);
-        showValidation("error", "Failed to auto-assign items to containers.");
-      });
-  }
-
   function resetAllAssignments() {
     if (!DCL_CONTAINER_ITEMS_STATE.length) return;
 
@@ -5575,14 +5633,12 @@
 
         // 2️⃣ Refresh LP DOM (volume depends on this)
         await refreshOrderItemsDisplay();
-        recalcAllRows();
-        recomputeTotals();
 
-        // 3️⃣ Render everything from fresh state
-        rebuildAssignmentTable();
-        renderContainerCards();       // ✅ REQUIRED
+        // 3️⃣ Render everything from fresh state — single pass
+        fullRecalcAndRefresh();
+        renderContainerCards();
         renderContainerSummaries();
-        refreshAIAnalysis();
+  
       })
 
       .catch(err => {
@@ -5686,7 +5742,7 @@
       rebuildAssignmentTable();
 
       renderContainerSummaries();
-      refreshAIAnalysis();
+
     }
 
     // Initialize UI components
@@ -5754,6 +5810,12 @@
       bulkAssignBtn.addEventListener("click", bulkAssignSelectedRows);
     }
 
+    // Bulk LP row deletion: Delete Selected button
+    const bulkDeleteBtn = Q("#bulkDeleteRowsBtn");
+    if (bulkDeleteBtn) {
+      bulkDeleteBtn.addEventListener("click", bulkDeleteSelectedRows);
+    }
+
     // ===== STEP 2: ALLOCATION & ASSIGNMENT (ENHANCED) =====
 
     /**
@@ -5763,7 +5825,7 @@
      * - Items removed from Loading Plan
      * - Shows detailed notification of what changed
      */
-    async function updateContainerItemsIncrementally() {
+    async function syncContainerItemsIncrementally() {
       if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
         showValidation("error", "Missing or invalid DCL id in URL.");
         return;
@@ -5919,69 +5981,44 @@
           }
         }
 
-        // C) Remove orphaned CIs (optional - can be dangerous, so commented out by default)
-        // Uncomment if you want to auto-delete CIs when LP row is removed
-        /*
+        // C) Remove orphaned CIs (items whose LP row no longer exists)
         if (changes.removedItems.length > 0) {
-          setLoading(true, `Removing ${changes.removedItems.length} deleted item(s)...`);
-          
-          for (const item of changes.removedItems) {
-            for (const ci of item.cis) {
-              try {
-                await deleteContainerItem(ci.id);
-                deletedCount++;
-                console.log(`   ✅ Deleted orphaned CI: ${ci.id.substring(0, 8)}...`);
-              } catch (err) {
-                console.error(`   ❌ Failed to delete CI ${ci.id}:`, err);
+          const totalOrphaned = changes.removedItems.reduce((sum, item) => sum + item.ciCount, 0);
+          const doDelete = confirm(
+            `${totalOrphaned} orphaned container item(s) detected ` +
+            `(their loading plan row was removed).\n\n` +
+            `Delete these orphaned records?`
+          );
+
+          if (doDelete) {
+            setLoading(true, `Removing ${totalOrphaned} orphaned item(s)...`);
+
+            for (const item of changes.removedItems) {
+              for (const ci of item.cis) {
+                try {
+                  await deleteContainerItem(ci.id);
+                  deletedCount++;
+                  console.log(`   Deleted orphaned CI: ${ci.id.substring(0, 8)}...`);
+                } catch (err) {
+                  console.error(`   Failed to delete CI ${ci.id}:`, err);
+                }
               }
             }
           }
         }
-        */
 
         // ===== STEP 5: Refresh container items state =====
         if (createdCount > 0 || updatedCount > 0 || deletedCount > 0) {
           setLoading(true, "Refreshing assignment table...");
 
-          const expectedTotal = DCL_CONTAINER_ITEMS_STATE.length + createdCount - deletedCount;
-          let retryCount = 0;
-          let success = false;
-
-          while (retryCount < 5 && !success) {
-            await new Promise(resolve => setTimeout(resolve, retryCount === 0 ? 1200 : 800));
-
-            try {
-              const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
-              const fetchedItems = allContainerItems.filter(item =>
-                item._cr650_dcl_master_number_value &&
-                item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase()
-              );
-
-              console.log(`   Retry ${retryCount + 1}: Fetched ${fetchedItems.length} items (expected ~${expectedTotal})`);
-
-              if (fetchedItems.length >= expectedTotal - 1) { // Allow 1 item tolerance
-                DCL_CONTAINER_ITEMS_STATE = fetchedItems.map(mapContainerItemRowToState);
-                success = true;
-                console.log(`   ✅ State refreshed with ${DCL_CONTAINER_ITEMS_STATE.length} items`);
-                break;
-              }
-            } catch (fetchErr) {
-              console.error(`   ❌ Fetch error on retry ${retryCount + 1}:`, fetchErr);
-            }
-
-            retryCount++;
-          }
-
-          if (!success) {
-            console.warn(`   ⚠️ State refresh incomplete after ${retryCount} retries`);
-          }
+          // Single fetch — no retry loop needed
+          await refreshContainerItemsState();
 
           // Refresh UI
           rebuildAssignmentTable();
-    
           renderContainerCards();
           renderContainerSummaries();
-          refreshAIAnalysis();
+    
         }
 
         // ===== STEP 6: Show smart notification =====
@@ -6271,55 +6308,148 @@
     }
 
 
-    // Smart Allocate Items button — merges "Start Allocation" + "Update Items"
-    const allocateItemsBtn = Q("#allocateItemsBtn");
-    if (allocateItemsBtn) {
-      allocateItemsBtn.addEventListener("click", async () => {
-        if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
-          showValidation("error", "Missing or invalid DCL id in URL.");
-          return;
-        }
+    // ===== FFD + Assign to Containers (must be inside DOMContentLoaded for syncContainerItemsIncrementally access) =====
 
-        const hasExisting = DCL_CONTAINER_ITEMS_STATE.length > 0;
+    /**
+     * First-Fit Decreasing (FFD) algorithm — fills containers before moving to the next.
+     * Sorts unassigned items by weight (heaviest first), then assigns each to the
+     * first container that has enough remaining capacity.
+     */
+    function assignItemsFFD(lpIndex) {
+      const containers = DCL_CONTAINERS_STATE
+        .filter(c => c.dataverseId)
+        .map(c => ({
+          id: c.id,
+          dataverseId: c.dataverseId,
+          type: c.type,
+          capacityKg: c.maxWeight || (CONTAINER_CAPACITY_KG[c.type] || 25000),
+          usedKg: 0,
+          items: []
+        }));
 
-        if (hasExisting) {
-          // Incremental update — preserves existing assignments
-          await updateContainerItemsIncrementally();
-        } else {
-          // First-time — full allocation from scratch
-          try {
-            setLoading(true, "Preparing allocation…");
-            await hydrateLpRowServerIds();
-            await deleteAllContainerItemsForCurrentDcl();
+      if (!containers.length) return { containers, assigned: [] };
 
-            const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
-            await ensureContainerItemsForCurrentDcl(freshLpRows);
-
-            rebuildAssignmentTable();
-            renderContainerCards();
-            renderContainerSummaries();
-            refreshAIAnalysis();
-            updateToolbarState();
-
-            showValidation(
-              "success",
-              `Allocation complete: ${DCL_CONTAINER_ITEMS_STATE.length} items ready for assignment.`
-            );
-          } catch (err) {
-            console.error("Allocate Items failed", err);
-            showValidation("error", "Failed to allocate items. Please try again.");
-          } finally {
-            setLoading(false);
+      // Pre-load existing assignments
+      DCL_CONTAINER_ITEMS_STATE
+        .filter(ci => ci.containerGuid)
+        .forEach(ci => {
+          const container = containers.find(c => c.dataverseId === ci.containerGuid);
+          if (container) {
+            container.usedKg += computeContainerItemGrossWeight(ci, lpIndex);
           }
-        }
+        });
 
-        updateToolbarState();
+      // Collect unassigned items with their weights
+      const unassigned = DCL_CONTAINER_ITEMS_STATE
+        .filter(ci => ci.quantity > 0 && !ci.containerGuid)
+        .map(ci => ({ ci, grossKg: computeContainerItemGrossWeight(ci, lpIndex) }));
+
+      if (!unassigned.length) return { containers, assigned: [] };
+
+      // Sort heaviest first (First-Fit Decreasing)
+      unassigned.sort((a, b) => b.grossKg - a.grossKg);
+
+      // Assign each item to the first container that fits
+      unassigned.forEach(({ ci, grossKg }) => {
+        const tgt = containers.find(c => (c.capacityKg - c.usedKg) >= grossKg)
+                    || containers[containers.length - 1]; // fallback: last container
+        tgt.items.push(ci);
+        tgt.usedKg += grossKg;
+        ci.containerGuid = tgt.dataverseId || null;
       });
+
+      return { containers, assigned: unassigned };
     }
 
-    const autoAssignBtn = Q("#autoAssignBtn");
-    if (autoAssignBtn) {
-      autoAssignBtn.addEventListener("click", allocateItemsToContainers);
+    /**
+     * Unified "Assign to Containers" — creates CIs if needed, then runs FFD.
+     * Single-click flow: ensure CIs exist → sync changes → assign unassigned → refresh UI.
+     */
+    async function assignToContainers() {
+      if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+        showValidation("error", "Missing or invalid DCL id in URL.");
+        return;
+      }
+
+      const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
+      if (!hasContainers) {
+        showValidation("warning", "Add containers first before assigning items.");
+        return;
+      }
+
+      const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+      if (!lpRowCount) {
+        showValidation("warning", "No items to assign. Import or add items first.");
+        return;
+      }
+
+      try {
+        setLoading(true, "Preparing assignment\u2026");
+
+        // STEP 1: Ensure all LP rows have server IDs
+        await hydrateLpRowServerIds();
+
+        // STEP 2: Ensure container items exist (create / sync)
+        const hasExistingCIs = DCL_CONTAINER_ITEMS_STATE.length > 0;
+
+        if (hasExistingCIs) {
+          // Incremental update — detects new items, qty changes, orphans
+          await syncContainerItemsIncrementally();
+        } else {
+          // First time: create CIs from LP rows
+          const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
+          await ensureContainerItemsForCurrentDcl(freshLpRows);
+        }
+
+        // STEP 3: Run FFD on any unassigned items
+        const lpIndex = buildLpRowIndex();
+        const unassignedCount = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.quantity > 0 && !ci.containerGuid).length;
+
+        if (unassignedCount > 0) {
+          setLoading(true, `Assigning ${unassignedCount} item(s) to containers\u2026`);
+
+          const { assigned } = assignItemsFFD(lpIndex);
+
+          // Patch all newly assigned items on the server
+          await Promise.all(
+            assigned.map(({ ci }) =>
+              patchContainerItem(ci.id, {
+                "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${ci.containerGuid})`
+              })
+            )
+          );
+
+        }
+
+        // STEP 4: Refresh all UI from current local state
+        await refreshOrderItemsDisplay();
+        fullRecalcAndRefresh();
+        renderContainerCards();
+        renderContainerSummaries();
+
+        // Show result
+        const totalAssigned = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
+        const totalCI = DCL_CONTAINER_ITEMS_STATE.length;
+        const stillUnassigned = totalCI - totalAssigned;
+
+        if (stillUnassigned > 0) {
+          showValidation("warning", `${totalAssigned} item(s) assigned. ${stillUnassigned} item(s) did not fit \u2014 consider adding containers.`);
+        } else {
+          showValidation("success", `All ${totalCI} item(s) assigned to containers.`);
+        }
+
+      } catch (err) {
+        console.error("Assign to Containers failed", err);
+        showValidation("error", "Failed to assign items: " + (err.message || err));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // Single "Assign to Containers" button
+    const assignToContainersBtn = Q("#assignToContainersBtn");
+    if (assignToContainersBtn) {
+      assignToContainersBtn.addEventListener("click", assignToContainers);
     }
 
     const optimizeBtn = Q("#optimizeBtn");
@@ -6354,7 +6484,7 @@
         attachRowEvents(tbody);
 
         recalcRow(tr);
-        recalcAllRows();
+        invalidateLpRowIndexCache();
         recomputeTotals();
       });
     }
@@ -6382,7 +6512,576 @@
     
           renderContainerCards();
           renderContainerSummaries();
-          refreshAIAnalysis();
+    
+        }
+      });
+    }
+
+    // ===== IMPORT FROM PDF =====
+
+    /**
+     * Built-in PDF text extractor — zero external dependencies.
+     * Parses PDF content streams directly, decompresses FlateDecode streams
+     * via the native DecompressionStream API, and extracts text from PDF
+     * text operators (Tj, TJ). Works for Oracle Order Document PDFs which
+     * use standard text encoding.
+     */
+
+    /** Decompress a FlateDecode (zlib/deflate) byte stream. */
+    async function inflatePdfStream(bytes) {
+      const ds = new DecompressionStream("deflate");
+      const writer = ds.writable.getWriter();
+      writer.write(bytes);
+      writer.close();
+      const reader = ds.readable.getReader();
+      const chunks = [];
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const total = chunks.reduce((s, c) => s + c.length, 0);
+      const result = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { result.set(c, off); off += c.length; }
+      return new TextDecoder("latin1").decode(result);
+    }
+
+    /** Un-escape a PDF literal string: \\n, \\(, octal codes, etc. */
+    function unescapePdfStr(s) {
+      return s
+        .replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t")
+        .replace(/\\\(/g, "(").replace(/\\\)/g, ")")
+        .replace(/\\\\/g, "\\")
+        .replace(/\\(\d{1,3})/g, function (_, oct) { return String.fromCharCode(parseInt(oct, 8)); });
+    }
+
+    /** Extract human-readable text strings from a single PDF content stream. */
+    function extractTextFromStream(content) {
+      const parts = [];
+      // Match BT … ET text object blocks.
+      // Use \b word boundaries so "ET" inside words like "PETROMIN" or "FLEET" is ignored.
+      var btRe = /\bBT\b([\s\S]*?)\bET\b/g;
+      var bm;
+      while ((bm = btRe.exec(content)) !== null) {
+        var block = bm[1];
+        // (string) Tj  — show text
+        var tjRe = /\(((?:[^()\\]|\\.)*)\)\s*Tj/g;
+        var m;
+        while ((m = tjRe.exec(block)) !== null) parts.push(unescapePdfStr(m[1]));
+        // [ (str) num (str) … ] TJ — show text with kerning
+        var tjArrRe = /\[([^\]]*)\]\s*TJ/g;
+        while ((m = tjArrRe.exec(block)) !== null) {
+          var inner = m[1];
+          var strRe = /\(((?:[^()\\]|\\.)*)\)/g;
+          var s2, line = "";
+          while ((s2 = strRe.exec(inner)) !== null) line += unescapePdfStr(s2[1]);
+          if (line) parts.push(line);
+        }
+      }
+      return parts;
+    }
+
+    /**
+     * Extracts all text from a PDF file (no external libraries).
+     * Finds every stream/endstream pair, decompresses FlateDecode streams,
+     * and extracts text via PDF operators.
+     */
+    async function extractTextFromPdf(file) {
+      var buffer = await file.arrayBuffer();
+      var bytes = new Uint8Array(buffer);
+      var raw = new TextDecoder("latin1").decode(bytes);
+
+      var allText = [];
+      var streamRe = /stream\r?\n/g;
+      var sm;
+      while ((sm = streamRe.exec(raw)) !== null) {
+        var dataStart = sm.index + sm[0].length;
+        var endIdx = raw.indexOf("endstream", dataStart);
+        if (endIdx < 0) continue;
+
+        // Check the object dictionary (up to 1 KB before "stream") for FlateDecode
+        var dictSlice = raw.substring(Math.max(0, sm.index - 1024), sm.index);
+        var isFlate = /\/FlateDecode/.test(dictSlice);
+
+        // Extract stream bytes — trim trailing newline before "endstream"
+        var streamLen = endIdx - dataStart;
+        if (raw.charCodeAt(dataStart + streamLen - 1) === 10) streamLen--;
+        if (streamLen > 0 && raw.charCodeAt(dataStart + streamLen - 1) === 13) streamLen--;
+        var streamBytes = bytes.slice(dataStart, dataStart + streamLen);
+
+        var decoded;
+        if (isFlate) {
+          try { decoded = await inflatePdfStream(streamBytes); }
+          catch (e) { continue; }
+        } else {
+          decoded = new TextDecoder("latin1").decode(streamBytes);
+        }
+
+        // Only process streams that contain text operators
+        if (decoded.indexOf("Tj") < 0 && decoded.indexOf("TJ") < 0) continue;
+
+        var parts = extractTextFromStream(decoded);
+        if (parts.length) allText.push.apply(allText, parts);
+      }
+
+      return allText.join("\n");
+    }
+
+    /**
+     * Parses the extracted PDF text into structured order items.
+     * Handles the Oracle Order Document format where fields appear on separate lines:
+     *   Line#, ItemCode-Description (may span multiple lines), Qty, UnitsCode, ...
+     *
+     * Detection strategy:
+     *   - A LINE NUMBER is a standalone 1-3 digit number whose NEXT line starts
+     *     with a product code pattern (10-15 digits followed by a dash).
+     *   - Inside a product block, a QUANTITY is a standalone number (possibly with commas)
+     *     whose NEXT line is a units code like "84P", "35D", "57P", "26P", etc.
+     *   - The quantity check is done BEFORE the line-number break so that quantities
+     *     like "250" are not mistaken for line numbers.
+     */
+    function parseOrderPdfText(text) {
+      const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+
+      // --- Extract Order Number from header ---
+      let orderNo = "";
+      for (let i = 0; i < lines.length; i++) {
+        if (/^Order\s*#$/i.test(lines[i]) && lines[i + 1]) {
+          const candidate = lines[i + 1].trim();
+          if (/^\d{6,12}$/.test(candidate)) { orderNo = candidate; break; }
+        }
+        const inline = lines[i].match(/Order\s*#\s*(\d{6,12})/i);
+        if (inline) { orderNo = inline[1]; break; }
+      }
+
+      // --- Parse line items ---
+      // Anchor on line numbers: a standalone 1-3 digit number where the next line
+      // starts with a product code (10-15 digits + dash).
+      const items = [];
+      let i = 0;
+
+      while (i < lines.length) {
+        // Look for a standalone line number where the NEXT line is a product code
+        if (!/^\d{1,3}$/.test(lines[i])) { i++; continue; }
+        const lineNo = parseInt(lines[i], 10);
+        if (lineNo < 1 || lineNo > 999) { i++; continue; }
+        // Verify the next line starts with a product code: 10-15 digits then dash
+        if (!lines[i + 1] || !/^\d{10,15}-/.test(lines[i + 1].trim())) { i++; continue; }
+
+        i++; // move past line number
+
+        // Accumulate product description lines until we find quantity + units code
+        let productBlock = "";
+        let foundProduct = false;
+
+        while (i < lines.length) {
+          const l = lines[i];
+
+          // FIRST check: is this line a quantity followed by a units code?
+          // This MUST come before the line-number break so "250" followed by "84P"
+          // is detected as qty+units, not as line number 250.
+          if (/^[\d,]+$/.test(l) && lines[i + 1] && /^\d{1,3}[A-Z]$/i.test(lines[i + 1].trim())) {
+            const qty = parseFloat(l.replace(/,/g, ""));
+            const unitsCode = lines[i + 1].trim();
+            i += 2; // skip past qty and units code
+
+            // Skip remaining fields (Sale Price, price, amount) until next item
+            while (i < lines.length) {
+              const peek = lines[i];
+              // Stop at a line number that is followed by a product code
+              if (/^\d{1,3}$/.test(peek) && lines[i + 1] && /^\d{10,15}-/.test(lines[i + 1].trim())) break;
+              if (/^Totals$/i.test(peek)) break;
+              if (/^Order\s+Document$/i.test(peek)) break;
+              i++;
+            }
+
+            // Parse productBlock: "118000004084-PETROMIN A1 SUPER SYNTHETIC 5W30 (4X4 LTR CARTON)"
+            const dashIdx = productBlock.indexOf("-");
+            let itemCode = "";
+            let description = "";
+
+            if (dashIdx > 0) {
+              itemCode = productBlock.substring(0, dashIdx).trim();
+              description = productBlock.substring(dashIdx + 1).trim();
+            } else {
+              description = productBlock;
+            }
+
+            if (itemCode && qty > 0) {
+              items.push({
+                lineNo,
+                orderNo,
+                itemCode,
+                description,
+                quantity: qty,
+                unitsCode
+              });
+            }
+            foundProduct = true;
+            break;
+          }
+
+          // Stop conditions
+          if (/^Totals$/i.test(l)) break;
+          if (/^Order\s+Document$/i.test(l)) break;
+          // New line number (digit followed by product code on next line) — break to outer loop
+          if (/^\d{1,3}$/.test(l) && lines[i + 1] && /^\d{10,15}-/.test(lines[i + 1].trim())) break;
+
+          // Otherwise accumulate into product description block
+          if (productBlock) productBlock += " ";
+          productBlock += l;
+          i++;
+        }
+
+        if (!foundProduct) continue;
+      }
+
+      return { orderNo, items };
+    }
+
+    /**
+     * Converts a parsed PDF item into the same shape that adaptRawRowToOrderItem() returns,
+     * so it can be fed directly into computeItemData().
+     * outstandingIndex: Map of itemCode → outstanding report row (for released_flag lookup).
+     * Packaging code = last 2 digits of the item code.
+     */
+    function pdfItemToOrderItem(pdfItem, outstandingIndex) {
+      var packCode = pdfItem.itemCode ? pdfItem.itemCode.slice(-2) : "";
+      var releasedFlag = "N";
+      if (outstandingIndex) {
+        var osRow = outstandingIndex.get(pdfItem.itemCode);
+        if (osRow) releasedFlag = String(osRow.cr650_released_flag || "").toUpperCase() === "Y" ? "Y" : "N";
+      }
+      return {
+        order_no:           pdfItem.orderNo,
+        product_no:         pdfItem.itemCode,
+        product_name:       pdfItem.description,
+        released_flag:      releasedFlag,
+        pack_desc:          packCode,
+        pack:               packCode,
+        original_order_qty: pdfItem.quantity
+      };
+    }
+
+    /* =============================
+       PDF ITEM SELECTION MODAL
+       Shows parsed PDF items so the user can pick which to import.
+       Returns a promise → array of chosen pdfItems (or null if cancelled).
+       ============================= */
+    function showPdfItemSelectionModal(pdfItems, orderNo, existingKeys, outstandingIndex) {
+      return new Promise((resolve) => {
+        const overlay = d.createElement("div");
+        overlay.id = "itemSelectModal";
+
+        // track selection
+        const selected = new Set();
+        const dupFlags = pdfItems.map(p => existingKeys.has(`${p.orderNo}|${p.itemCode}`));
+        const selectableCount = dupFlags.filter(f => !f).length;
+
+        // helpers
+        function renderCounter() {
+          const counter = overlay.querySelector(".ism-counter");
+          if (counter) counter.innerHTML = `<strong>${selected.size}</strong> of ${selectableCount} selected`;
+          const importBtn = overlay.querySelector(".ism-btn-import");
+          if (importBtn) {
+            importBtn.disabled = selected.size === 0;
+            importBtn.textContent = selected.size
+              ? `Import ${selected.size} Item${selected.size > 1 ? "s" : ""}`
+              : "Import Selected";
+          }
+        }
+
+        function isVisibleIdx(idx) {
+          const card = overlay.querySelector(`.ism-item[data-idx="${idx}"]`);
+          return card && card.style.display !== "none";
+        }
+
+        function syncSelectAll() {
+          const cb = overlay.querySelector("#ismSelectAll");
+          if (!cb) return;
+          let visibleSelectable = 0, visibleSelected = 0;
+          pdfItems.forEach((_, i) => {
+            if (dupFlags[i]) return;
+            if (!isVisibleIdx(i)) return;
+            visibleSelectable++;
+            if (selected.has(i)) visibleSelected++;
+          });
+          cb.checked = visibleSelectable > 0 && visibleSelected === visibleSelectable;
+          cb.indeterminate = visibleSelected > 0 && visibleSelected < visibleSelectable;
+        }
+
+        // build HTML
+        overlay.innerHTML = `
+          <div class="ism-panel">
+            <div class="ism-header">
+              <h3><i class="fas fa-list-check"></i> Select Items to Import</h3>
+              <button class="ism-close" title="Close">&times;</button>
+            </div>
+
+            <div class="ism-toolbar">
+              <input type="text" class="ism-search" placeholder="Search by item code, description…">
+              <label class="ism-select-all-wrap">
+                <input type="checkbox" id="ismSelectAll">
+                <span>Select All</span>
+              </label>
+              <span class="ism-counter"></span>
+            </div>
+
+            <div class="ism-list"></div>
+
+            <div class="ism-footer">
+              <button class="ism-btn ism-btn-cancel">Cancel</button>
+              <button class="ism-btn ism-btn-import" disabled>Import Selected</button>
+            </div>
+          </div>
+        `;
+
+        // populate list
+        const listEl = overlay.querySelector(".ism-list");
+
+        if (!pdfItems.length) {
+          listEl.innerHTML = '<div class="ism-empty"><i class="fas fa-inbox"></i>No order items found in this PDF.</div>';
+        } else {
+          pdfItems.forEach((pdfItem, idx) => {
+            const isDup = dupFlags[idx];
+            const card = d.createElement("div");
+            card.className = "ism-item" + (isDup ? " ism-duplicate" : "");
+            card.dataset.idx = idx;
+
+            // lookup released flag from outstanding data
+            let releasedFlag = "N";
+            if (outstandingIndex) {
+              const osRow = outstandingIndex.get(pdfItem.itemCode);
+              if (osRow) releasedFlag = String(osRow.cr650_released_flag || "").toUpperCase() === "Y" ? "Y" : "N";
+            }
+            const relBadge = releasedFlag === "Y"
+              ? '<span class="ism-badge ism-badge-released">Released</span>'
+              : '<span class="ism-badge ism-badge-notrel">Not Released</span>';
+            const dupBadge = isDup ? '<span class="ism-badge ism-badge-dup">Already Imported</span>' : "";
+
+            card.innerHTML = `
+              <input type="checkbox" ${isDup ? "disabled" : ""}>
+              <div class="ism-item-info">
+                <div class="ism-item-top">
+                  <span class="ism-item-code">${escapeHtml(pdfItem.itemCode)}</span>
+                  <span class="ism-badge ism-badge-order">SO# ${escapeHtml(pdfItem.orderNo || orderNo)}</span>
+                  ${relBadge}${dupBadge}
+                </div>
+                <div class="ism-item-desc" title="${escapeHtml(pdfItem.description)}">${escapeHtml(pdfItem.description)}</div>
+                <div class="ism-item-meta">
+                  <span><i class="fas fa-cubes"></i> Qty: ${Number(pdfItem.quantity || 0).toLocaleString()}</span>
+                  <span><i class="fas fa-hashtag"></i> Line ${pdfItem.lineNo}</span>
+                  <span><i class="fas fa-box"></i> ${escapeHtml(pdfItem.unitsCode || "—")}</span>
+                </div>
+              </div>
+            `;
+
+            // toggle selection
+            if (!isDup) {
+              const toggle = () => {
+                const cb = card.querySelector("input[type=checkbox]");
+                if (selected.has(idx)) { selected.delete(idx); card.classList.remove("selected"); cb.checked = false; }
+                else { selected.add(idx); card.classList.add("selected"); cb.checked = true; }
+                renderCounter();
+                syncSelectAll();
+              };
+              card.addEventListener("click", (e) => { if (e.target.tagName !== "INPUT") toggle(); });
+              card.querySelector("input[type=checkbox]").addEventListener("change", () => toggle());
+            }
+
+            listEl.appendChild(card);
+          });
+        }
+
+        renderCounter();
+
+        // search / filter
+        overlay.querySelector(".ism-search").addEventListener("input", (e) => {
+          const q = e.target.value.toLowerCase().trim();
+          overlay.querySelectorAll(".ism-item").forEach(card => {
+            const idx = Number(card.dataset.idx);
+            const row = pdfItems[idx];
+            if (!q) { card.style.display = ""; return; }
+            const haystack = `${row.orderNo} ${row.itemCode} ${row.description}`.toLowerCase();
+            card.style.display = haystack.includes(q) ? "" : "none";
+          });
+          syncSelectAll();
+        });
+
+        // select all
+        overlay.querySelector("#ismSelectAll").addEventListener("change", (e) => {
+          const checked = e.target.checked;
+          pdfItems.forEach((_, i) => {
+            if (dupFlags[i]) return;
+            if (!isVisibleIdx(i)) return;
+            const card = overlay.querySelector(`.ism-item[data-idx="${i}"]`);
+            const cb = card.querySelector("input[type=checkbox]");
+            if (checked) { selected.add(i); card.classList.add("selected"); cb.checked = true; }
+            else { selected.delete(i); card.classList.remove("selected"); cb.checked = false; }
+          });
+          renderCounter();
+        });
+
+        // cancel / close
+        const close = () => {
+          overlay.classList.remove("active");
+          setTimeout(() => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 200);
+          resolve(null);
+        };
+        overlay.querySelector(".ism-close").addEventListener("click", close);
+        overlay.querySelector(".ism-btn-cancel").addEventListener("click", close);
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+        // import
+        overlay.querySelector(".ism-btn-import").addEventListener("click", () => {
+          const chosen = [...selected].sort((a, b) => a - b).map(i => pdfItems[i]);
+          overlay.classList.remove("active");
+          setTimeout(() => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 200);
+          resolve(chosen);
+        });
+
+        // show
+        d.body.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add("active"));
+        overlay.querySelector(".ism-search").focus();
+      });
+    }
+
+
+    // --- Import from PDF button handler ---
+    const pdfImportBtn = Q("#importFromPdfBtn");
+    const pdfFileInput = Q("#pdfFileInput");
+
+    if (pdfImportBtn && pdfFileInput) {
+      pdfImportBtn.addEventListener("click", () => pdfFileInput.click());
+
+      pdfFileInput.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        pdfImportBtn.disabled = true;
+        const oldText = pdfImportBtn.textContent;
+        pdfImportBtn.textContent = "Reading PDF…";
+        setLoading(true, "Extracting data from PDF…");
+
+        let parsedOrderNo = "";
+        let parsedItems = [];
+        let outstandingIndex = new Map();
+        let existingKeys = new Set();
+
+        try {
+          // 1) Extract text from PDF
+          const text = await extractTextFromPdf(file);
+
+          // 2) Parse into structured items
+          const result = parseOrderPdfText(text);
+          parsedOrderNo = result.orderNo;
+          parsedItems = result.items;
+
+          if (!parsedItems.length) {
+            alert("No order items found in this PDF. Please check the file format.");
+            pdfImportBtn.disabled = false;
+            pdfImportBtn.textContent = oldText || "Import from PDF";
+            setLoading(false);
+            e.target.value = "";
+            return;
+          }
+
+          // 3) Query outstanding report to get released_flag for each item
+          setLoading(true, "Looking up released status…");
+          try {
+            var osRows = await fetchOrderLines(parsedOrderNo);
+            osRows.forEach(function (r) {
+              var code = (r.cr650_product_no || "").trim();
+              if (code && !outstandingIndex.has(code)) outstandingIndex.set(code, r);
+            });
+          } catch (osErr) {
+            console.warn("Could not fetch outstanding report for order " + parsedOrderNo + ":", osErr);
+          }
+
+          // 4) Build existing keys for duplicate detection
+          QA("#itemsTableBody tr.lp-data-row").forEach(r => {
+            const oNo = (r.querySelector(".order-no")?.textContent || "").trim();
+            const iCode = (r.querySelector(".item-code")?.textContent || "").trim();
+            if (oNo || iCode) existingKeys.add(`${oNo}|${iCode}`);
+          });
+
+        } catch (err) {
+          console.error("PDF parse error:", err);
+          alert("Error reading PDF: " + err.message);
+          pdfImportBtn.disabled = false;
+          pdfImportBtn.textContent = oldText || "Import from PDF";
+          setLoading(false);
+          e.target.value = "";
+          return;
+        }
+
+        // Hide loader before showing the selection modal
+        pdfImportBtn.disabled = false;
+        pdfImportBtn.textContent = oldText || "Import from PDF";
+        setLoading(false);
+
+        // 5) Show selection modal — let the user pick items
+        const chosen = await showPdfItemSelectionModal(parsedItems, parsedOrderNo, existingKeys, outstandingIndex);
+        if (!chosen || !chosen.length) {
+          e.target.value = "";
+          return; // user cancelled
+        }
+
+        // 6) Import only the selected items
+        pdfImportBtn.disabled = true;
+        pdfImportBtn.textContent = "Importing…";
+        setLoading(true, "Importing selected items…");
+
+        try {
+          let skippedCount = 0;
+          const newItems = [];
+
+          for (const pdfItem of chosen) {
+            const key = `${pdfItem.orderNo}|${pdfItem.itemCode}`;
+            if (existingKeys.has(key)) {
+              skippedCount++;
+              continue;
+            }
+            existingKeys.add(key);
+            newItems.push(pdfItem);
+          }
+
+          if (!newItems.length) {
+            alert(`All ${chosen.length} selected item(s) already exist in the table. Nothing new to import.`);
+            return;
+          }
+
+          // Convert to order items and compute data
+          const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
+          const computed = newItems.map((pdfItem, idx) =>
+            computeItemData(pdfItemToOrderItem(pdfItem, outstandingIndex), baseCount + idx, itemMaster, null)
+          );
+
+          // Render and persist
+          const tbody = Q("#itemsTableBody");
+          if (tbody) {
+            await appendAndPersistItems(computed, tbody);
+          }
+
+          // Post-import UI updates
+          await ensureContainerItemsForCurrentDcl();
+          rebuildAssignmentTable();
+          renderContainerSummaries();
+
+          let msg = `Successfully imported ${newItems.length} item(s) from PDF (Order ${parsedOrderNo}).`;
+          if (skippedCount > 0) msg += ` ${skippedCount} duplicate(s) skipped.`;
+          showValidation("info", msg);
+
+        } catch (err) {
+          console.error("PDF import error:", err);
+          alert("Error importing items: " + err.message);
+        } finally {
+          pdfImportBtn.disabled = false;
+          pdfImportBtn.textContent = oldText || "Import from PDF";
+          setLoading(false);
+          e.target.value = ""; // reset so same file can be re-selected
         }
       });
     }
@@ -6779,6 +7478,24 @@
       recomputeTotals();
 
       // ===== 5. SYNC CONTAINER ITEMS =====
+      // Sync CI quantities to match DOM loading qty for every row that has a CI
+      for (const tr of allLpRows) {
+        const ciId = tr.dataset.ciId;
+        if (!ciId) continue;
+        const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
+        if (!ci) continue;
+        const domLoadQty = asNum(tr.querySelector(".loading-qty")?.value);
+        if (ci.quantity !== domLoadQty) {
+          try {
+            await patchContainerItem(ciId, { cr650_quantity: domLoadQty });
+            ci.quantity = domLoadQty;
+          } catch (err) {
+            console.error(`❌ CI qty sync failed for CI ${ciId}:`, err);
+            errors.push({ type: `CI sync ${ciId.substring(0, 8)}`, error: err.message });
+          }
+        }
+      }
+
       await ensureContainerItemsForCurrentDcl();
       rebuildAssignmentTable();
       renderContainerSummaries();
