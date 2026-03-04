@@ -85,6 +85,39 @@
     };
 
     // ═══════════════════════════════════════════════════════════════════════
+    // RESTRICTED COUNTRIES LIST
+    // ═══════════════════════════════════════════════════════════════════════
+    const RESTRICTED_COUNTRIES = ['Iran', 'Syrian Arab Republic', 'Syria'];
+
+    /**
+     * Check if a country value matches a restricted country (case-insensitive)
+     */
+    function isRestrictedCountry(country) {
+        if (!country) return false;
+        return RESTRICTED_COUNTRIES.some(rc => rc.toLowerCase() === country.trim().toLowerCase());
+    }
+
+    /**
+     * Show or hide the restricted country warning banner below the country dropdown
+     */
+    function toggleRestrictedWarning(show) {
+        let warning = getElement('#restrictedCountryWarning');
+        if (show) {
+            if (!warning) {
+                warning = document.createElement('div');
+                warning.id = 'restrictedCountryWarning';
+                warning.className = 'restricted-country-warning-cm';
+                warning.innerHTML = '<i class="fas fa-exclamation-triangle"></i> This is a restricted country. Approval may be required to proceed.';
+                const countryGroup = getElement('#country')?.closest('.form-group-cm');
+                if (countryGroup) countryGroup.appendChild(warning);
+            }
+            warning.style.display = 'flex';
+        } else if (warning) {
+            warning.style.display = 'none';
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // COUNTRY SUGGESTIONS (Smart Hints)
     // ═══════════════════════════════════════════════════════════════════════
     const countrySuggestions = {
@@ -246,6 +279,29 @@
         const suggestion = countrySuggestions[country];
         const customInput = getElement('#countryCustom');
         const countryCodeInput = getElement('#country1');
+
+        // Restricted country check (for dropdown selections like "Syrian Arab Republic")
+        if (country && country !== 'Other' && isRestrictedCountry(country)) {
+            const proceed = confirm(
+                `⚠️ Restricted Country Alert\n\n"${country}" is a restricted country.\n\nWould you like to proceed?`
+            );
+            if (!proceed) {
+                e.target.value = '';
+                toggleRestrictedWarning(false);
+                if (countryCodeInput) {
+                    countryCodeInput.value = '';
+                    delete countryCodeInput.dataset.suggested;
+                }
+                const portHint = getElement('#portSuggestion');
+                const paymentHint = getElement('#paymentSuggestion');
+                if (portHint) portHint.textContent = '';
+                if (paymentHint) paymentHint.textContent = '';
+                return;
+            }
+            toggleRestrictedWarning(true);
+        } else {
+            toggleRestrictedWarning(false);
+        }
 
         // Show/hide custom input for "Other" option
         if (customInput) {
@@ -1280,6 +1336,18 @@
 
             // Get Mandatory Documents value
             const mandatoryDocsValue = collectMandatoryDocuments() || null;
+
+            // Restricted country check before saving (catches "Other" custom entries like "Iran")
+            if (isRestrictedCountry(countryValue)) {
+                showLoader(false);
+                const proceed = confirm(
+                    `⚠️ Restricted Country Alert\n\n"${countryValue}" is a restricted country.\n\nAre you sure you want to save this customer?`
+                );
+                if (!proceed) {
+                    return;
+                }
+                showLoader(true);
+            }
 
             // Customer data (addresses are now managed via Customer Models)
             const customerData = {

@@ -1560,3 +1560,26 @@ select.form-control-cm option[value="Other"] {
         grid-template-columns: repeat(2, 1fr) !important;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   RESTRICTED COUNTRY WARNING
+   ═══════════════════════════════════════════════════════════════════════ */
+.restricted-country-warning-cm {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--error);
+    border: 1px solid var(--error);
+    border-radius: var(--radius-md);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    animation: slideDown var(--transition-base);
+}
+
+.restricted-country-warning-cm i {
+    font-size: 1rem;
+    color: var(--error);
+}
