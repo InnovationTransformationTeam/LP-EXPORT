@@ -163,6 +163,7 @@
         'Turkey': 'TR',
         'United Arab Emirates': 'AE',
         'Syrian Arab Republic': 'SY',
+        'Iran': 'IR',
         'Kuwait': 'KW',
         'Oman': 'OM',
         'Pakistan': 'PK',
@@ -250,7 +251,8 @@
             'Jordan': '🇯🇴',
             'Turkey': '🇹🇷',
             'United Arab Emirates': '🇦🇪',
-            'Syrian Arab Republic': '🇸🇾'
+            'Syrian Arab Republic': '🇸🇾',
+            'Iran': '🇮🇷'
         };
         return flags[country] || '🌍';
     }
