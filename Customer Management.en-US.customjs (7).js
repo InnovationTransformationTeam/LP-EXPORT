@@ -276,29 +276,31 @@
     /**
      * Handle Country dropdown change - show/hide custom input for "Other"
      */
-    function handleCountryChange(e) {
+    function handleCountryChange(e, skipRestrictionCheck) {
         const country = e.target.value;
         const suggestion = countrySuggestions[country];
         const customInput = getElement('#countryCustom');
         const countryCodeInput = getElement('#country1');
 
-        // Restricted country check (for dropdown selections like "Syrian Arab Republic")
+        // Restricted country check (skip confirm dialog during edit population)
         if (country && country !== 'Other' && isRestrictedCountry(country)) {
-            const proceed = confirm(
-                `⚠️ Restricted Country Alert\n\n"${country}" is a restricted country.\n\nWould you like to proceed?`
-            );
-            if (!proceed) {
-                e.target.value = '';
-                toggleRestrictedWarning(false);
-                if (countryCodeInput) {
-                    countryCodeInput.value = '';
-                    delete countryCodeInput.dataset.suggested;
+            if (!skipRestrictionCheck) {
+                const proceed = confirm(
+                    `⚠️ Restricted Country Alert\n\n"${country}" is a restricted country.\n\nWould you like to proceed?`
+                );
+                if (!proceed) {
+                    e.target.value = '';
+                    toggleRestrictedWarning(false);
+                    if (countryCodeInput) {
+                        countryCodeInput.value = '';
+                        delete countryCodeInput.dataset.suggested;
+                    }
+                    const portHint = getElement('#portSuggestion');
+                    const paymentHint = getElement('#paymentSuggestion');
+                    if (portHint) portHint.textContent = '';
+                    if (paymentHint) paymentHint.textContent = '';
+                    return;
                 }
-                const portHint = getElement('#portSuggestion');
-                const paymentHint = getElement('#paymentSuggestion');
-                if (portHint) portHint.textContent = '';
-                if (paymentHint) paymentHint.textContent = '';
-                return;
             }
             toggleRestrictedWarning(true);
         } else {
@@ -1776,7 +1778,7 @@
                 const countryOptions = Array.from(countryEl.options).map(opt => opt.value);
                 if (countryOptions.includes(countryValue)) {
                     countryEl.value = countryValue;
-                    handleCountryChange({ target: countryEl });
+                    handleCountryChange({ target: countryEl }, true);
                     if (countryCustomEl) {
                         countryCustomEl.style.display = 'none';
                         countryCustomEl.required = false;
