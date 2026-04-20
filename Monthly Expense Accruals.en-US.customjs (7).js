@@ -839,6 +839,8 @@ async function saveRemarks(dclId, value) {
     try {
         const body = {};
         body[REMARKS_FIELD] = value || null;
+
+        const token = await getPortalToken();
         const res = await fetch(`/_api/cr650_dcl_masters(${dclId})`, {
             method: 'PATCH',
             headers: {
@@ -846,9 +848,11 @@ async function saveRemarks(dclId, value) {
                 'Content-Type': 'application/json; charset=utf-8',
                 'OData-MaxVersion': '4.0',
                 'OData-Version': '4.0',
-                '__RequestVerificationToken': getRequestVerificationToken()
+                'X-Requested-With': 'XMLHttpRequest',
+                '__RequestVerificationToken': token
             },
             credentials: 'same-origin',
+            cache: 'no-store',
             body: JSON.stringify(body)
         });
         if (!res.ok) {
@@ -865,7 +869,23 @@ async function saveRemarks(dclId, value) {
     }
 }
 
-function getRequestVerificationToken() {
+// Portal token resolution: prefer shell.getTokenDeferred (async, always fresh),
+// fall back to hidden input / meta / cookie for older portal renderings.
+function getPortalToken() {
+    return new Promise(resolve => {
+        try {
+            if (window.shell && typeof window.shell.getTokenDeferred === 'function') {
+                window.shell.getTokenDeferred()
+                    .done(t => resolve(t || getSyncToken()))
+                    .fail(() => resolve(getSyncToken()));
+                return;
+            }
+        } catch (_) { /* ignore */ }
+        resolve(getSyncToken());
+    });
+}
+
+function getSyncToken() {
     const input = document.querySelector('input[name="__RequestVerificationToken"]');
     if (input?.value) return input.value;
     const meta = document.querySelector('meta[name="__RequestVerificationToken"]');
