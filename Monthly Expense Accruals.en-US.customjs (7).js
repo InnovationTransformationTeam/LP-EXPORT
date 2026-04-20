@@ -148,9 +148,10 @@ const COLUMN_DEFINITIONS = [
     { key: 'blNumber', header: 'BL No.', source: 'cr650_dcl_masters + cr650_dcl_shipped_orderses', field: 'cr650_blnumber', width: 150, type: 'text' },
     { key: 'oraclePO', header: 'Oracle P.O No.', source: 'cr650_dcl_ar_reports', field: 'cr650_salesordernumber', width: 150, type: 'text' },
 
-    // Cost Calculations (AED conversion - derived from system data)
-    { key: 'perLtrCost', header: 'Per Ltr. Cost (AED)', source: 'formula', field: '(Total Freight / Qty ltrs) * 3.675', width: 160, type: 'currency', decimals: 2 },
-    { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: '(Total Freight / Qty MT) * 3.675', width: 160, type: 'currency', decimals: 2 },
+    // Cost Calculations (values already in AED because all charges are
+    // normalised to AED at extraction - no currency multiplier needed).
+    { key: 'perLtrCost', header: 'Per Ltr. Cost (AED)', source: 'formula', field: 'Total Freight / Qty ltrs.', width: 160, type: 'currency', decimals: 2 },
+    { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: 'Total Freight / Qty MT', width: 160, type: 'currency', decimals: 2 },
 
     // Editable General Remarks on DCL Master (new Dataverse column: cr650_accrual_remarks)
     // Summary Accruals only - user-entered free text
@@ -638,8 +639,13 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         qtyMT: parseFloat(ar?.cr650_qtymt) || lpAggregates.totalNetWeightKg / 1000 || 0,
         qty: parseFloat(ar?.cr650_qty) || lpAggregates.totalLoadedQty || parseFloat(dcl?.cr650_totalorderquantity) || 0,
 
-        // Pricing from AR Reports, then loading plans unit price
-        unitPIFreight: parseFloat(ar?.cr650_price) || lpAggregates.avgUnitPrice || 0,
+        // Pricing from AR Reports (converted to AED using the AR record's own
+        // transaction currency + conversion rate so the export is unified).
+        unitPIFreight: toAED(
+            parseFloat(ar?.cr650_price) || lpAggregates.avgUnitPrice || 0,
+            ar?.cr650_transactioncurrency || dcl?.cr650_currencycode || 'USD',
+            parseFloat(ar?.cr650_conversionrate) || null
+        ),
 
         // Oracle PO from AR Reports, then loading plan order number
         oraclePO: ar?.cr650_salesordernumber || lpAggregates.orderNumber || "N/A",
@@ -699,21 +705,25 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         _arId: ar?.cr650_dcl_ar_reportid,
         _dclId: dcl?.cr650_dcl_masterid,
         _shippedId: shipped?.cr650_dcl_shipped_ordersid,
-        _currency: currency,
-        _conversionRate: parseFloat(ar?.cr650_conversionrate) || null
+        // All currency-typed fields have been normalised to AED at extraction,
+        // so the record's effective currency for display and export is AED.
+        _currency: 'AED',
+        _conversionRate: 1,
+        // Preserve the original native currency for audit/debug purposes.
+        _nativeCurrency: currency
     };
 }
 
 function extractDocCharges(docs) {
+  // All amounts are normalised to AED at extraction so mixed-currency
+  // charges (e.g. one COO in USD + one COO in SAR) can be summed correctly.
   const charges = {
     cooCharges: 0,
     mofaCharges: 0,
     documentationCharges: 0,
     insuranceCharges: 0,
     inspectionCharges: 0,
-    // Sum of charges for any "Other Documents" (custom-named folders) with charge > 0
     otherCharges: 0,
-    // Concatenated "<doc name>: <remarks>" pairs for each other-doc with a charge
     expensesRemarks: ''
   };
 
@@ -722,36 +732,26 @@ function extractDocCharges(docs) {
   docs.forEach(doc => {
     const rawType = (doc.cr650_doc_type || "").trim();
     const type = rawType.toLowerCase();
-    const amount = Number(doc.cr650_chargeamount || 0);
+    const rawAmount = Number(doc.cr650_chargeamount || 0);
+    if (!rawAmount) return;
 
-    if (!amount) return;
+    // Each document carries its own currency - convert per-document to AED
+    const currency = doc.cr650_currencycode || 'USD';
+    const amount = toAED(rawAmount, currency);
 
-    // Match COO / Certificate of Origin / Customer Exit/Entry Certificate
     if (type.includes("coo") || type.includes("certificate of origin") || type.includes("exit") || type.includes("entry certificate")) {
       charges.cooCharges += amount;
-    }
-    // Match MOFA
-    else if (type.includes("mofa")) {
+    } else if (type.includes("mofa")) {
       charges.mofaCharges += amount;
-    }
-    // Match Documentation charges
-    else if (type.includes("documentation")) {
+    } else if (type.includes("documentation")) {
       charges.documentationCharges += amount;
-    }
-    // Match Insurance
-    else if (type.includes("insurance")) {
+    } else if (type.includes("insurance")) {
       charges.insuranceCharges += amount;
-    }
-    // Match Inspection
-    else if (type.includes("inspection")) {
+    } else if (type.includes("inspection")) {
       charges.inspectionCharges += amount;
-    }
-    // System Invoice is not an expense accrual line - skip its charges
-    else if (type.includes("system invoice") || type.includes("sys invoice")) {
-      // intentionally skipped
-    }
-    // Anything else with a charge = "Other Documents" custom folder
-    else {
+    } else if (type.includes("system invoice") || type.includes("sys invoice")) {
+      // System invoices are not an accrual line
+    } else {
       charges.otherCharges += amount;
       const remarks = (doc.cr650_remarks || "").trim();
       const piece = remarks ? `${rawType}: ${remarks}` : rawType;
@@ -764,6 +764,7 @@ function extractDocCharges(docs) {
 }
 
 function extractDiscountCharges(discCharges) {
+  // Amounts normalised to AED at extraction.
   const result = {
     freightCharges: 0,
     flexiBagsCharges: 0,
@@ -772,9 +773,11 @@ function extractDiscountCharges(discCharges) {
 
   discCharges.forEach(dc => {
     const type = (dc.cr650_name || "").toLowerCase().trim();
-    const amount = Number(dc.cr650_amount || dc.cr650_totalimpact || 0);
+    const rawAmount = Number(dc.cr650_amount || dc.cr650_totalimpact || 0);
+    if (!rawAmount) return;
 
-    if (!amount) return;
+    const currency = dc.cr650_currencycode || dc.cr650_currency || 'USD';
+    const amount = toAED(rawAmount, currency);
 
     if (type.includes("freight")) {
       result.freightCharges += amount;
@@ -795,19 +798,16 @@ function applyFormulas(record) {
     const qtyLtrs = parseFloat(record.qtyLtrs) || 0;
     const qtyMT = parseFloat(record.qtyMT) || 0;
 
-    // Total Freight = Qty. * Unit Actual Freight (stakeholder formula)
-    // Where Qty. = Container Qty (number of containers)
+    // Total Freight = Container Qty * Unit Actual Freight (stakeholder formula).
+    // Both operands are already in AED (charges are normalised at extraction),
+    // so Total Freight is in AED too. No extra multiplier needed.
     record.totalFreight = containerQty * unitActualFreight;
 
-    // Per Ltr. Cost (AED) = (Total Freight / Qty ltrs.) * 3.675
-    record.perLtrCost = qtyLtrs > 0
-        ? (record.totalFreight / qtyLtrs) * 3.675
-        : 0;
+    // Per Ltr. Cost (AED) = Total Freight / Qty ltrs.
+    record.perLtrCost = qtyLtrs > 0 ? record.totalFreight / qtyLtrs : 0;
 
-    // Per Mts. Cost (AED) = (Total Freight / Qty MT) * 3.675
-    record.perMTCost = qtyMT > 0
-        ? (record.totalFreight / qtyMT) * 3.675
-        : 0;
+    // Per Mts. Cost (AED) = Total Freight / Qty MT
+    record.perMTCost = qtyMT > 0 ? record.totalFreight / qtyMT : 0;
 }
 
 /* -------------------------------------------------
