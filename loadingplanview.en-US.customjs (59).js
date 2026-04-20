@@ -1,0 +1,8389 @@
+(function (w, d) {
+  "use strict";
+
+  /* =============================
+     0) CONFIG & CONSTANTS
+     ============================= */
+
+  // Outstanding Orders (Oracle open order lines)
+  const OUTSTANDING_API = "/_api/cr650_dcl_outstanding_reports";
+
+  /* === FG MASTER CACHE === */
+  let FG_MASTER = [];
+  w.FG_MASTER = FG_MASTER;
+
+  async function loadFgMasterCache() {
+    const data = await fetch("/_api/cr650_productspecifications?$select=cr650_productspecificationid,cr650_fg_name,cr650_brand,cr650_packingdetails,cr650_lengthmm,cr650_widthmm,cr650_heightmm,cr650_grossweightpercartonkg,cr650_netweightpercartonkg,cr650_cartonvolumem3,cr650_product_no&$top=5000")
+      .then(r => r.json())
+      .then(d => d.value || []);
+    FG_MASTER = data;
+    w.FG_MASTER = FG_MASTER;
+  }
+  loadFgMasterCache();
+
+  // Shipped Orders endpoint (Delivery Notes & Container # history)
+  const SHIPPED_API = "/_api/cr650_dcl_shipped_orderses";
+  const SHIPPED_FIELDS = [
+    "cr650_order_number", "cr650_item_no", "cr650_delivery_note", "cr650_shipment_date", "createdon", "cr650_container_no"
+  ];
+
+  // DCL→Orders child table (links DCL master → oracle SO#)
+  const DCL_ORDERS_API = "/_api/cr650_dcl_orders";
+  const DCL_ORDER_FIELDS = [
+    "cr650_dcl_orderid", "cr650_order_number", "_cr650_dcl_number_value", "createdon"
+  ];
+
+  // DCL Loading Plan table (persisted loading rows)
+  const DCL_LP_API = "/_api/cr650_dcl_loading_plans";
+  const DCL_LP_FIELDS = [
+    "cr650_dcl_loading_planid",
+    "_cr650_dcl_number_value",
+    "cr650_ordernumber",
+    "cr650_itemcode",
+    "cr650_itemdescription",
+    "cr650_releasestatus",
+    "cr650_packagingdetails",
+    "cr650_unitofmeasure",
+    "cr650_packagetype",
+    "cr650_orderedquantity",
+    "cr650_loadedquantity",
+    "cr650_pendingquantity",
+    "cr650_ispalletized",
+    "cr650_palletcount",
+    "cr650_palletweight",
+    "cr650_totalvolumeorweight",
+    "cr650_netweightkg",
+    "cr650_grossweightkg",
+    "createdon",
+    "modifiedon"
+  ];
+
+
+  // DCL Master API (parent record totals we PATCH)
+  const DCL_MASTER_API = "/_api/cr650_dcl_masters";
+
+  // DCL Containers API (card view in Step 1)
+  const DCL_CONTAINERS_API = "/_api/cr650_dcl_containers";
+
+  // NEW: DCL Container Items API
+  // Note: Palletized and # Pallets are stored in the Loading Plan table, not Container Items
+  const DCL_CONTAINER_ITEMS_API = "/_api/cr650_dcl_container_itemses";
+  const DCL_CONTAINER_ITEMS_FIELDS = [
+    "cr650_dcl_container_itemsid",
+    "cr650_quantity",
+    "_cr650_loadingplanitem_value",
+    "_cr650_dcl_number_value",
+    "_cr650_dcl_master_number_value",
+    "cr650_issplititem",
+    "createdon"
+  ];
+
+
+
+  // Other DCL-related APIs you already had
+  const NOTIFY_API = "/_api/cr650_dcl_notify_parties";
+  const TERMS_API = "/_api/cr650_dcl_terms_conditionses";
+  const BRANDS_API = "/_api/cr650_dcl_brands";
+
+  const CONTAINER_CAPACITY_KG = {
+    "20ft Container": 21000,
+    "40ft Container": 26000,
+    "40ft High Cube": 26500,
+    "ISO Tank Container": 30000,
+    "Flexi Bag 20ft": 24000,
+    "Flexi Bag 40ft": 26000,
+    "Bulk Tanker": 32000,
+    "Truck": 24000
+  };
+
+
+  // Container constraints for UI
+  const CONTAINER_CONSTRAINTS = {
+    "20ft Container": { maxWeight: 21000, maxVolume: 33 },
+    "40ft Container": { maxWeight: 26000, maxVolume: 67 },
+    "40ft High Cube": { maxWeight: 26500, maxVolume: 76 },
+    "ISO Tank Container": { maxWeight: 30000, maxVolume: 26 },
+    "Flexi Bag 20ft": { maxWeight: 24000, maxVolume: 24 },
+    "Flexi Bag 40ft": { maxWeight: 26000, maxVolume: 26 },
+    "Bulk Tanker": { maxWeight: 32000, maxVolume: null },
+    "Truck": { maxWeight: 24000, maxVolume: null }
+  };
+
+  // Option set numeric values for cr650_container_type
+  const CONTAINER_TYPE_OPTIONSET = {
+    "20ft Container": 1,
+    "40ft Container": 2,
+    "40ft High Cube": 3,
+    "ISO Tank Container": 4,
+    "Flexi Bag 20ft": 5,
+    "Flexi Bag 40ft": 6,
+    "Bulk Tanker": 7,
+    "Truck": 8
+  };
+
+
+  /* =============================
+   DCL STATUS CHECK
+   ============================= */
+  let DCL_STATUS = null;
+
+  async function fetchDclStatus(dclGuid) {
+    if (!dclGuid || !isGuid(dclGuid)) return null;
+
+    try {
+      const data = await safeAjax({
+        type: "GET",
+        url: `${DCL_MASTER_API}(${dclGuid})?$select=cr650_status`,
+        headers: {
+          Accept: "application/json;odata.metadata=minimal"
+        },
+        dataType: "json",
+        _withLoader: false
+      });
+
+      DCL_STATUS = data && data.cr650_status ? data.cr650_status : null;
+      console.log("📋 DCL Status:", DCL_STATUS);
+
+      return DCL_STATUS;
+    } catch (err) {
+      console.error("Failed to fetch DCL status:", err);
+      return null;
+    }
+  }
+  /* =============================
+     FORM LOCKING FOR SUBMITTED DCLs
+     ============================= */
+  function lockLoadingPlanIfSubmitted() {
+    try {
+      const status = (DCL_STATUS || "").toLowerCase();
+
+      if (status !== "submitted") {
+        console.log("📝 Loading Plan is editable - status:", DCL_STATUS || "none");
+        return;
+      }
+
+      console.log("🔒 Locking Loading Plan - DCL status is 'Submitted'");
+
+      // 1. Disable all table inputs
+      const tableInputs = document.querySelectorAll(
+        "#itemsTableBody input, " +
+        "#itemsTableBody select, " +
+        "#itemsTableBody textarea, " +
+        "#itemsTableBody button"
+      );
+
+      tableInputs.forEach(el => {
+        el.disabled = true;
+        el.style.cursor = "not-allowed";
+        el.style.opacity = "0.6";
+        el.style.pointerEvents = "none";
+      });
+
+      // 2. Disable contentEditable cells
+      document.querySelectorAll("#itemsTableBody .ce, #itemsTableBody .ce-editing").forEach(cell => {
+        cell.contentEditable = "false";
+        cell.style.cursor = "not-allowed";
+        cell.style.backgroundColor = "#f5f5f5";
+      });
+
+      // 3. Disable all action buttons
+      const actionButtons = document.querySelectorAll(
+        "#addItemBtn, " +
+        "#importFromOracleBtn, " +
+        "#updateAllBtn, " +
+        "#assignToContainersBtn, " +
+        "#addContainerBtn, " +
+        "#addDiscountChargeBtn, " +
+        "#saveDiscountsBtn, " +
+        "#loadDiscountsBtn, " +
+        ".lp-edit, " +
+        ".row-save, " +
+        ".row-cancel, " +
+        ".row-remove, " +
+        ".dc-remove, " +
+        ".split-item, " +
+        ".add-dims-btn, " +
+        ".assign-container, " +
+        ".palletized-select, " +
+        ".pallets-input"
+      );
+
+      actionButtons.forEach(btn => {
+        btn.disabled = true;
+        btn.style.display = "none";
+      });
+
+      // 4. Disable container management
+      document.querySelectorAll(
+        "#containerTypeSelect, " +
+        "#containerQtyInput, " +
+        "#containerMaxWeightInput, " +
+        ".assign-container"
+      ).forEach(el => {
+        el.disabled = true;
+        el.style.cursor = "not-allowed";
+      });
+
+      // 7. Make tables read-only visually
+      const tables = document.querySelectorAll(
+        "#itemsTable"
+      );
+
+      tables.forEach(table => {
+        table.style.opacity = "0.7";
+        table.style.pointerEvents = "none";
+      });
+
+
+      // ✅ NEW: Lock LP Additional Comments Section
+      const lpCommentsTextarea = document.getElementById("lpAdditionalComments");
+      if (lpCommentsTextarea) {
+        lpCommentsTextarea.disabled = true;
+        lpCommentsTextarea.style.cursor = "not-allowed";
+        lpCommentsTextarea.style.backgroundColor = "#f5f5f5";
+        lpCommentsTextarea.style.opacity = "0.6";
+      }
+
+      // ✅ NEW: Lock Loading Plan Generation Section
+      const generateLPBtn = document.getElementById("generateLP");
+      if (generateLPBtn) {
+        generateLPBtn.disabled = true;
+        generateLPBtn.style.display = "none";
+      }
+
+      // ✅ NEW: Keep preview button visible but make it view-only
+      const previewLPBtn = document.querySelector('[data-preview="lp"]');
+      if (previewLPBtn) {
+        // Only hide if there's no existing document to view
+        if (!previewLPBtn.href || previewLPBtn.href === "#") {
+          previewLPBtn.style.display = "none";
+        } else {
+          // Make it clear it's read-only
+          const icon = previewLPBtn.querySelector("i");
+          if (icon) {
+            icon.classList.remove("fa-eye");
+            icon.classList.add("fa-lock");
+          }
+        }
+      }
+
+      // ✅ NEW: Lock the entire document card
+      const docCard = document.querySelector('.document-card');
+      if (docCard) {
+        docCard.style.opacity = "0.8";
+
+        // Re-enable view link only if it exists
+        const viewLink = docCard.querySelector('a[href]:not([href="#"])');
+        if (viewLink) {
+          viewLink.style.pointerEvents = "auto";
+          viewLink.style.opacity = "1";
+        }
+      }
+
+      // 8. Show locked banner
+      showLoadingPlanLockedBanner();
+
+      console.log("✅ Loading Plan fully locked");
+
+    } catch (lockError) {
+      console.error("❌ Error while locking Loading Plan:", lockError);
+    }
+  }
+
+  function showLoadingPlanLockedBanner() {
+    try {
+      const wizard = document.getElementById("dclWizard");
+      if (!wizard) {
+        console.warn("Wizard container not found");
+        return;
+      }
+
+      // Check if banner already exists
+      if (document.getElementById("lockedBanner")) {
+        console.log("Banner already exists");
+        return;
+      }
+
+      const banner = document.createElement("div");
+      banner.id = "lockedBanner";
+      banner.style.cssText = `
+      background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+      border: 2px solid #fca5a5;
+      top: 0;
+      z-index: 1000;
+    `;
+
+      banner.innerHTML = `
+      <i class="fas fa-lock" style="font-size: 24px;"></i>
+      <div style="flex: 1;">
+        <div style="font-size: 16px; font-weight: 700; margin-bottom: 4px;">
+          DCL Locked - Read Only Mode
+        </div>
+        <div style="font-size: 14px; opacity: 0.95;">
+          This DCL has been submitted and cannot be modified.
+        </div>
+      </div>
+    `;
+
+      const firstSection = wizard.querySelector(".step-content");
+      if (firstSection) {
+        wizard.insertBefore(banner, firstSection);
+      } else {
+        wizard.insertBefore(banner, wizard.firstChild);
+      }
+
+    } catch (bannerError) {
+      console.error("Error creating locked banner:", bannerError);
+    }
+  }
+
+  const CONTAINER_TYPE_LABEL_FROM_OPTIONSET = {};
+  Object.entries(CONTAINER_TYPE_OPTIONSET).forEach(([label, value]) => {
+    CONTAINER_TYPE_LABEL_FROM_OPTIONSET[value] = label;
+  });
+
+  function mapContainerTypeToOptionValue(type) {
+    return CONTAINER_TYPE_OPTIONSET[type] ?? null;
+  }
+  // In-memory state
+  let DCL_CONTAINERS_STATE = [];
+  // Each row: { id, lpId, quantity, containerGuid, dclMasterGuid }
+  let DCL_CONTAINER_ITEMS_STATE = [];
+
+  window.DCL_CONTAINER_ITEMS_STATE = DCL_CONTAINER_ITEMS_STATE;
+  window.DCL_CONTAINERS_STATE = DCL_CONTAINERS_STATE;
+
+
+  let ITEM_MASTER_CACHE = {};
+  let CURRENT_DCL_ID = null;
+  let LOADING_DATE = null;
+  w.__LOADING_DATE = null;
+  let CURRENCY_CODE = "USD";
+
+  window.CURRENT_DCL_ID = CURRENT_DCL_ID;
+
+
+  /* =============================
+     0A) TOP LOADER BAR
+     ============================= */
+  function ensureTopLoader() {
+    if (!d.getElementById("top-loader")) {
+      const bar = d.createElement("div");
+      bar.id = "top-loader";
+      bar.className = "top-loader hidden";
+      d.body.prepend(bar);
+    }
+  }
+  ensureTopLoader();
+  function setLoading(isLoading, textOpt) {
+    const topbar = d.getElementById("top-loader");
+    const main = d.querySelector(".main-section");
+    const dclCreate = d.getElementById("dcl-create"); // ✅ Target the main content area
+    const controls = d.querySelector(".dcl-controls");
+    const tableEl = d.getElementById("itemsTableBody")?.closest("table");
+
+    if (isLoading) {
+      // Show top loader
+      if (topbar) topbar.classList.remove("hidden");
+      if (main) main.setAttribute("aria-busy", "true");
+
+      // Update loading text if provided
+      const info = d.getElementById("resultsInfo");
+      if (info && textOpt) info.textContent = textOpt;
+
+      // ✅ Blur the entire dcl-create section
+      if (dclCreate) dclCreate.classList.add("blur-while-loading");
+
+      // Blur specific elements (optional)
+      if (controls) controls.classList.add("blur-while-loading");
+      if (tableEl) tableEl.classList.add("blur-while-loading");
+    } else {
+      // Hide top loader
+      if (topbar) topbar.classList.add("hidden");
+      if (main) main.removeAttribute("aria-busy");
+
+      // ✅ Remove blur from dcl-create section
+      if (dclCreate) dclCreate.classList.remove("blur-while-loading");
+
+      // Remove blur from specific elements
+      if (controls) controls.classList.remove("blur-while-loading");
+      if (tableEl) tableEl.classList.remove("blur-while-loading");
+    }
+  }
+
+
+  /* =============================
+     0B) DATA NORMALIZATION - NEW
+     ============================= */
+
+  // ✅ NEW: Normalize data types from Dataverse text fields to JavaScript numbers
+  function normalizeOutstandingData(records) {
+    return records.map(record => ({
+      ...record,
+      // Convert text fields to numbers
+      cr650_order_no: Number(record.cr650_order_no),
+      cr650_source_order_number: Number(record.cr650_source_order_number),
+      cr650_line_number: Number(record.cr650_line_number),
+      cr650_source_line_number: Number(record.cr650_source_line_number),
+      cr650_product_pack: Number(record.cr650_product_pack),
+      cr650_delivery_detail_id: record.cr650_delivery_detail_id ? Number(record.cr650_delivery_detail_id) : null
+    }));
+  }
+
+
+
+  /* =============================
+     1) HELPERS
+     ============================= */
+
+  const enc = encodeURIComponent;
+  const asStr = (v) => (v == null ? "" : String(v));
+  const asNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const fmt2 = (n) => round2(n).toFixed(2);
+
+  const Q = (sel) => d.querySelector(sel);
+  const QA = (sel) => Array.from(d.querySelectorAll(sel));
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (m) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+    }[m]));
+  }
+  function setText(sel, v) { const n = Q(sel); if (n) n.textContent = v; }
+  function getQueryParam(name) { return new URL(w.location.href).searchParams.get(name); }
+  function isGuid(s) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      .test(String(s || "").trim());
+  }
+
+
+  // Release status mapping
+  function formatReleaseStatus(rawVal) {
+    if (rawVal === 0 || rawVal === "0") return "Y";
+    if (rawVal === 1 || rawVal === "1") return "N";
+    return asStr(rawVal);
+  }
+  function parseReleaseStatusDisplayToRaw(disp) {
+    const v = String(disp || "").toUpperCase();
+    if (v === "Y") return 0;
+    if (v === "N") return 1;
+    return 1;
+  }
+
+  // Value type mapping
+  function formatValueType(rawVal) {
+    if (rawVal === 0 || rawVal === "0") return "Sale Price";
+    if (rawVal === 1 || rawVal === "1") return "FOC value";
+    if (rawVal === 2 || rawVal === "2") return "Priceless";
+    return "Sale Price";
+  }
+  function parseValueTypeTextToNumber(txt) {
+    const v = String(txt || "").toLowerCase();
+    if (v === "sale price") return 0;
+    if (v === "foc value") return 1;
+    if (v === "priceless") return 2;
+    return 0;
+  }
+
+
+  async function deleteAllContainerItemsForCurrentDcl() {
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return;
+
+    const dclLower = CURRENT_DCL_ID.toLowerCase();
+
+    const lpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
+    const lpIdSet = new Set(
+      (lpRows || [])
+        .map(r => (r.cr650_dcl_loading_planid || "").toLowerCase())
+        .filter(Boolean)
+    );
+
+    const allCiRows = await fetchAllContainerItems(CURRENT_DCL_ID);
+
+    const rowsToDelete = (allCiRows || []).filter(ci => {
+      const masterLower = String(ci._cr650_dcl_master_number_value || "").toLowerCase();
+      const lpLower = String(ci._cr650_loadingplanitem_value || "").toLowerCase();
+      return masterLower === dclLower || (lpLower && lpIdSet.has(lpLower));
+    });
+
+    for (const ci of rowsToDelete) {
+      const id = ci.cr650_dcl_container_itemsid || ci.id;
+      if (!id) continue;
+      try {
+        await deleteContainerItem(id);
+      } catch (err) {
+        console.warn("Failed to delete container-item", id, err);
+      }
+    }
+
+    DCL_CONTAINER_ITEMS_STATE = [];
+  }
+
+  /* =============================
+     1A) DATE PARSING & FILTERING - NEW
+     ============================= */
+
+  /**
+   * Parse ISO date string from DCL Master (e.g., "2025-10-02T21:00:00Z")
+   * Returns timestamp in milliseconds
+   */
+  function parseISODate(isoString) {
+    if (!isoString) return NaN;
+    const ts = Date.parse(isoString);
+    return Number.isNaN(ts) ? NaN : ts;
+  }
+
+  /**
+   * Parse shipment date string (e.g., "21/07/2025 16:23:33")
+   * Format: DD/MM/YYYY HH:mm:ss (day/month/year - international format)
+   * Returns timestamp in milliseconds
+   */
+  function parseShipmentDate(dateString) {
+    if (!dateString) return NaN;
+
+    const match = String(dateString).match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}):(\d{2}))?/);
+    if (!match) {
+      console.warn("⚠️ Shipment date doesn't match expected format:", dateString);
+      return NaN;
+    }
+
+    const [_, dd, mm, yyyy, hh = "00", mi = "00", ss = "00"] = match;
+
+    // ✅ FIXED: Format is DD/MM/YYYY, so we need to rearrange to YYYY-MM-DD
+    const ts = Date.parse(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}Z`);
+
+    if (Number.isNaN(ts)) {
+      console.warn("⚠️ Failed to parse shipment date:", dateString, "→ dd:", dd, "mm:", mm, "yyyy:", yyyy);
+      return NaN;
+    }
+
+    console.log(`📅 Parsed shipment date: "${dateString}" → ${new Date(ts).toISOString()}`);
+    return ts;
+  }
+
+  /**
+   * Check if a shipment date falls within the loading date window
+   * Window: loadingDate - 5 days to loadingDate (inclusive)
+   */
+  function isWithinLoadingDateWindow(shipmentDateString, loadingDateISO) {
+    if (!shipmentDateString || !loadingDateISO) {
+      console.log("📅 No filtering applied (missing dates)");
+      return true; // No filter if dates missing
+    }
+
+    const shipmentTs = parseShipmentDate(shipmentDateString);
+    const loadingTs = parseISODate(loadingDateISO);
+
+    if (Number.isNaN(shipmentTs)) {
+      console.warn("⚠️ Could not parse shipment date, including record:", shipmentDateString);
+      return true; // Include if we can't parse
+    }
+
+    if (Number.isNaN(loadingTs)) {
+      console.warn("⚠️ Could not parse loading date, including record:", loadingDateISO);
+      return true; // Include if we can't parse
+    }
+
+    // Calculate 5 days before loading date (in milliseconds)
+    const fiveDaysInMs = 5 * 24 * 60 * 60 * 1000;
+    const windowStart = loadingTs - fiveDaysInMs;
+    const windowEnd = loadingTs;
+
+    const isInWindow = shipmentTs >= windowStart && shipmentTs <= windowEnd;
+
+    console.log(`📅 Date filter check:`, {
+      shipmentDate: shipmentDateString,
+      shipmentParsed: new Date(shipmentTs).toISOString(),
+      windowStart: new Date(windowStart).toISOString(),
+      windowEnd: new Date(windowEnd).toISOString(),
+      isInWindow: isInWindow,
+      daysBeforeLoading: Math.round((loadingTs - shipmentTs) / (24 * 60 * 60 * 1000))
+    });
+
+    return isInWindow;
+  }
+
+  /**
+   * Fetch loading date from DCL Master record
+   */
+  async function fetchLoadingDateFromDcl(dclGuid) {
+    if (!dclGuid || !isGuid(dclGuid)) return null;
+
+    try {
+      const data = await safeAjax({
+        type: "GET",
+        url: `${DCL_MASTER_API}(${dclGuid})?$select=cr650_loadingdate`,
+        headers: {
+          Accept: "application/json;odata.metadata=minimal"
+        },
+        dataType: "json",
+        _withLoader: false
+      });
+
+      const loadingDate = data && data.cr650_loadingdate ? data.cr650_loadingdate : null;
+      console.log("📅 Loading date from DCL Master:", loadingDate);
+
+      return loadingDate;
+    } catch (err) {
+      console.error("Failed to fetch loading date:", err);
+      return null;
+    }
+  }
+
+  /* =============================
+     2) SAFE AJAX
+     ============================= */
+  function safeAjax(options) {
+    return new Promise((resolve, reject) => {
+      options = options || {};
+      options.type = options.type || "GET";
+      options.contentType = options.contentType || "application/json; charset=utf-8";
+      options.dataType = options.dataType || "json";
+      options.headers = options.headers || {};
+      options.headers.Accept = options.headers.Accept || "application/json;odata.metadata=minimal";
+
+      const toggle = (on) => {
+        if (options._withLoader) {
+          setLoading(on, options._loaderText || "Loading…");
+        }
+      };
+
+      function go(token) {
+        if (token) options.headers["__RequestVerificationToken"] = token;
+
+        if (w.jQuery && jQuery.ajax) {
+          toggle(true);
+          jQuery.ajax(options)
+            .done((data, text, jqXHR) => {
+              try {
+                if (typeof w.validateLoginSession === "function") {
+                  w.validateLoginSession(data, text, jqXHR, (d2) => {
+                    toggle(false);
+                    resolve(d2);
+                  });
+                } else {
+                  toggle(false);
+                  resolve(data);
+                }
+              } catch {
+                toggle(false);
+                resolve(data);
+              }
+            })
+            .fail((err) => {
+              toggle(false);
+              reject(err);
+            });
+        } else {
+          toggle(true);
+          const init = { method: options.type, headers: options.headers };
+          if (options.type !== "GET" && options.data) {
+            init.body = typeof options.data === "string" ? options.data : JSON.stringify(options.data);
+          }
+
+          fetch(options.url, init)
+            .then(async (r) => {
+              console.log("🔍 Response status:", r.status, r.statusText);
+              console.log("🔍 Response headers:", {
+                location: r.headers.get("Location"),
+                'odata-entityid': r.headers.get("OData-EntityId"),
+                'content-type': r.headers.get("Content-Type")
+              });
+
+              const t = await r.text();
+              console.log("🔍 Response text length:", t ? t.length : 0);
+              console.log("🔍 Response text:", t ? t.substring(0, 200) : "(empty)");
+
+              toggle(false);
+
+              if (!r.ok) {
+                try { reject(JSON.parse(t)); }
+                catch { reject(new Error(t || ("HTTP " + r.status))); }
+                return;
+              }
+
+              // ✅ IMPROVED: Handle 204 No Content by extracting ID from headers
+              if (r.status === 204 || !t) {
+                const location = r.headers.get("Location") || r.headers.get("OData-EntityId");
+                console.log("📍 Got 204 or empty response, checking Location header:", location);
+
+                if (location) {
+                  const match = location.match(/\(([^)]+)\)/);
+                  if (match) {
+                    const entityId = match[1];
+                    console.log("✅ Extracted entity ID from header:", entityId);
+                    resolve({ id: entityId, cr650_dcl_loading_planid: entityId });
+                    return;
+                  }
+                }
+
+                resolve({});
+                return;
+              }
+
+              try {
+                const parsed = JSON.parse(t);
+                console.log("✅ Parsed JSON response:", parsed);
+                resolve(parsed);
+              }
+              catch { reject(new Error("Response not JSON")); }
+            })
+            .catch((e) => {
+              console.error("❌ Fetch error:", e);
+              toggle(false);
+              reject(e);
+            });
+        }
+      }
+
+      try {
+        if (w.shell && typeof shell.getTokenDeferred === "function") {
+          shell.getTokenDeferred()
+            .done(go)
+            .fail(() => reject({ message: "Token API unavailable" }));
+        } else {
+          go(null);
+        }
+      } catch (e) {
+        reject({ message: "safeAjax unexpected error", error: e });
+      }
+    });
+  }
+
+  /* =============================
+     3) ODATA HELPERS (fetch data)
+     ============================= */
+  const ORDER_FIELDS = [
+    "cr650_dcl_outstanding_reportid",  // ✅ NEW ID field name
+    "createdon", "modifiedon", "cr650_year", "cr650_month", "cr650_mon_year",
+    "cr650_order_no", "cr650_source_order_number", "cr650_line_number", "cr650_source_line_number",
+    "cr650_order_date", "cr650_booked_date", "cr650_date_requested", "cr650_last_release_date",
+    "cr650_product_no", "cr650_product_name", "cr650_uom1", "cr650_pack_desc", "cr650_product_pack", "cr650_pack",
+    "cr650_original_order_qty", "cr650_shipped_qty1", "cr650_pendingquantity",
+    "cr650_onhand_qty", "cr650_available_qty", "cr650_intransit_qty", "cr650_buonhandqty",
+    "cr650_qty_mton", "cr650_qty2_bbl",
+    "cr650_shipping_status", "cr650_released_flag", "cr650_delivery_no", "cr650_delivery_detail_id",
+    "cr650_earliest_pickup_date",
+    // ✅ REMOVED: cr650_asn_no, cr650_asn_published_date, cr650_name (not in new table)
+    "cr650_customer_number", "cr650_customer_name", "cr650_org_id", "cr650_organization_code", "cr650_cob",
+    "cr650_ship_to_address", "cr650_ship_to_address2", "cr650_ship_to_address3", "cr650_ship_to_address4", "cr650_ship_to_city",
+    "cr650_whse", "cr650_plant",
+    "cr650_order_status", "cr650_order_type",
+    "cr650_opmcategory", "cr650_conversionrate"
+  ];
+
+  const buildSelect = () => "$select=" + enc(ORDER_FIELDS.join(","));
+  const filterByOrderNo = (num) => "$filter=" + enc(`cr650_order_no eq '${num}'`);
+  const filterBySourceOrderNo = (num) => "$filter=" + enc(`cr650_source_order_number eq '${num}'`);
+
+  const baseOutstandingQuery = (extra) => {
+    const orderby = "$orderby=" + enc("createdon desc");
+    const top = "$top=5000";
+    return `${OUTSTANDING_API}?${buildSelect()}&${orderby}&${top}&${extra}`;
+  };
+
+  function fetchPaged(url, acc = [], withLoaderText) {
+    return safeAjax({ type: "GET", url, _withLoader: true, _loaderText: withLoaderText || "Loading data…" })
+      .then((data) => {
+        const rows = (data && (data.value || data)) || [];
+        acc.push(...rows);
+        if (data && data["@odata.nextLink"]) {
+          return fetchPaged(data["@odata.nextLink"], acc, withLoaderText);
+        }
+        return acc;
+      });
+  }
+
+  async function fetchOrderLines(orderNo) {
+    let url = baseOutstandingQuery(filterByOrderNo(orderNo));
+    let rows = await fetchPaged(url, [], `Loading order ${orderNo}…`);
+
+    if (rows && rows.length) {
+      return normalizeOutstandingData(rows);  // ✅ Normalize here!
+    }
+
+    url = baseOutstandingQuery(filterBySourceOrderNo(orderNo));
+    rows = await fetchPaged(url, [], `Loading order ${orderNo}…`);
+    return rows ? normalizeOutstandingData(rows) : [];  // ✅ Normalize here!
+  }
+
+  /**
+ * Fetch currency code from DCL Master record
+ */
+  async function fetchCurrencyFromDcl(dclGuid) {
+    if (!dclGuid || !isGuid(dclGuid)) {
+      console.warn("💱 No valid DCL GUID, using default currency USD");
+      return "USD";
+    }
+
+    try {
+      const data = await safeAjax({
+        type: "GET",
+        url: `${DCL_MASTER_API}(${dclGuid})?$select=cr650_currencycode`,
+        headers: {
+          Accept: "application/json;odata.metadata=minimal"
+        },
+        dataType: "json",
+        _withLoader: false
+      });
+
+      let currencyCode = data && data.cr650_currencycode ? String(data.cr650_currencycode).trim() : null;
+
+      if (!currencyCode) {
+        console.warn("💱 No currency code in DCL Master, defaulting to USD");
+        currencyCode = "USD";
+      }
+
+      console.log("💱 Currency code from DCL Master:", currencyCode);
+      return currencyCode;
+
+    } catch (err) {
+      console.error("❌ Failed to fetch currency code:", err);
+      return "USD";
+    }
+  }
+
+
+  // Shipped / container history - UPDATED WITH DATE FILTERING
+  const shippedSelect = () => "$select=" + enc(SHIPPED_FIELDS.join(","));
+  const shippedFilterBySo = (num) => "$filter=" + enc(`cr650_order_number eq '${num}'`);
+  const shippedBaseQuery = (extra) => {
+    const orderby = "$orderby=" + enc("createdon desc");
+    const top = "$top=5000";
+    return `${SHIPPED_API}?${shippedSelect()}&${orderby}&${top}&${extra}`;
+  };
+  async function fetchShippedBySo(soNumber) {
+    const url = shippedBaseQuery(shippedFilterBySo(soNumber));
+    return fetchPaged(url, [], "Fetching shipped history…");
+  }
+
+  function tryParseDate(s) {
+    if (!s) return NaN;
+
+    // ✅ FIXED: Try DD/MM/YYYY format first (international format)
+    const m = String(s).match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}):(\d{2}))?/);
+    if (m) {
+      const [_, dd, mm, yyyy, hh = "00", mi = "00", ss = "00"] = m;
+      const ts = Date.parse(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}Z`);
+      if (!Number.isNaN(ts)) return ts;
+    }
+
+    // Fallback to standard Date.parse
+    const t2 = Date.parse(s);
+    return Number.isNaN(t2) ? NaN : t2;
+  }
+
+  // ✅ UPDATED: Filter shipped records by loading date window
+  function buildShippedIndex(rows) {
+    const map = new Map();
+    w.__LAST_SHIPPED_ROWS = rows
+
+    for (const r of rows || []) {
+      const so = Number(r.cr650_order_number);
+      const item = String(r.cr650_item_no || "").trim();
+      if (!so || !item) continue;
+
+      // ✅ NEW: Apply date filtering if loading date is available
+      if (LOADING_DATE) {
+        const rawDate = r.cr650_shipment_date || r.createdon;
+
+        if (!isWithinLoadingDateWindow(rawDate, LOADING_DATE)) {
+          console.log(`⏭️ Skipping shipped record - outside date window:`, {
+            order: so,
+            item: item,
+            rawDate
+          });
+          continue;
+        }
+      }
+
+      window.__LAST_SHIPPED_ROWS = rows;
+      const dn = r.cr650_delivery_note != null ? String(r.cr650_delivery_note).trim() : "";
+      const contNo = r.cr650_container_no != null ? String(r.cr650_container_no).trim() : "";
+      const whenTs1 = tryParseDate(r.cr650_shipment_date);
+      const created = Date.parse(r.createdon || 0) || 0;
+      const whenTs = Number.isNaN(whenTs1) ? created : whenTs1;
+      const labelDt = Number.isNaN(whenTs1)
+        ? new Date(created).toISOString().slice(0, 19).replace("T", " ")
+        : r.cr650_shipment_date;
+
+      const key = `${so}|${item}`;
+      const arr = map.get(key) || [];
+      arr.push({
+        dn,
+        whenTs,
+        label: `${dn} - ${labelDt}`,  // ✅ Changed separator to single dash
+        containerNo: contNo
+      });
+      map.set(key, arr);
+    }
+
+    for (const [k, arr] of map.entries()) {
+      arr.sort((a, b) => b.whenTs - a.whenTs);
+    }
+
+    console.log(`📦 Built shipped index with ${map.size} order-item combinations (filtered by loading date)`);
+    w.__LAST_SHIPPED_ROWS = rows
+    return map;
+  }
+
+  // DCL→Orders
+  const dclSelect = () => "$select=" + enc(DCL_ORDER_FIELDS.join(","));
+  const dclBaseQuery = () => `${DCL_ORDERS_API}?${dclSelect()}&$orderby=${enc("createdon asc")}`;
+
+  async function fetchAllDclOrders() {
+    return fetchPaged(dclBaseQuery(), [], "Reading DCL→orders…");
+  }
+
+  async function fetchOrderNumbersForCurrentDcl(dclGuid) {
+    if (!dclGuid) return [];
+
+    // ✅ FIXED: Filter on server-side instead of fetching ALL orders
+    const filter = `$filter=` + enc(`_cr650_dcl_number_value eq ${dclGuid}`);
+    const url = `${DCL_ORDERS_API}?${dclSelect()}&${filter}&$orderby=${enc("createdon asc")}&$top=5000`;
+
+    const mine = await fetchPaged(url, [], "Reading DCL orders…");
+
+    const seen = new Set();
+    const nums = [];
+    for (const r of mine) {
+      const n = (r.cr650_order_number || "").trim();
+      if (n && !seen.has(n)) {
+        seen.add(n);
+        nums.push(n);
+      }
+    }
+    return nums;
+  }
+
+  // DCL LP rows
+  const dclLpQueryForDcl = (dclGuid) =>
+    `${DCL_LP_API}?$select=${enc(DCL_LP_FIELDS.join(","))}` +
+    `&$filter=${enc(`_cr650_dcl_number_value eq ${dclGuid}`)}` +
+    `&$orderby=${enc("createdon asc")}&$top=5000`;
+
+  async function fetchExistingLoadingPlansForCurrentDcl(dclGuid) {
+    if (!dclGuid) return [];
+    return fetchPaged(dclLpQueryForDcl(dclGuid), [], "Loading saved plan rows…");
+  }
+
+  // Container-items fetching
+  async function fetchAllContainerItems(dclGuid) {
+    const selectCols = DCL_CONTAINER_ITEMS_FIELDS.join(",");
+
+    let url;
+    if (dclGuid && isGuid(dclGuid)) {
+      const filter = `_cr650_dcl_master_number_value eq ${dclGuid}`;
+      url = `${DCL_CONTAINER_ITEMS_API}?$select=${enc(selectCols)}&$filter=${enc(filter)}&$top=5000`;
+    } else {
+      url = `${DCL_CONTAINER_ITEMS_API}?$select=${enc(selectCols)}&$top=0`;
+    }
+
+    return fetchPaged(url, [], "Loading container items…");
+  }
+
+  function mapContainerItemRowToState(row) {
+    return {
+      id: row.cr650_dcl_container_itemsid || row.id,
+      lpId: row._cr650_loadingplanitem_value || null,
+      quantity: asNum(row.cr650_quantity),
+      containerGuid: row._cr650_dcl_number_value || null,
+      dclMasterGuid: row._cr650_dcl_master_number_value || null,
+      isSplitItem: row.cr650_issplititem === true
+      // Palletized and numberOfPallets are stored on the LP row (cr650_dcl_loading_plans),
+      // not on container items. They are read from the LP row DOM in rebuildAssignmentTable.
+    };
+  }
+
+  // Creates a container-item row for a given LP row
+  async function createContainerItemOnServer(lpId, quantity, containerGuidOpt, isSplitOpt) {
+    if (!lpId || !isGuid(lpId)) {
+      console.error("createContainerItemOnServer: invalid lpId", lpId);
+      throw new Error("Invalid loading plan id");
+    }
+
+    const qty = asNum(quantity);
+
+    const payload = {
+      cr650_quantity: qty
+    };
+
+    if (typeof isSplitOpt === "boolean") {
+      payload.cr650_issplititem = !!isSplitOpt;
+    }
+
+    payload["cr650_LoadingPlanItem@odata.bind"] = `/cr650_dcl_loading_plans(${lpId})`;
+
+    if (containerGuidOpt && isGuid(containerGuidOpt)) {
+      payload["cr650_dcl_number@odata.bind"] = `/cr650_dcl_containers(${containerGuidOpt})`;
+    }
+
+    if (CURRENT_DCL_ID && isGuid(CURRENT_DCL_ID)) {
+      payload["cr650_dcl_master_number@odata.bind"] = `/cr650_dcl_masters(${CURRENT_DCL_ID})`;
+    }
+
+    console.log("Posting container-item", payload);
+
+    try {
+      const res = await safeAjax({
+        type: "POST",
+        url: DCL_CONTAINER_ITEMS_API,
+        data: JSON.stringify(payload),
+        contentType: "application/json; charset=utf-8",
+        headers: {
+          Accept: "application/json;odata.metadata=minimal",
+          Prefer: "return=representation"
+        },
+        dataType: "json",
+        _withLoader: true,
+        _loaderText: "Creating container item…"
+      });
+
+      const newId = res && (res.cr650_dcl_container_itemsid || res.id);
+
+      if (!newId) {
+        console.log("Container-item created but id not returned (expected 204). Will be picked up on next reload.", res);
+        return null;
+      }
+
+      return newId;
+    } catch (err) {
+      console.error("Failed creating container-item for LP row", lpId, err);
+      if (err && err.responseText) {
+        console.error("Dataverse error (responseText):", err.responseText);
+      }
+      if (err && err.responseJSON && err.responseJSON.error && err.responseJSON.error.message) {
+        console.error("Dataverse error (message):", err.responseJSON.error.message);
+      }
+      throw err;
+    }
+  }
+
+  async function patchContainerItem(ciId, fields) {
+    if (!ciId) return;
+
+    // ✅ SPECIAL HANDLING: If we're clearing the container lookup
+    if (fields["cr650_dcl_number@odata.bind"] === null) {
+      // Use DELETE on the navigation property to clear the reference
+      try {
+        await safeAjax({
+          type: "DELETE",
+          url: `${DCL_CONTAINER_ITEMS_API}(${ciId})/cr650_dcl_number/$ref`,
+          headers: {
+            Accept: "application/json;odata.metadata=minimal"
+          },
+          dataType: "json",
+          _withLoader: true,
+          _loaderText: "Removing container assignment…"
+        });
+
+        console.log("✅ Container assignment cleared via DELETE");
+        return;
+      } catch (err) {
+        // If DELETE fails (e.g., reference doesn't exist), that's OK
+        console.warn("DELETE $ref failed (may already be null):", err);
+        return;
+      }
+    }
+
+    // ✅ NORMAL PATCH for other fields
+    await safeAjax({
+      type: "PATCH",
+      url: `${DCL_CONTAINER_ITEMS_API}(${ciId})`,
+      data: JSON.stringify(fields),
+      contentType: "application/json; charset=utf-8",
+      headers: {
+        Accept: "application/json;odata.metadata=minimal",
+        "If-Match": "*"
+      },
+      dataType: "json",
+      _withLoader: true,
+      _loaderText: "Updating container item…"
+    });
+  }
+
+  async function deleteContainerItem(ciId) {
+    if (!ciId) return;
+    await safeAjax({
+      type: "DELETE",
+      url: `${DCL_CONTAINER_ITEMS_API}(${ciId})`,
+      headers: {
+        Accept: "application/json;odata.metadata=minimal",
+        "If-Match": "*"
+      },
+      dataType: "json",
+      _withLoader: true,
+      _loaderText: "Deleting container item…"
+    });
+  }
+
+  /* =============================
+     4) PACK / NORMALIZERS
+     ============================= */
+
+  /** Pack code → { packaging description, UOM (liters/kg) } */
+  const PACK_CODE_MAP = {
+    "35": { packaging: "208 Drums",       uom: 208 },
+    "58": { packaging: "6x5 Ltr CARTON",  uom: 30 },
+    "56": { packaging: "24x1 LTR",        uom: 24 },
+    "72": { packaging: "1x10 LTR",        uom: 10 },
+    "77": { packaging: "6x3 LTR",         uom: 18 },
+    "27": { packaging: "1x20 LTR",        uom: 20 },
+    "26": { packaging: "1x20 LTR",        uom: 20 },
+    "19": { packaging: "6X4 LTR",         uom: 24 },
+    "06": { packaging: "12X0.7 LTR",      uom: 8.4 },
+    "86": { packaging: "1X25 LTR",        uom: 25 },
+    "76": { packaging: "1X8 LTR",         uom: 8 },
+    "73": { packaging: "6X2.5 LTR",       uom: 15 },
+    "57": { packaging: "12X1 LTR",        uom: 12 },
+    "78": { packaging: "IBC 1000 LTR",    uom: 1000 },
+    "42": { packaging: "1X30 LTR",        uom: 30 },
+    "87": { packaging: "6X3.5LTR",        uom: 21 },
+    "23": { packaging: "24X0.9L",         uom: 21.6 },
+    "59": { packaging: "4X5LTR",          uom: 20 },
+    "84": { packaging: "4X4 LTR CTN",     uom: 16 },
+    "31": { packaging: "180Kg. Drum",      uom: 180 },
+    "55": { packaging: "24X500ml",        uom: 12 },
+    "29": { packaging: "24X2lb",          uom: 22 },
+    "43": { packaging: "24X1lb",          uom: 11 },
+    "66": { packaging: "1X15Kg",          uom: 15 },
+    "16": { packaging: "1X16Kg",          uom: 16 },
+    "67": { packaging: "4X6 LTR CTN",     uom: 24 },
+    "85": { packaging: "208 Drums",       uom: 208 },
+    "88": { packaging: "18Ltr Pail",      uom: 18 },
+    "17": { packaging: "6x5 Ltr",         uom: 30 },
+    "63": { packaging: "6X1US Gallon",    uom: 22.7 },
+    "51": { packaging: "12x2LB",          uom: 11 },
+    "65": { packaging: "1X7 LTR",         uom: 7 },
+    "64": { packaging: "1X16Kg",          uom: 16 },
+    "10": { packaging: "24X250ml",        uom: 6 }
+  };
+
+  /** Look up pack code in the mapping table */
+  function lookupPackCode(code) {
+    if (!code) return null;
+    const key = String(code).trim();
+    return PACK_CODE_MAP[key] || null;
+  }
+
+  function parsePackLiters(packDesc) {
+    if (!packDesc) return 0;
+    const s = String(packDesc).replace(/\s+/g, "").toUpperCase();
+
+    // Check PACK_CODE_MAP by matching packaging text (reverse lookup)
+    const mapEntry = Object.values(PACK_CODE_MAP).find(
+      e => e.packaging.replace(/\s+/g, "").toUpperCase() === s
+    );
+    if (mapEntry) return mapEntry.uom;
+
+    // Pattern 1: "5x4L" or "5X4LTR" → 5 * 4 = 20
+    const mMultiWithL = s.match(/(\d+)[X×](\d+(\.\d+)?)L/);
+    if (mMultiWithL) return Number(mMultiWithL[1]) * Number(mMultiWithL[2]);
+
+    // Pattern 2: ml units — "24X500ML" → 24 * 0.5 = 12, "24X250ML" → 24 * 0.25 = 6
+    const mMultiMl = s.match(/(\d+)[X×](\d+(\.\d+)?)ML/);
+    if (mMultiMl) return Number(mMultiMl[1]) * Number(mMultiMl[2]) / 1000;
+
+    // Pattern 3: "5x4" or "5X4" (without unit) → 5 * 4 = 20
+    const mMultiNoL = s.match(/^(\d+)[X×](\d+(\.\d+)?)$/);
+    if (mMultiNoL) return Number(mMultiNoL[1]) * Number(mMultiNoL[2]);
+
+    // Pattern 4: "20L" or "20 LITER" → 20
+    const mSingle = s.match(/(\d+(\.\d+)?)L/);
+    if (mSingle) return Number(mSingle[1]);
+
+    // Pattern 5: Just a number "208" → 208
+    const mNum = s.match(/(\d+)/);
+    return mNum ? Number(mNum[1]) : 0;
+  }
+
+  function normalizePack(p) {
+    if (!p) return "";
+    const s = String(p).trim();
+    if (/DRUM/i.test(s)) return "DRUM";
+    if (/PAIL/i.test(s)) return "PAIL";
+    if (/CARTON|CTN/i.test(s)) return "CARTON";
+    if (/IBCS?|TOTE/i.test(s)) return "IBC";
+    if (/BULK/i.test(s)) return "BULK";
+    return s;
+  }
+
+
+  /* =============================
+     6) ITEM CALCS
+     ============================= */
+  function computeItemData(orderItem, index, itemMaster = {}, shippedIndex = null) {
+    const orderNo = orderItem.order_no || "";
+    const itemCode = orderItem.product_no || "";
+    const description = orderItem.product_name || "";
+
+    const releaseStatus = (String(orderItem.released_flag || "").toUpperCase() === "Y") ? "Y" : "N";
+
+    // Try pack code lookup first, then fall back to regex parsing
+    const packCodeMatch = lookupPackCode(orderItem.pack);
+    const packaging = packCodeMatch
+      ? packCodeMatch.packaging
+      : (orderItem.pack_desc || orderItem.uom1 || orderItem.pack || "");
+    const uomPackSz = packCodeMatch
+      ? packCodeMatch.uom
+      : parsePackLiters(orderItem.pack_desc);
+    const pack = normalizePack(packCodeMatch ? packCodeMatch.packaging : orderItem.pack);
+
+    const orderQty = Number(orderItem.original_order_qty) || 0;
+    const loadingQty = orderQty;
+    //const pendingQty = isSplitRow ? 0 : (orderQty - loadingQty);
+    const pendingQty = orderQty - loadingQty;
+
+    const palletized = "No";
+    const numberOfPallets = 0; // for drums only / 4 should be editable 
+    const palletsWeight = (palletized === "No") ? 0 : (numberOfPallets * 19.38);
+
+    const totalLiters = loadingQty * uomPackSz;
+    const density = description.toUpperCase().includes("COOLANT") ? 1.07 : 0.9;
+    const netWeight = totalLiters * density;
+    const grossWeight = palletsWeight + netWeight + loadingQty;
+    const shippedOpts = [];
+
+
+
+    return {
+      serverId: null,
+
+      orderNo,
+      itemCode,
+      description,
+      releaseStatus,
+
+      packaging,
+      uom: uomPackSz,
+      uomSymbol: "L",
+
+      pack,
+      OrderQuantity: orderQty,
+      LoadingQuantity: loadingQty,
+      PendingQuantity: pendingQty,
+
+      palletized,
+      numberOfPallets,
+      palletsWeight,
+      totalLiters,
+      netWeight,
+      grossWeight,
+
+      _shippedOptions: shippedOpts
+    };
+  }
+
+  function computeItemDataFromDclLP(lpRow) {
+    const releaseStatusYN = formatReleaseStatus(lpRow.cr650_releasestatus);
+    const palletizedYesNo = lpRow.cr650_ispalletized ? "Yes" : "No";
+
+    return {
+      serverId: lpRow.cr650_dcl_loading_planid || null,
+
+      orderNo: lpRow.cr650_ordernumber || "",
+      itemCode: lpRow.cr650_itemcode || "",
+      description: lpRow.cr650_itemdescription || "",
+      releaseStatus: releaseStatusYN,
+
+      packaging: lpRow.cr650_packagingdetails || "",
+      uom: asNum(lpRow.cr650_unitofmeasure),
+      uomSymbol: "",
+
+      pack: normalizePack(lpRow.cr650_packagetype || ""),
+
+      OrderQuantity: asNum(lpRow.cr650_orderedquantity),
+      LoadingQuantity: asNum(lpRow.cr650_loadedquantity),
+      PendingQuantity: asNum(lpRow.cr650_pendingquantity),
+
+      palletized: palletizedYesNo,
+      numberOfPallets: asNum(lpRow.cr650_palletcount),
+      palletsWeight: asNum(lpRow.cr650_palletweight),
+
+      totalLiters: asNum(lpRow.cr650_totalvolumeorweight),
+      netWeight: asNum(lpRow.cr650_netweightkg),
+      grossWeight: asNum(lpRow.cr650_grossweightkg),
+
+      // Loading Plan page: hide finance/container/HS (AR report will handle)
+
+
+      _shippedOptions: []
+    };
+  }
+
+  /* =============================
+     7) TABLE RENDERING (LOADING PLAN)
+     ============================= */
+  function makeRowEl(item, index) {
+    const tr = d.createElement("tr");
+    tr.classList.add("lp-data-row");
+
+    // Store pallet data for Gross Weight calculation and assignment table sync
+    tr.dataset.palletWeight = String(item.palletsWeight || 0);
+    tr.dataset.palletized = item.palletized || "No";
+    tr.dataset.numberOfPallets = String(item.numberOfPallets || 0);
+
+    // Store original values for change tracking
+    tr.dataset.originalValues = JSON.stringify({
+      orderNo: item.orderNo || '',
+      itemCode: item.itemCode || '',
+      description: item.description || '',
+      releaseStatus: item.releaseStatus || 'N',
+      packaging: item.packaging || '',
+      uom: item.uom || 0,
+      pack: item.pack || '',
+      orderQty: item.OrderQuantity || 0,
+      loadingQty: item.LoadingQuantity || 0
+    });
+
+    // Build container options for dropdown
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+    const containerOptions = containers.map(c => {
+      const label = c.id || c.type || "Container";
+      return `<option value="${escapeHtml(c.dataverseId)}" title="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
+    }).join("");
+
+    const palletized = item.palletized || "No";
+    const numberOfPallets = item.numberOfPallets || 0;
+    const isPalletized = palletized === "Yes";
+    const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+    tr.innerHTML = `
+    <td class="td-row-checkbox"><input type="checkbox" class="lp-row-select-cb" /></td>
+    <td class="sn">${index + 1}</td>
+
+    <td class="order-no ce" contenteditable="true" tabindex="0">${escapeHtml(item.orderNo)}</td>
+    <td class="item-code ce" contenteditable="true" tabindex="0">${escapeHtml(item.itemCode)}</td>
+    <td class="description ce" contenteditable="true" tabindex="0">${escapeHtml(item.description)}</td>
+    <td class="release-status-cell">${item.orderNo
+      ? `<span class="release-status-value">${escapeHtml(item.releaseStatus)}</span>`
+      : `<select class="release-status-select"><option value="Y" ${item.releaseStatus === "Y" ? "selected" : ""}>Y</option><option value="N" ${item.releaseStatus === "N" ? "selected" : ""}>N</option></select>`
+    }</td>
+    <td class="packaging ce" contenteditable="true" tabindex="0">${escapeHtml(item.packaging)}</td>
+
+    <td class="uom ce-num" contenteditable="true" tabindex="0">${fmt2(item.uom)}</td>
+    <td class="pack ce" contenteditable="true" tabindex="0">${escapeHtml(item.pack)}</td>
+
+    <td class="order-qty ce-num" contenteditable="true" tabindex="0">${fmt2(item.OrderQuantity)}</td>
+
+    <td class="loading-qty-cell">
+      <input type="number" class="loading-qty" min="0" value="${fmt2(item.LoadingQuantity)}"
+             style="width:100px">
+    </td>
+
+    <td class="pending-qty ce-num">${fmt2(item.PendingQuantity)}</td>
+
+    <td class="total-liters ce-num" contenteditable="true" tabindex="0">${fmt2(item.totalLiters)}</td>
+    <td class="net-weight ce-num" contenteditable="true" tabindex="0">${fmt2(item.netWeight)}</td>
+    <td class="gross-weight ce-num" contenteditable="true" tabindex="0">${fmt2(item.grossWeight)}</td>
+
+    <td class="palletized-cell">
+      <select class="palletized-select">
+        <option value="No" ${palletized === "No" ? "selected" : ""}>No</option>
+        <option value="Yes" ${palletized === "Yes" ? "selected" : ""}>Yes</option>
+      </select>
+    </td>
+    <td class="pallets-cell">
+      <input type="number" class="pallets-input" min="0" value="${fmt2(numberOfPallets)}" style="width:70px" />
+    </td>
+    <td class="pallet-weight ce-num">${fmt2(palletWeight)}</td>
+    <td class="container-cell" style="min-width:170px;">
+      <select class="assign-container" style="width:100%;min-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="">
+        <option value="">--</option>
+        ${containerOptions}
+      </select>
+    </td>
+
+    <td class="row-actions" style="white-space:nowrap;">
+      <button class="split-item" type="button" title="Split across containers"
+              style="display:none;background:none;border:none;color:#1a7f37;font-size:0.8rem;padding:2px 6px;cursor:pointer;text-decoration:underline;">Split</button>
+      <button class="row-remove" type="button"
+              style="background:#dc3545;color:white;border:none;padding:2px 6px;font-size:0.75rem;border-radius:3px;cursor:pointer;">Remove</button>
+    </td>
+  `;
+
+    // Attach change tracking to editable cells
+    attachCellChangeTracking(tr);
+
+    return tr;
+  }
+
+  /* =============================
+     8) RECALC / TOTALS / MASTER PATCH
+     ============================= */
+
+  /**
+   * Recalculate derived values for a loading plan row
+   * Formulas:
+   *   UOM = parse from packing (e.g., 30x4 = 120)
+   *   Pending Quantity = Order Quantity − Loading Quantity
+   *   Total Liters = Loading Quantity × UOM
+   *   Net Weight = Total Liters × DENSITY (1.07 for COOLANT, 0.9 otherwise)
+   *   Pallet Weight = 0 if Palletized="No", else Number of Pallets × 19.38
+   *   Gross Weight = Pallet Weight + Net Weight + Loading Quantity (unless manually overridden)
+   */
+  function recalcRow(tr) {
+    if (!tr) return;
+
+    // Get cell references
+    const packagingCell = tr.querySelector(".packaging");
+    const uomCell = tr.querySelector(".uom");
+    const descriptionCell = tr.querySelector(".description");
+    const loadingQtyInput = tr.querySelector(".loading-qty");
+    const totalLitersCell = tr.querySelector(".total-liters");
+    const netWeightCell = tr.querySelector(".net-weight");
+    const grossWeightCell = tr.querySelector(".gross-weight");
+
+    // Parse values
+    const packaging = (packagingCell?.textContent || "").trim();
+    const description = (descriptionCell?.textContent || "").trim().toUpperCase();
+    const loadingQty = asNum(loadingQtyInput?.value);
+
+    // UOM = parse from packaging (e.g., "30x4" = 120)
+    // Skip if user has manually overridden the value
+    if (uomCell && !uomCell.dataset.manualOverride) {
+      const uom = parsePackLiters(packaging);
+      uomCell.textContent = fmt2(uom);
+    }
+    const uom = asNum(uomCell?.textContent);
+
+    // Note: Pending Quantity is calculated at the group level in recomputeTotals()
+    // to correctly handle split items (same order+item across multiple rows)
+
+    // Total L/Kgs = Loading Quantity × UOM
+    // Skip if user has manually overridden the value
+    if (totalLitersCell && !totalLitersCell.dataset.manualOverride) {
+      const totalLiters = loadingQty * uom;
+      totalLitersCell.textContent = fmt2(totalLiters);
+    }
+    const totalLiters = asNum(totalLitersCell?.textContent);
+
+    // Net Weight = Total Liters × DENSITY
+    // DENSITY = 1.07 if description contains "COOLANT", else 0.9
+    // Skip if user has manually overridden the value
+    if (netWeightCell && !netWeightCell.dataset.manualOverride) {
+      const density = description.includes("COOLANT") ? 1.07 : 0.9;
+      const netWeight = totalLiters * density;
+      netWeightCell.textContent = fmt2(netWeight);
+    }
+    const netWeight = asNum(netWeightCell?.textContent);
+
+    // Gross Weight = Pallet Weight + Net Weight + Loading Quantity
+    // Skip if user has manually overridden the value
+    if (grossWeightCell && !grossWeightCell.dataset.manualOverride) {
+      const palletWeight = asNum(tr.dataset.palletWeight);
+      const grossWeight = palletWeight + netWeight + loadingQty;
+      grossWeightCell.textContent = fmt2(grossWeight);
+    }
+
+    // Sync pallet weight display cell (read-only computed value)
+    const palletWeightCell = tr.querySelector(".pallet-weight");
+    if (palletWeightCell) {
+      palletWeightCell.textContent = fmt2(asNum(tr.dataset.palletWeight));
+    }
+  }
+
+  function recalcAllRows() {
+    QA("#itemsTableBody tr.lp-data-row").forEach(recalcRow);
+  }
+
+  function renumberRows() {
+    const rows = QA("#itemsTableBody tr.lp-data-row");
+    rows.forEach((tr, i) => {
+      const snCell = tr.querySelector(".sn");
+      if (snCell) {
+        snCell.textContent = String(i + 1);
+      }
+    });
+  }
+
+  /* --- Debounce utility for performance --- */
+  function debounce(fn, ms) {
+    let timer;
+    return function (...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
+  /* --- Cached LP row index (invalidated on changes) --- */
+  let _lpRowIndexCache = null;
+  function invalidateLpRowIndexCache() { _lpRowIndexCache = null; }
+  function getCachedLpRowIndex() {
+    if (!_lpRowIndexCache) {
+      _lpRowIndexCache = new Map();
+      QA("#itemsTableBody tr.lp-data-row").forEach(tr => {
+        const id = (tr.dataset.serverId || "").toLowerCase();
+        if (id) _lpRowIndexCache.set(id, tr);
+      });
+    }
+    return _lpRowIndexCache;
+  }
+
+  async function patchDclMasterTotals(totals) {
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return;
+
+    const payload = {
+      cr650_totalitems: totals.totalItems,
+      cr650_totalorderquantity: totals.totalOrderQty,
+      cr650_totalloadingquantity: totals.totalLoadingQty,
+      cr650_totalnetweight: totals.totalNet,
+      cr650_totalgrossweight: totals.totalGross
+    };
+
+    try {
+      await safeAjax({
+        type: "PATCH",
+        url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})`,
+        data: JSON.stringify(payload),
+        contentType: "application/json; charset=utf-8",
+        headers: {
+          Accept: "application/json;odata.metadata=minimal",
+          "If-Match": "*"
+        },
+        dataType: "json",
+        _withLoader: false
+      });
+    } catch (err) {
+      console.warn("Failed to PATCH DCL master totals", err);
+    }
+  }
+
+  async function loadAndDisplayDclNumber(dclGuid) {
+    if (!dclGuid || !isGuid(dclGuid)) {
+      setText("#dclNumber", "-");
+      return;
+    }
+
+    try {
+      const data = await safeAjax({
+        type: "GET",
+        url: `${DCL_MASTER_API}(${dclGuid})?$select=cr650_dclnumber`,
+        headers: {
+          Accept: "application/json;odata.metadata=minimal"
+        },
+        dataType: "json",
+        _withLoader: false // Don't show loading bar for this quick fetch
+      });
+
+      const dclNumber = data && data.cr650_dclnumber ? data.cr650_dclnumber : "-";
+      setText("#dclNumber", dclNumber);
+
+      console.log("DCL Number loaded:", dclNumber);
+    } catch (err) {
+      console.error("Failed to load DCL number:", err);
+      setText("#dclNumber", "-");
+    }
+  }
+
+  function recomputeTotals() {
+    const rows = QA("#itemsTableBody tr.lp-data-row");
+
+    // Every row is an independent loading plan record.
+    // Straight sum — no grouping, no capping.
+    let totalItems = rows.length;
+    let totalOrderQty = 0;
+    let totalLoadingQty = 0;
+    let totalPendingQty = 0;
+    let totalLiters = 0;
+    let totalNet = 0;
+    let totalGross = 0;
+
+    rows.forEach((r) => {
+      const orderQty = asNum(r.querySelector(".order-qty")?.textContent);
+      const loadingQty = asNum(r.querySelector(".loading-qty")?.value);
+      const liters = asNum(r.querySelector(".total-liters")?.textContent);
+      const netWeight = asNum(r.querySelector(".net-weight")?.textContent);
+      const grossWeight = asNum(r.querySelector(".gross-weight")?.textContent);
+
+      totalOrderQty += orderQty;
+      totalLoadingQty += loadingQty;
+      totalLiters += liters;
+      totalNet += netWeight;
+      totalGross += grossWeight;
+
+      // Pending qty per row = its own order qty − its own loading qty
+      const pendQty = Math.max(0, orderQty - loadingQty);
+      totalPendingQty += pendQty;
+      const pendingQtyCell = r.querySelector(".pending-qty");
+      if (pendingQtyCell) {
+        pendingQtyCell.textContent = fmt2(pendQty);
+      }
+    });
+
+    setText("#totalItems", totalItems);
+    setText("#totalOrderQty", fmt2(totalOrderQty));
+    setText("#totalLoadingQty", fmt2(totalLoadingQty));
+    setText("#totalPendingQty", fmt2(totalPendingQty));
+    setText("#totalLiters", fmt2(totalLiters));
+    setText("#totalNetWeight", `${fmt2(totalNet)} kg`);
+    setText("#totalGrossWeight", `${fmt2(totalGross)} kg`);
+
+    setText("#totalQuantity", fmt2(totalLoadingQty));
+    setText("#totalWeight", fmt2(totalGross));
+
+    setText("#totalNetWeight2", fmt2(totalNet));
+    setText("#totalGrossWeight2", fmt2(totalGross));
+
+    renumberRows();
+
+    patchDclMasterTotals({
+      totalItems,
+      totalOrderQty,
+      totalLoadingQty,
+      totalNet,
+      totalGross
+    });
+
+    renderContainerSummaries();
+
+    // Keep toolbar button state and status bar in sync whenever totals change
+    updateToolbarState();
+  }
+
+  // Debounced version — use for input/blur handlers to batch rapid edits
+  const recomputeTotalsDebounced = debounce(recomputeTotals, 250);
+
+  /**
+   * Unified post-mutation refresh: queries rows ONCE, does recalc + renumber + totals.
+   * Use this instead of the triple pattern: recalcAllRows() + recomputeTotals() + rebuildAssignmentTable()
+   */
+  function fullRecalcAndRefresh() {
+    invalidateLpRowIndexCache();
+    recalcAllRows();
+    recomputeTotals();    // already calls renumberRows, renderContainerSummaries, updateToolbarState
+    rebuildAssignmentTable();
+  }
+
+
+  /* =============================
+     9) EDIT + SAVE/DELETE (LOADING PLAN ROW)
+     ============================= */
+  const EDITABLE_TEXT_CELLS = [
+    ".order-no",
+    ".item-code",
+    ".description",
+    ".packaging",
+    ".uom",
+    ".pack",
+    ".order-qty",
+    ".pending-qty",
+    ".total-liters",
+    ".net-weight",
+    ".gross-weight"
+  ];
+
+
+  function enableContentEditable(td) {
+    if (!td) return;
+    td.dataset.orig = td.textContent;
+    td.contentEditable = "true";
+    td.classList.add("ce-editing");
+    td.addEventListener("keydown", preventEnter);
+  }
+  function disableContentEditable(td, keepValue) {
+    if (!td) return;
+    td.contentEditable = "false";
+    td.classList.remove("ce-editing");
+    td.removeEventListener("keydown", preventEnter);
+    if (!keepValue && td.dataset.orig != null) {
+      td.textContent = td.dataset.orig;
+    }
+    delete td.dataset.orig;
+  }
+  function preventEnter(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      e.target.blur();
+    }
+  }
+  function getCell(tr, sel) { return tr.querySelector(sel); }
+
+  function beginRowEdit(tr) {
+    // Enable contentEditable cells
+    EDITABLE_TEXT_CELLS.forEach((cls) => {
+      enableContentEditable(getCell(tr, cls));
+    });
+
+    // Enable input fields
+    const loadingQtyInput = tr.querySelector(".loading-qty");
+    if (loadingQtyInput) loadingQtyInput.disabled = false;
+
+    // Enable select dropdowns
+    const palletizedSelect = tr.querySelector(".palletized-select");
+    if (palletizedSelect) palletizedSelect.disabled = false;
+
+    // Update control buttons
+    const ctrl = tr.querySelector(".controls");
+    if (ctrl) {
+      ctrl.innerHTML = `
+      <div class="row-edit-controls" style="display:flex;gap:6px;">
+        <button class="btn btn-success btn-sm row-save" type="button">Save</button>
+        <button class="btn btn-secondary btn-sm row-cancel" type="button">Cancel</button>
+      </div>
+    `;
+    }
+  }
+
+  function cancelRowEdits(tr) {
+    EDITABLE_TEXT_CELLS.forEach((cls) => {
+      disableContentEditable(getCell(tr, cls), false);
+    });
+
+    const loadingQtyInput = tr.querySelector(".loading-qty");
+    if (loadingQtyInput) loadingQtyInput.disabled = true;
+
+    const palletizedSelect = tr.querySelector(".palletized-select");
+    if (palletizedSelect) palletizedSelect.disabled = true;
+
+    const ctrl = tr.querySelector(".controls");
+    if (ctrl) {
+      ctrl.innerHTML = `<button class="btn btn-outline btn-sm lp-edit" type="button">Edit</button>`;
+    }
+
+    recalcRow(tr);
+  }
+
+  async function ensureContainerItemsForCurrentDcl(freshLpRowsOpt) {
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return;
+
+    // No LP rows provided — just load existing state
+    if (!Array.isArray(freshLpRowsOpt) || !freshLpRowsOpt.length) {
+      await refreshContainerItemsState();
+      return;
+    }
+
+    // Find which LP rows already have container items
+    const existing = await fetchAllContainerItems(CURRENT_DCL_ID);
+    const hasCI = new Set();
+    (existing || []).forEach(ci => {
+      const lpId = (ci._cr650_loadingplanitem_value || "").toLowerCase();
+      if (lpId) hasCI.add(lpId);
+    });
+
+    // Create container items for LP rows that don't have one
+    let created = 0;
+    for (const lp of freshLpRowsOpt) {
+      const lpId = lp.cr650_dcl_loading_planid;
+      if (!lpId || hasCI.has(lpId.toLowerCase())) continue;
+      const qty = asNum(lp.cr650_loadedquantity);
+      if (!qty) continue;
+      try {
+        await createContainerItemOnServer(lpId, qty, null, false);
+        created++;
+      } catch (err) {
+        console.error("Failed to create CI for LP", lpId, err);
+      }
+    }
+
+    // Fetch authoritative state (wait briefly if records were just created)
+    if (created > 0) await new Promise(r => setTimeout(r, 500));
+    await refreshContainerItemsState();
+  }
+
+  async function refreshContainerItemsState() {
+    const all = await fetchAllContainerItems(CURRENT_DCL_ID);
+
+    DCL_CONTAINER_ITEMS_STATE = (all || [])
+      .filter(item => {
+        const dclMatch =
+          String(item._cr650_dcl_master_number_value || "").toLowerCase() ===
+          CURRENT_DCL_ID.toLowerCase();
+
+        const lpLinked =
+          String(item._cr650_loadingplanitem_value || "").length > 0;
+
+        return dclMatch || lpLinked;
+      })
+      .map(mapContainerItemRowToState);
+
+    console.log(
+      "✅ refreshContainerItemsState →",
+      DCL_CONTAINER_ITEMS_STATE.length,
+      "items"
+    );
+  }
+
+
+  async function saveRowEdits(tr) {
+    setLoading(true, "Saving changes...");
+
+    // Disable contentEditable cells
+    EDITABLE_TEXT_CELLS.forEach((cls) => {
+      disableContentEditable(getCell(tr, cls), true);
+    });
+
+    // Disable input fields
+    const loadingQtyInput = tr.querySelector(".loading-qty");
+    if (loadingQtyInput) loadingQtyInput.disabled = true;
+
+
+    // Disable select dropdowns
+    const palletizedSelect = tr.querySelector(".palletized-select");
+    if (palletizedSelect) palletizedSelect.disabled = true;
+
+
+    // Restore Edit button
+    const ctrl = tr.querySelector(".controls");
+    if (ctrl) {
+      ctrl.innerHTML = `<button class="btn btn-outline btn-sm lp-edit" type="button">Edit</button>`;
+    }
+
+    // Don't call recalcRow - preserve user's manually edited values
+    recomputeTotals();
+
+    try {
+      let serverId = tr.dataset.serverId;
+
+      // ✅ NEW: If no serverId, try to find it before deciding to create or update
+      if (!serverId || !isGuid(serverId)) {
+        console.log("⚠️ Row has no server ID, attempting to find existing record...");
+
+        const orderNo = (tr.querySelector(".order-no")?.textContent || "").trim();
+        const itemCode = (tr.querySelector(".item-code")?.textContent || "").trim();
+
+        if (orderNo && itemCode && CURRENT_DCL_ID) {
+          // Try to find this record in Dataverse
+          const escapedOrder = orderNo.replace(/'/g, "''");
+          const escapedItem = itemCode.replace(/'/g, "''");
+
+          const findUrl =
+            `${DCL_LP_API}?$filter=` +
+            `_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and ` +
+            `cr650_ordernumber eq '${escapedOrder}' and ` +
+            `cr650_itemcode eq '${escapedItem}'` +
+            `&$top=1` +
+            `&$select=cr650_dcl_loading_planid`;
+
+          try {
+            const findRes = await safeAjax({
+              type: "GET",
+              url: findUrl,
+              headers: { Accept: "application/json;odata.metadata=minimal" },
+              dataType: "json",
+              _withLoader: false
+            });
+
+            if (findRes && findRes.value && findRes.value.length > 0) {
+              serverId = findRes.value[0].cr650_dcl_loading_planid;
+              tr.dataset.serverId = serverId;
+              console.log("✅ Found existing record ID:", serverId);
+            } else {
+              console.log("ℹ️ No existing record found, will create new");
+            }
+          } catch (err) {
+            console.warn("Could not search for existing record:", err);
+          }
+        }
+      }
+
+      // Now decide: update or create
+      if (serverId && isGuid(serverId)) {
+        console.log("🔄 Updating existing row:", serverId);
+        await updateServerRowFromTr(tr, CURRENT_DCL_ID);
+      } else {
+        console.log("🆕 Creating new row (no existing record found)");
+        await createServerRowFromTr(tr, CURRENT_DCL_ID);
+      }
+
+      await ensureContainerItemsForCurrentDcl();
+      rebuildAssignmentTable();
+      renderContainerSummaries();
+
+
+    } catch (e) {
+      console.error("Save failed", e);
+      showValidation("error", "Failed to persist row.");
+      throw e;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function attachRowEvents(tbody) {
+    if (!tbody || tbody.dataset.rowEventsWired === "true") return;
+    tbody.dataset.rowEventsWired = "true";
+
+    // Delegated handler for LP row checkboxes (bulk assign)
+    tbody.addEventListener("change", (e) => {
+      if (e.target.classList.contains("lp-row-select-cb")) {
+        const tr = e.target.closest("tr.lp-data-row");
+        if (tr) tr.classList.toggle("row-selected", e.target.checked);
+        updateBulkAssignButton();
+        updateBulkDeleteRowsButton();
+        syncLpRowSelectAll();
+      }
+    });
+
+    tbody.addEventListener("click", async (e) => {
+      const tr = e.target.closest("tr.lp-data-row");
+      if (!tr) return;
+
+      // Note: Edit/Save/Cancel buttons removed - using Excel-like inline editing now
+      // All cells are always editable, Save All button handles persistence
+
+      if (e.target.closest(".row-remove")) {
+        try {
+          const serverId = tr.dataset.serverId;
+          const containerItemId = tr.dataset.containerItemId; // Only exists for splits
+
+          // ✅ ALWAYS check state to count CIs for this LP
+          const allCIsForThisLP = serverId ? DCL_CONTAINER_ITEMS_STATE.filter(
+            ci => ci.lpId && ci.lpId.toLowerCase() === serverId.toLowerCase()
+          ) : [];
+
+          const ciCount = allCIsForThisLP.length;
+
+          console.log(`📊 Deleting row for LP ${serverId?.substring(0, 8)}... (has ${ciCount} CI(s))`);
+
+          if (ciCount === 0) {
+            // ✅ CASE 1: Pre-allocation item (no CIs) → Delete LP only
+            console.log("🗑️ Pre-allocation item - deleting LP only");
+            if (serverId) {
+              await deleteServerRow(serverId);
+            }
+            showValidation("success", "✅ Item deleted successfully.");
+
+          } else if (ciCount === 1) {
+            // ✅ CASE 2: Normal allocated item (1 CI) → Delete CI then LP
+            console.log("🗑️ Normal allocated item - deleting CI + LP");
+
+            const ciToDelete = allCIsForThisLP[0];
+            await deleteContainerItem(ciToDelete.id);
+
+            // Remove from state
+            const idx = DCL_CONTAINER_ITEMS_STATE.findIndex(ci => ci.id === ciToDelete.id);
+            if (idx >= 0) {
+              DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
+            }
+
+            // Then delete LP
+            if (serverId) {
+              await deleteServerRow(serverId);
+            }
+
+            showValidation("success", "✅ Item deleted successfully.");
+
+          } else {
+            // ✅ CASE 3: Split item (2+ CIs) → Delete specific CI only
+            console.log(`🗑️ Split item (${ciCount} splits) - deleting one CI`);
+
+            if (!containerItemId) {
+              showValidation("error", "Cannot determine which split to delete");
+              return;
+            }
+
+            await deleteContainerItem(containerItemId);
+
+            // Remove from state
+            const idx = DCL_CONTAINER_ITEMS_STATE.findIndex(ci => ci.id === containerItemId);
+            if (idx >= 0) {
+              DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
+            }
+
+            // Check remaining
+            const remaining = DCL_CONTAINER_ITEMS_STATE.filter(
+              ci => ci.lpId && serverId && ci.lpId.toLowerCase() === serverId.toLowerCase()
+            );
+
+            if (remaining.length === 0 && serverId) {
+              console.log("🗑️ Last split - deleting LP too");
+              await deleteServerRow(serverId);
+              showValidation("success", "✅ Last split deleted. Item removed from loading plan.");
+            } else {
+              showValidation("success", `✅ Split deleted. ${remaining.length} split(s) remaining.`);
+            }
+          }
+
+          // UI cleanup
+          tr.remove();
+          await ensureContainerItemsForCurrentDcl();
+          fullRecalcAndRefresh();
+          renderContainerCards();
+          renderContainerSummaries();
+    
+
+        } catch (err) {
+          console.error("DELETE failed", err);
+          showValidation("error", "❌ Failed to delete: " + (err.responseJSON?.error?.message || err.message));
+        }
+      }
+
+      // === Split button click (unified table) ===
+      if (e.target.closest(".split-item")) {
+        const ciId = tr.dataset.ciId;
+        const serverId = tr.dataset.serverId;
+        const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
+
+        if (!ci) {
+          showValidation("warning", "No container item found for this row. Run 'Assign to Containers' first.");
+          return;
+        }
+
+        const originalQty = asNum(tr.querySelector('.loading-qty')?.value) || 0;
+
+        if (originalQty <= 1) {
+          showValidation("warning", "Cannot split: Quantity must be greater than 1.");
+          return;
+        }
+
+        const maxQty = originalQty - 1;
+        const result = await showSimpleSplitPrompt(originalQty, maxQty, tr);
+
+        if (result === null) return;
+
+        if (result.mode === 'simple') {
+          const splitQty = parseFloat(result.value);
+          if (isNaN(splitQty) || splitQty <= 0) {
+            showValidation("error", "Invalid input: Enter a number greater than 0");
+            return;
+          }
+          if (splitQty >= originalQty) {
+            showValidation("error", "Split quantity must be less than the original quantity");
+            return;
+          }
+
+          const remainingQty = originalQty - splitQty;
+
+          const confirmed = confirm(
+            `Confirm Split\n\n` +
+            `New Loading Plan Record: ${splitQty} units\n` +
+            `Remaining on Original: ${remainingQty} units\n\n` +
+            `This will create a new loading plan record.\n` +
+            `You can assign it to a container afterward.\n\n` +
+            `Continue?`
+          );
+          if (!confirmed) return;
+
+          try {
+            setLoading(true, "Splitting item...");
+
+            // Update original
+            const origLoadInput = tr.querySelector('.loading-qty');
+            if (origLoadInput) origLoadInput.value = remainingQty;
+
+            const origOrderQty = asNum(tr.querySelector(".order-qty")?.textContent);
+            const origTotalLiters = asNum(tr.querySelector(".total-liters")?.textContent);
+            const origNetWeight = asNum(tr.querySelector(".net-weight")?.textContent);
+            const origGrossWeight = asNum(tr.querySelector(".gross-weight")?.textContent);
+            const origPalletWeight = asNum(tr.dataset.palletWeight);
+            const origNumPallets = asNum(tr.dataset.numberOfPallets);
+            const isPalletized = (tr.dataset.palletized || "No") === "Yes";
+            const ratio = remainingQty / originalQty;
+            const splitRatio = splitQty / originalQty;
+
+            // Split Order Qty proportionally so Pending Qty stays correct
+            const origOrderQtyCell = tr.querySelector(".order-qty");
+            if (origOrderQtyCell) origOrderQtyCell.textContent = fmt2(origOrderQty * ratio);
+
+            // Split pallets: new row gets rounded amount, original keeps remainder
+            const newSplitPallets = Math.round(origNumPallets * splitRatio);
+            const origSplitPallets = origNumPallets - newSplitPallets;
+            const origSplitPalletWeight = isPalletized ? (origSplitPallets * 19.38) : 0;
+            tr.dataset.palletWeight = String(fmt2(origSplitPalletWeight));
+            tr.dataset.numberOfPallets = String(origSplitPallets);
+            const origPalletsInput = tr.querySelector(".pallets-input");
+            if (origPalletsInput) origPalletsInput.value = origSplitPallets;
+            const origPwCell = tr.querySelector(".pallet-weight");
+            if (origPwCell) origPwCell.textContent = fmt2(origSplitPalletWeight);
+            const tl = tr.querySelector(".total-liters"); if (tl) { tl.textContent = fmt2(origTotalLiters * ratio); tl.dataset.manualOverride = "true"; }
+            // Compute NW once, use for both cell display and GW formula
+            const origRemainNW = asNum(fmt2(origNetWeight * ratio));
+            const nw = tr.querySelector(".net-weight"); if (nw) { nw.textContent = fmt2(origRemainNW); nw.dataset.manualOverride = "true"; }
+            // Gross Weight = PalletWeight + NetWeight + LoadingQty (formula-based, not ratio, because pallet rounding causes drift)
+            const origRemainGW = origSplitPalletWeight + origRemainNW + remainingQty;
+            const gw = tr.querySelector(".gross-weight"); if (gw) { gw.textContent = fmt2(origRemainGW); gw.dataset.manualOverride = "true"; }
+
+            // Set pending qty BEFORE server save (stale DOM value would be saved otherwise)
+            const origPendCell = tr.querySelector(".pending-qty");
+            if (origPendCell) origPendCell.textContent = fmt2(Math.max(0, asNum(tr.querySelector(".order-qty")?.textContent) - remainingQty));
+
+            await updateServerRowFromTr(tr, CURRENT_DCL_ID);
+            await patchContainerItem(ci.id, { cr650_quantity: remainingQty, cr650_issplititem: true });
+            ci.quantity = remainingQty;
+            ci.isSplitItem = true;
+
+            // Create new LP row
+            const newLpRow = tr.cloneNode(true);
+            delete newLpRow.dataset.serverId;
+            delete newLpRow.dataset.containerItemId;
+            delete newLpRow.dataset.ciId;
+            const newLoadInput = newLpRow.querySelector('.loading-qty');
+            if (newLoadInput) newLoadInput.value = splitQty;
+            // Split Order Qty proportionally on new row
+            const newOrderQtyCell = newLpRow.querySelector(".order-qty");
+            if (newOrderQtyCell) newOrderQtyCell.textContent = fmt2(origOrderQty * splitRatio);
+            // Pallet count already computed above (newSplitPallets); pallet weight from rounded count
+            const newSplitPalletWeight = isPalletized ? (newSplitPallets * 19.38) : 0;
+            newLpRow.dataset.palletWeight = String(fmt2(newSplitPalletWeight));
+            newLpRow.dataset.numberOfPallets = String(newSplitPallets);
+            const newPalletsInput = newLpRow.querySelector(".pallets-input");
+            if (newPalletsInput) newPalletsInput.value = newSplitPallets;
+            const newPwCell = newLpRow.querySelector(".pallet-weight");
+            if (newPwCell) newPwCell.textContent = fmt2(newSplitPalletWeight);
+            const ntl = newLpRow.querySelector(".total-liters"); if (ntl) { ntl.textContent = fmt2(origTotalLiters * splitRatio); ntl.dataset.manualOverride = "true"; }
+            const newSplitNW = asNum(fmt2(origNetWeight * splitRatio));
+            const nnw = newLpRow.querySelector(".net-weight"); if (nnw) { nnw.textContent = fmt2(newSplitNW); nnw.dataset.manualOverride = "true"; }
+            // Gross Weight from formula: PalletWeight + NetWeight + LoadingQty
+            const newSplitGW = newSplitPalletWeight + newSplitNW + splitQty;
+            const ngw = newLpRow.querySelector(".gross-weight"); if (ngw) { ngw.textContent = fmt2(newSplitGW); ngw.dataset.manualOverride = "true"; }
+
+            // Set pending qty BEFORE server save
+            const newPendCell = newLpRow.querySelector(".pending-qty");
+            if (newPendCell) newPendCell.textContent = fmt2(Math.max(0, asNum(newLpRow.querySelector(".order-qty")?.textContent) - splitQty));
+
+            tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
+            await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
+
+            let newLpId = newLpRow.dataset.serverId;
+            let retryCount = 0;
+            while (!newLpId && retryCount < 5) {
+              await new Promise(resolve => setTimeout(resolve, 800));
+              const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
+              const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
+              const fetchUrl = `${DCL_LP_API}?$filter=_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and cr650_loadedquantity eq ${splitQty}&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
+              const fetchRes = await safeAjax({ type: "GET", url: fetchUrl, headers: { Accept: "application/json;odata.metadata=minimal" }, dataType: "json", _withLoader: false });
+              if (fetchRes?.value?.length > 0) { newLpId = fetchRes.value[0].cr650_dcl_loading_planid; newLpRow.dataset.serverId = newLpId; break; }
+              retryCount++;
+            }
+
+            if (!newLpId) throw new Error("Failed to get LP ID for split record");
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await createContainerItemOnServer(newLpId, splitQty, null, true);
+
+            await new Promise(resolve => setTimeout(resolve, 800));
+            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
+            DCL_CONTAINER_ITEMS_STATE = allContainerItems
+              .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
+              .map(mapContainerItemRowToState);
+
+            fullRecalcAndRefresh();
+            renderContainerCards();
+            renderContainerSummaries();
+
+            showValidation("success", `Split successful! Original: ${remainingQty} units, New: ${splitQty} units`);
+          } catch (err) {
+            console.error("Split failed:", err);
+            showValidation("error", "Failed to split item: " + (err.message || err));
+          } finally {
+            setLoading(false);
+          }
+
+        } else if (result.mode === 'multiple') {
+          // Multi-way split: result.distribution is an array of quantities
+          const distribution = result.distribution;
+
+          const confirmed = confirm(
+            `Confirm ${distribution.length}-Record Split\n\n` +
+            distribution.map((qty, idx) => `Record ${idx + 1}: ${qty} units`).join('\n') +
+            `\n\nTotal: ${distribution.reduce((a, b) => a + b, 0)} units\n\n` +
+            `This will create ${distribution.length} separate loading plan records.\n` +
+            `You can assign each record to a container afterward.\n\n` +
+            `Continue?`
+          );
+
+          if (!confirmed) return;
+
+          try {
+            setLoading(true, `Creating ${distribution.length} split records...`);
+
+            // Capture original values BEFORE modifying for proportional split
+            const origOrderQtyM = asNum(tr.querySelector(".order-qty")?.textContent);
+            const origTotalLiters = asNum(tr.querySelector(".total-liters")?.textContent);
+            const origNetWeight = asNum(tr.querySelector(".net-weight")?.textContent);
+            const origGrossWeight = asNum(tr.querySelector(".gross-weight")?.textContent);
+            const origPalletWeight = asNum(tr.dataset.palletWeight);
+            const origNumPallets = asNum(tr.dataset.numberOfPallets);
+            const isPalletizedM = (tr.dataset.palletized || "No") === "Yes";
+            const totalQty = distribution.reduce((a, b) => a + b, 0);
+
+            // Pre-compute pallet distribution: round each split, give remainder to first row
+            let usedPallets = 0;
+            const palletDist = distribution.map((qty, idx) => {
+              if (idx === 0) return 0; // placeholder, computed after loop
+              const p = Math.round(origNumPallets * (qty / totalQty));
+              usedPallets += p;
+              return p;
+            });
+            palletDist[0] = origNumPallets - usedPallets; // first row gets remainder
+
+            // STEP 1: UPDATE ORIGINAL LP & CONTAINER ITEM with first split qty
+            const firstQty = distribution[0];
+            const firstRatio = firstQty / totalQty;
+            const originalLoadingQtyInput = tr.querySelector('.loading-qty');
+            if (originalLoadingQtyInput) originalLoadingQtyInput.value = firstQty;
+
+            // Split Order Qty proportionally
+            const mOrigOrderQtyCell = tr.querySelector(".order-qty");
+            if (mOrigOrderQtyCell) mOrigOrderQtyCell.textContent = fmt2(origOrderQtyM * firstRatio);
+
+            const firstPallets = palletDist[0];
+            const firstPalletWeight = isPalletizedM ? (firstPallets * 19.38) : 0;
+            tr.dataset.palletWeight = String(fmt2(firstPalletWeight));
+            tr.dataset.numberOfPallets = String(firstPallets);
+            const mOrigPalletsInput = tr.querySelector(".pallets-input");
+            if (mOrigPalletsInput) mOrigPalletsInput.value = firstPallets;
+            const mOrigPwCell = tr.querySelector(".pallet-weight");
+            if (mOrigPwCell) mOrigPwCell.textContent = fmt2(firstPalletWeight);
+            const origTLCell = tr.querySelector(".total-liters");
+            const origNWCell = tr.querySelector(".net-weight");
+            const origGWCell = tr.querySelector(".gross-weight");
+            if (origTLCell) { origTLCell.textContent = fmt2(origTotalLiters * firstRatio); origTLCell.dataset.manualOverride = "true"; }
+            const mFirstNW = asNum(fmt2(origNetWeight * firstRatio));
+            if (origNWCell) { origNWCell.textContent = fmt2(mFirstNW); origNWCell.dataset.manualOverride = "true"; }
+            // Gross Weight from formula: PW + NW + Loading (not ratio, because pallet rounding causes drift)
+            const mFirstGW = firstPalletWeight + mFirstNW + firstQty;
+            if (origGWCell) { origGWCell.textContent = fmt2(mFirstGW); origGWCell.dataset.manualOverride = "true"; }
+
+            // Set pending qty BEFORE server save (stale DOM value would be saved otherwise)
+            const mOrigPendCell = tr.querySelector(".pending-qty");
+            if (mOrigPendCell) mOrigPendCell.textContent = fmt2(Math.max(0, asNum(tr.querySelector(".order-qty")?.textContent) - firstQty));
+
+            await updateServerRowFromTr(tr, CURRENT_DCL_ID);
+            await patchContainerItem(ci.id, { cr650_quantity: firstQty, cr650_issplititem: true });
+            ci.quantity = firstQty;
+            ci.isSplitItem = true;
+
+            // STEP 2: CREATE N-1 NEW LP RECORDS
+            for (let i = 1; i < distribution.length; i++) {
+              const qty = distribution[i];
+              const ratio = qty / totalQty;
+
+              const newLpRow = tr.cloneNode(true);
+              delete newLpRow.dataset.serverId;
+              delete newLpRow.dataset.containerItemId;
+              delete newLpRow.dataset.ciId;
+
+              const newLoadInput = newLpRow.querySelector('.loading-qty');
+              if (newLoadInput) newLoadInput.value = qty;
+
+              // Split Order Qty proportionally on new row
+              const mNewOrderQtyCell = newLpRow.querySelector(".order-qty");
+              if (mNewOrderQtyCell) mNewOrderQtyCell.textContent = fmt2(origOrderQtyM * ratio);
+
+              // Pallet count from pre-computed distribution; weight from rounded count × 19.38
+              const mNewPallets = palletDist[i];
+              const mNewPalletWeight = isPalletizedM ? (mNewPallets * 19.38) : 0;
+              newLpRow.dataset.palletWeight = String(fmt2(mNewPalletWeight));
+              newLpRow.dataset.numberOfPallets = String(mNewPallets);
+              const mNewPalletsInput = newLpRow.querySelector(".pallets-input");
+              if (mNewPalletsInput) mNewPalletsInput.value = mNewPallets;
+              const mNewPwCell = newLpRow.querySelector(".pallet-weight");
+              if (mNewPwCell) mNewPwCell.textContent = fmt2(mNewPalletWeight);
+              const newTLCell = newLpRow.querySelector(".total-liters"); if (newTLCell) { newTLCell.textContent = fmt2(origTotalLiters * ratio); newTLCell.dataset.manualOverride = "true"; }
+              const mLoopNW = asNum(fmt2(origNetWeight * ratio));
+              const newNWCell = newLpRow.querySelector(".net-weight"); if (newNWCell) { newNWCell.textContent = fmt2(mLoopNW); newNWCell.dataset.manualOverride = "true"; }
+              // Gross Weight from formula: PW + NW + Loading (not ratio)
+              const mLoopGW = mNewPalletWeight + mLoopNW + qty;
+              const newGWCell = newLpRow.querySelector(".gross-weight"); if (newGWCell) { newGWCell.textContent = fmt2(mLoopGW); newGWCell.dataset.manualOverride = "true"; }
+
+              // Set pending qty BEFORE server save
+              const mNewPendCell = newLpRow.querySelector(".pending-qty");
+              if (mNewPendCell) mNewPendCell.textContent = fmt2(Math.max(0, asNum(newLpRow.querySelector(".order-qty")?.textContent) - qty));
+
+              tr.parentNode.insertBefore(newLpRow, tr.nextSibling);
+              await createServerRowFromTr(newLpRow, CURRENT_DCL_ID);
+
+              // Get new LP ID with retry
+              let newLpId = newLpRow.dataset.serverId;
+              let retryCount = 0;
+              while (!newLpId && retryCount < 5) {
+                await new Promise(resolve => setTimeout(resolve, 800));
+                const orderNo = (newLpRow.querySelector(".order-no")?.textContent || "").trim();
+                const itemCode = (newLpRow.querySelector(".item-code")?.textContent || "").trim();
+                const fetchUrl = `${DCL_LP_API}?$filter=_cr650_dcl_number_value eq ${CURRENT_DCL_ID} and cr650_ordernumber eq '${orderNo.replace(/'/g, "''")}' and cr650_itemcode eq '${itemCode.replace(/'/g, "''")}' and cr650_loadedquantity eq ${qty}&$orderby=createdon desc&$top=1&$select=cr650_dcl_loading_planid`;
+                const fetchRes = await safeAjax({ type: "GET", url: fetchUrl, headers: { Accept: "application/json;odata.metadata=minimal" }, dataType: "json", _withLoader: false });
+                if (fetchRes?.value?.length > 0) { newLpId = fetchRes.value[0].cr650_dcl_loading_planid; newLpRow.dataset.serverId = newLpId; break; }
+                retryCount++;
+              }
+              if (!newLpId) throw new Error(`Failed to get LP ID for record ${i + 1}`);
+
+              await new Promise(resolve => setTimeout(resolve, 500));
+              await createContainerItemOnServer(newLpId, qty, null, true);
+            }
+
+            // STEP 3: REFRESH STATE & UI
+            await new Promise(resolve => setTimeout(resolve, 800));
+            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
+            DCL_CONTAINER_ITEMS_STATE = allContainerItems
+              .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
+              .map(mapContainerItemRowToState);
+
+            fullRecalcAndRefresh();
+            renderContainerCards();
+            renderContainerSummaries();
+
+            showValidation('success',
+              `Split complete! Created ${distribution.length} loading plan records:\n` +
+              distribution.map((q, i) => `  Record ${i + 1}: ${q} units`).join('\n') +
+              `\n\nAssign each record to a container using the Container dropdown.`
+            );
+
+          } catch (err) {
+            console.error('Split failed:', err);
+            showValidation('error', 'Failed to split records: ' + err.message);
+          } finally {
+            setLoading(false);
+          }
+        }
+      }
+    });
+
+    // Trigger recalc for Loading Qty, Unit Price, AND # Pallets
+    tbody.addEventListener("input", (e) => {
+      const row = e.target.closest("tr.lp-data-row");
+      if (!row) return;
+
+      const tdCE = e.target.closest("td.ce, td.ce-num, td.ce-editing");
+      let needsRowRecalc = false;
+
+      // Handle packaging changes → clear UOM and all downstream overrides
+      if (tdCE && tdCE.classList.contains("packaging")) {
+        ["uom", "total-liters", "net-weight", "gross-weight"].forEach(cls => {
+          const c = row.querySelector("." + cls);
+          if (c) delete c.dataset.manualOverride;
+        });
+        needsRowRecalc = true;
+      }
+
+      // Handle description changes (COOLANT detection) → clear net weight and gross weight overrides
+      if (tdCE && tdCE.classList.contains("description")) {
+        ["net-weight", "gross-weight"].forEach(cls => {
+          const c = row.querySelector("." + cls);
+          if (c) delete c.dataset.manualOverride;
+        });
+        needsRowRecalc = true;
+      }
+
+      // Handle UOM changes → mark as overridden, clear downstream
+      if (tdCE && tdCE.classList.contains("uom")) {
+        const uomCell = row.querySelector(".uom");
+        if (uomCell) uomCell.dataset.manualOverride = "true";
+        ["total-liters", "net-weight", "gross-weight"].forEach(cls => {
+          const c = row.querySelector("." + cls);
+          if (c) delete c.dataset.manualOverride;
+        });
+        needsRowRecalc = true;
+      }
+
+      // Handle loading qty changes → clear downstream overrides
+      if (e.target.classList.contains("loading-qty")) {
+        ["total-liters", "net-weight", "gross-weight"].forEach(cls => {
+          const c = row.querySelector("." + cls);
+          if (c) delete c.dataset.manualOverride;
+        });
+        needsRowRecalc = true;
+      }
+
+      // Handle # pallets input changes → recalc pallet weight + gross weight
+      if (e.target.classList.contains("pallets-input")) {
+        const numberOfPallets = asNum(e.target.value) || 0;
+        const palletized = (row.dataset.palletized || "No").trim();
+        const isPalletized = palletized === "Yes";
+        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+        row.dataset.numberOfPallets = String(numberOfPallets);
+        row.dataset.palletWeight = String(palletWeight);
+
+        const pwCell = row.querySelector(".pallet-weight");
+        if (pwCell) pwCell.textContent = fmt2(palletWeight);
+
+        const gw = row.querySelector(".gross-weight");
+        if (gw) delete gw.dataset.manualOverride;
+        needsRowRecalc = true;
+      }
+
+      // Single recalc pass for all input changes
+      if (needsRowRecalc) recalcRow(row);
+      // Debounced totals — batches rapid keystrokes
+      if (needsRowRecalc || (tdCE && (tdCE.classList.contains("pack") || tdCE.classList.contains("order-qty")))) {
+        recomputeTotalsDebounced();
+      }
+    });
+
+    tbody.addEventListener("change", async (e) => {
+      const row = e.target.closest("tr.lp-data-row");
+      if (!row) return;
+
+      // === Container assignment dropdown change ===
+      if (e.target.classList.contains("assign-container")) {
+        // Update tooltip to show full selected container name
+        const selectedOption = e.target.options[e.target.selectedIndex];
+        e.target.title = selectedOption ? selectedOption.text : "";
+
+        const ciId = row.dataset.ciId;
+        const newGuid = (e.target.value || "").trim() || null;
+        const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
+
+        if (!ci) {
+          // No container item exists yet — revert dropdown and warn
+          e.target.value = "";
+          showValidation("warning", "No container item found for this row. Run 'Assign to Containers' first.");
+          return;
+        }
+
+        try {
+          if (newGuid) {
+            await patchContainerItem(ciId, {
+              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${newGuid})`
+            });
+          } else {
+            await patchContainerItem(ciId, {
+              "cr650_dcl_number@odata.bind": null
+            });
+          }
+          ci.containerGuid = newGuid;
+
+          await refreshContainerItemsState();
+          fullRecalcAndRefresh();
+          renderContainerCards();
+          renderContainerSummaries();
+
+        } catch (err) {
+          console.error("Failed to update container assignment", err);
+          showValidation("error", "Failed to update container assignment.");
+        }
+      }
+
+      // === Loading qty change → sync CI quantity ===
+      if (e.target.classList.contains("loading-qty")) {
+        const ciId = row.dataset.ciId;
+        if (ciId) {
+          const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
+          if (ci) {
+            const newQty = asNum(e.target.value);
+            if (ci.quantity !== newQty && newQty > 0) {
+              try {
+                await patchContainerItem(ciId, { cr650_quantity: newQty });
+                ci.quantity = newQty;
+                renderContainerCards();
+                renderContainerSummaries();
+              } catch (err) {
+                console.error("Failed to sync CI quantity:", err);
+              }
+            }
+          }
+        }
+      }
+
+      // === Palletized select change ===
+      if (e.target.classList.contains("palletized-select")) {
+        const newPalletized = e.target.value;
+        const numberOfPallets = asNum(row.dataset.numberOfPallets);
+        const isPalletized = newPalletized === "Yes";
+        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+        row.dataset.palletized = newPalletized;
+        row.dataset.palletWeight = String(palletWeight);
+
+        // Update pallet weight display
+        const pwCell = row.querySelector(".pallet-weight");
+        if (pwCell) pwCell.textContent = fmt2(palletWeight);
+
+        const gw = row.querySelector(".gross-weight");
+        if (gw) delete gw.dataset.manualOverride;
+        recalcRow(row);
+        recomputeTotals();
+        handleCellChange(row, e.target);
+
+        // PATCH LP record in Dataverse
+        const serverId = row.dataset.serverId;
+        if (serverId && isGuid(serverId)) {
+          safeAjax({
+            type: "PATCH",
+            url: `${DCL_LP_API}(${serverId})`,
+            data: JSON.stringify({
+              cr650_ispalletized: isPalletized,
+              cr650_palletweight: palletWeight,
+              cr650_grossweightkg: asNum(row.querySelector(".gross-weight")?.textContent)
+            }),
+            contentType: "application/json; charset=utf-8",
+            headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+            dataType: "json",
+            _withLoader: false
+          }).catch(err => console.error("Failed to patch LP palletized:", err));
+        }
+
+        renderContainerSummaries();
+      }
+
+      // === Pallets input change ===
+      if (e.target.classList.contains("pallets-input")) {
+        const numberOfPallets = asNum(e.target.value) || 0;
+        const palletized = (row.dataset.palletized || "No").trim();
+        const isPalletized = palletized === "Yes";
+        const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+        row.dataset.numberOfPallets = String(numberOfPallets);
+        row.dataset.palletWeight = String(palletWeight);
+
+        // Update pallet weight display
+        const pwCell = row.querySelector(".pallet-weight");
+        if (pwCell) pwCell.textContent = fmt2(palletWeight);
+
+        const gw = row.querySelector(".gross-weight");
+        if (gw) delete gw.dataset.manualOverride;
+        recalcRow(row);
+        recomputeTotals();
+        handleCellChange(row, e.target);
+
+        // PATCH LP record in Dataverse
+        const serverId = row.dataset.serverId;
+        if (serverId && isGuid(serverId)) {
+          safeAjax({
+            type: "PATCH",
+            url: `${DCL_LP_API}(${serverId})`,
+            data: JSON.stringify({
+              cr650_palletcount: numberOfPallets,
+              cr650_palletweight: palletWeight,
+              cr650_grossweightkg: asNum(row.querySelector(".gross-weight")?.textContent)
+            }),
+            contentType: "application/json; charset=utf-8",
+            headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+            dataType: "json",
+            _withLoader: false
+          }).catch(err => console.error("Failed to patch LP pallets:", err));
+        }
+
+        renderContainerSummaries();
+      }
+
+      if (e.target.classList.contains("loading-qty")) {
+        // Clear downstream overrides since loading qty affects total liters → net weight → gross weight
+        ["total-liters", "net-weight", "gross-weight"].forEach(cls => {
+          const cell = row.querySelector("." + cls);
+          if (cell) delete cell.dataset.manualOverride;
+        });
+        recalcRow(row);
+        recomputeTotalsDebounced();
+        handleCellChange(row, e.target);
+      }
+    });
+
+    // Helper: clear manual override flags on downstream calculated cells
+    function clearDownstream(tr, ...cellClasses) {
+      cellClasses.forEach(cls => {
+        const cell = tr.querySelector("." + cls);
+        if (cell) delete cell.dataset.manualOverride;
+      });
+    }
+
+    tbody.addEventListener("blur", (e) => {
+      const row = e.target.closest("tr.lp-data-row");
+      if (!row) return;
+
+      // Determine which field was blurred and whether recalcRow is needed
+      let needsRowRecalc = false;
+      const td = e.target.closest("td");
+      if (!td || !td.isContentEditable) return; // Only handle editable cells
+
+      // Handle packaging blur → recalc UOM and all downstream
+      if (td.classList.contains("packaging")) {
+        clearDownstream(row, "uom", "total-liters", "net-weight", "gross-weight");
+        needsRowRecalc = true;
+      }
+
+      // Handle description blur (COOLANT detection) → recalc net weight and gross weight
+      if (td.classList.contains("description")) {
+        clearDownstream(row, "net-weight", "gross-weight");
+        needsRowRecalc = true;
+      }
+
+      // Handle UOM blur → mark as overridden, recalc total liters and downstream
+      if (td.classList.contains("uom")) {
+        td.dataset.manualOverride = "true";
+        clearDownstream(row, "total-liters", "net-weight", "gross-weight");
+        needsRowRecalc = true;
+      }
+
+      // Handle total-liters blur → mark as overridden, recalc net weight and gross weight
+      if (td.classList.contains("total-liters")) {
+        td.dataset.manualOverride = "true";
+        clearDownstream(row, "net-weight", "gross-weight");
+        needsRowRecalc = true;
+      }
+
+      // Handle net-weight blur → mark as overridden, recalc gross weight
+      if (td.classList.contains("net-weight")) {
+        td.dataset.manualOverride = "true";
+        clearDownstream(row, "gross-weight");
+        needsRowRecalc = true;
+      }
+
+      // Handle gross weight blur → mark as overridden (no downstream)
+      if (td.classList.contains("gross-weight")) {
+        td.dataset.manualOverride = "true";
+      }
+
+      // Single recalc pass: recalcRow if needed, then debounced totals
+      if (needsRowRecalc) recalcRow(row);
+      recomputeTotalsDebounced();
+    }, true);
+  }
+
+  function buildPayloadFromRow(tr, dclGuid) {
+    const getNumText = (sel) => asNum(tr.querySelector(sel)?.textContent);
+    const getNumVal = (sel) => asNum(tr.querySelector(sel)?.value);
+
+    // ─────────────────────────────────────
+    // BASIC ORDER & ITEM INFO
+    // ─────────────────────────────────────
+    const orderNumber = (tr.querySelector(".order-no")?.textContent || "").trim();
+    const itemCode = (tr.querySelector(".item-code")?.textContent || "").trim();
+    const desc = (tr.querySelector(".description")?.textContent || "").trim();
+    const relStatusDisp = (tr.querySelector(".release-status-value")?.textContent || tr.querySelector(".release-status-select")?.value || "N").trim();
+    const packaging = (tr.querySelector(".packaging")?.textContent || "").trim();
+    const uomNumeric = (tr.querySelector(".uom")?.textContent || "").trim();
+    const packType = (tr.querySelector(".pack")?.textContent || "").trim();
+
+    // ─────────────────────────────────────
+    // QUANTITIES
+    // ─────────────────────────────────────
+    const ordQty = getNumText(".order-qty");
+    const loadQty = getNumVal(".loading-qty");
+    const pendQty = getNumText(".pending-qty");
+
+    // ─────────────────────────────────────
+    // PALLET & WEIGHT LOGIC (read from inline controls or dataset)
+    // ─────────────────────────────────────
+    const palletizedSelect = tr.querySelector(".palletized-select");
+    const palletizedSel = palletizedSelect ? palletizedSelect.value : (tr.dataset.palletized || "No").trim();
+    const palletsInput = tr.querySelector(".pallets-input");
+    const palletCount = palletsInput ? asNum(palletsInput.value) : asNum(tr.dataset.numberOfPallets);
+    const palletWeight = asNum(tr.dataset.palletWeight);
+
+    const totalVol = getNumText(".total-liters");
+    const netW = getNumText(".net-weight");
+    const grossW = getNumText(".gross-weight");
+
+    // ─────────────────────────────────────
+    // PAYLOAD (LOGISTICS ONLY)
+    // ─────────────────────────────────────
+    const payload = {
+      cr650_ordernumber: orderNumber,
+      cr650_itemcode: itemCode,
+      cr650_itemdescription: desc,
+      cr650_releasestatus: parseReleaseStatusDisplayToRaw(relStatusDisp),
+      cr650_packagingdetails: packaging,
+      cr650_unitofmeasure: uomNumeric,
+      cr650_packagetype: packType,
+
+      cr650_orderedquantity: ordQty,
+      cr650_loadedquantity: loadQty,
+      cr650_pendingquantity: pendQty,
+
+      cr650_ispalletized: palletizedSel.toLowerCase() === "yes",
+      cr650_palletcount: palletCount,
+      cr650_palletweight: palletWeight,
+
+      cr650_totalvolumeorweight: totalVol,
+      cr650_netweightkg: netW,
+      cr650_grossweightkg: grossW
+    };
+
+    // ─────────────────────────────────────
+    // DCL MASTER BINDING
+    // ─────────────────────────────────────
+    if (dclGuid && isGuid(dclGuid)) {
+      payload["cr650_dcl_number@odata.bind"] = `/cr650_dcl_masters(${dclGuid})`;
+    }
+
+    return payload;
+  }
+
+  async function createServerRowFromTr(tr, dclGuid) {
+    const payload = buildPayloadFromRow(tr, dclGuid);
+
+    const res = await safeAjax({
+      type: "POST",
+      url: DCL_LP_API,
+      data: JSON.stringify(payload),
+      contentType: "application/json; charset=utf-8",
+      headers: {
+        Accept: "application/json;odata.metadata=minimal",
+        Prefer: "return=representation"
+      },
+      dataType: "json",
+      _withLoader: false,
+      _loaderText: "Saving row…"
+    });
+
+    let newId = res && (res.cr650_dcl_loading_planid || res.id);
+
+    // If ID not in response, try to fetch it back (no blocking sleep)
+    if (!newId) {
+      const orderNo = (tr.querySelector(".order-no")?.textContent || "").trim();
+      const itemCode = (tr.querySelector(".item-code")?.textContent || "").trim();
+
+      if (orderNo && itemCode && dclGuid) {
+        const escapedOrder = orderNo.replace(/'/g, "''");
+        const escapedItem = itemCode.replace(/'/g, "''");
+
+        const fetchUrl =
+          `${DCL_LP_API}?$filter=` +
+          `_cr650_dcl_number_value eq ${dclGuid} and ` +
+          `cr650_ordernumber eq '${escapedOrder}' and ` +
+          `cr650_itemcode eq '${escapedItem}'` +
+          `&$orderby=createdon desc&$top=1` +
+          `&$select=cr650_dcl_loading_planid`;
+
+        try {
+          const fetchRes = await safeAjax({
+            type: "GET",
+            url: fetchUrl,
+            headers: { Accept: "application/json;odata.metadata=minimal" },
+            dataType: "json",
+            _withLoader: false
+          });
+
+          if (fetchRes && fetchRes.value && fetchRes.value.length > 0) {
+            newId = fetchRes.value[0].cr650_dcl_loading_planid;
+          }
+        } catch (err) {
+          console.warn("Could not fetch back server ID:", err);
+        }
+      }
+    }
+
+    if (newId) {
+      tr.dataset.serverId = newId;
+    } else {
+      console.warn("Could not get server ID for row");
+    }
+  }
+
+  async function updateServerRowFromTr(tr, dclGuid) {
+    const serverId = tr.dataset.serverId;
+    if (!serverId) {
+      return createServerRowFromTr(tr, dclGuid);
+    }
+    const payload = buildPayloadFromRow(tr, dclGuid);
+
+    console.log("📤 Updating LP record:", serverId, payload);
+
+    try {
+      await safeAjax({
+        type: "PATCH",
+        url: `${DCL_LP_API}(${serverId})`,
+        data: JSON.stringify(payload),
+        contentType: "application/json; charset=utf-8",
+        headers: {
+          Accept: "application/json;odata.metadata=minimal",
+          "If-Match": "*"
+        },
+        dataType: "json",
+        _withLoader: false
+      });
+      console.log("✅ LP record updated successfully");
+    } catch (err) {
+      console.error("❌ Failed to update LP record:", err);
+      throw err;
+    }
+  }
+
+  async function deleteServerRow(serverId) {
+    if (!serverId) return;
+    await safeAjax({
+      type: "DELETE",
+      url: `${DCL_LP_API}(${serverId})`,
+      headers: {
+        Accept: "application/json;odata.metadata=minimal",
+        "If-Match": "*"
+      },
+      dataType: "json",
+      _withLoader: true,
+      _loaderText: "Deleting row…"
+    });
+  }
+
+  /* =============================
+     10) IMPORT ADAPTERS
+     ============================= */
+  function adaptRawRowToOrderItem(r) {
+    return {
+      order_no: r.cr650_order_no || r.cr650_source_order_number || "",
+      product_no: r.cr650_product_no || "",
+      product_name: r.cr650_product_name || "",
+      released_flag: String(r.cr650_released_flag || "").toUpperCase(),
+      pack_desc: r.cr650_pack_desc || r.cr650_uom1 || r.cr650_pack || "",
+      pack: r.cr650_pack || r.cr650_uom1 || r.cr650_pack_desc || "",
+      original_order_qty: r.cr650_original_order_qty || 0
+    };
+  }
+
+  async function appendAndPersistItems(items, tbody) {
+    // Phase 1: Render ALL rows to the DOM immediately (instant visual feedback)
+    const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
+    const newRows = [];
+    for (let i = 0; i < items.length; i++) {
+      const tr = makeRowEl(items[i], baseCount + i);
+      tbody.appendChild(tr);
+      recalcRow(tr);
+      newRows.push(tr);
+    }
+
+    invalidateLpRowIndexCache();
+    attachRowEvents(tbody);
+    recalcAllRows();
+    recomputeTotals();
+
+    // Phase 2: Save all rows to the server in parallel batches
+    const BATCH_SIZE = 5;
+    for (let start = 0; start < newRows.length; start += BATCH_SIZE) {
+      const batch = newRows.slice(start, start + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(tr => createServerRowFromTr(tr, CURRENT_DCL_ID))
+      );
+      results.forEach((result, idx) => {
+        if (result.status === "rejected") {
+          console.error("POST failed for row", start + idx, result.reason);
+        }
+      });
+    }
+  }
+
+  async function importUsingYourCalculations(rawRows, itemMaster = {}, shippedIndex = null) {
+    const tbody = Q("#itemsTableBody");
+    if (!tbody) return;
+
+    const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
+
+    const items = rawRows.map((r, i) =>
+      computeItemData(
+        adaptRawRowToOrderItem(r),
+        baseCount + i,
+        itemMaster,
+        shippedIndex
+      )
+    );
+
+    await appendAndPersistItems(items, tbody);
+  }
+
+  async function importExistingDclLpRows(lpRows) {
+    const tbody = Q("#itemsTableBody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+
+    // First, collect all unique order numbers from the LP rows
+    const orderNumbers = new Set();
+    lpRows.forEach(lpRow => {
+      const orderNo = lpRow.cr650_ordernumber;
+      if (orderNo) orderNumbers.add(orderNo);
+    });
+
+    // Fetch shipped history for all orders in parallel
+    const shippedIndexMap = new Map();
+    const shippedResults = await Promise.allSettled(
+      [...orderNumbers].map(async (orderNo) => {
+        const shippedRows = await fetchShippedBySo(orderNo);
+        return { orderNo, shippedRows };
+      })
+    );
+    shippedResults.forEach((result) => {
+      if (result.status === "fulfilled") {
+        const { orderNo, shippedRows } = result.value;
+        const shippedIndex = buildShippedIndex(shippedRows || []);
+        shippedIndexMap.set(Number(orderNo), shippedIndex);
+      } else {
+        console.warn("Failed to fetch shipped history:", result.reason);
+      }
+    });
+
+    // ✅ NEW: Fetch container items to check for splits
+    let containerItems = [];
+    let containerItemsByLp = new Map();
+    let containerLookup = new Map();
+    window.__SHIPPED_INDEX_MAP = shippedIndexMap;
+
+
+    try {
+      const [ciResult, containers] = await Promise.all([
+        fetchContainerItemsForLpRows(lpRows),
+        fetchContainersForCurrentDcl()
+      ]);
+      containerItems = ciResult;
+      containerItemsByLp = buildContainerItemsLookup(containerItems);
+      containerLookup = buildContainerLookup(containers);
+    } catch (err) {
+      console.warn("Failed to fetch container items/containers, using original display", err);
+    }
+
+    // ✅ NEW: Process LP rows with split logic
+    const displayRows = [];
+
+    lpRows.forEach((lpRow) => {
+      const lpId = lpRow.cr650_dcl_loading_planid;
+      const lpIdLower = (lpId || "").toLowerCase();
+
+      // ✅ Check if this LP row has container items (splits)
+      const ciForThisLp = containerItemsByLp.get(lpIdLower) || [];
+
+      // ✅ CASE 1: NON-SPLIT ITEM (no container items or only 1 container item)
+      if (ciForThisLp.length <= 1) {
+        const item = computeItemDataFromDclLP(lpRow);
+
+        // Add the shipped options back (original logic)
+        const orderNo = Number(lpRow.cr650_ordernumber);
+        const itemCode = String(lpRow.cr650_itemcode || "").trim();
+
+        if (orderNo && itemCode) {
+          const shippedIndex = shippedIndexMap.get(orderNo);
+          if (shippedIndex) {
+            const shippedOpts = shippedIndex.get(`${orderNo}|${itemCode}`) || [];
+            item._shippedOptions = shippedOpts;
+
+            // IMPORTANT: Check if the current container matches any option
+            if (item.containerNumber && shippedOpts.length > 0) {
+              const hasMatch = shippedOpts.some(opt => {
+                return opt.label === item.containerNumber ||
+                  opt.containerNo === item.containerNumber ||
+                  opt.dn === item.containerNumber;
+              });
+
+              if (!hasMatch) {
+                shippedOpts.unshift({
+                  dn: item.containerNumber,
+                  containerNo: item.containerNumber,
+                  whenTs: Date.now(),
+                  label: item.containerNumber
+                });
+              }
+            } else if (!item.serverId) {
+              // ✅ NEW: For fresh imports (no serverId), clear the container
+              item.containerNumber = "";
+            }
+          }
+        }
+
+        displayRows.push(item);
+      }
+      // ✅ CASE 2: SPLIT ITEM (multiple container items)
+      else {
+        // Sort container items to maintain consistent order
+        ciForThisLp.sort((a, b) => (a.createdon || "").localeCompare(b.createdon || ""));
+
+        ciForThisLp.forEach((ci, splitIndex) => {
+          // Create a base item from LP row
+          const baseItem = computeItemDataFromDclLP(lpRow);
+
+          // ✅ FIXED: Use correct property name with capital L
+          baseItem.LoadingQuantity = ci.cr650_quantity || 0;
+          baseItem.PendingQuantity = 0;
+
+          // ✅ Proportionally split order qty and pallets across CIs
+          const totalCiQtyForRatio = ciForThisLp.reduce((sum, c) => sum + asNum(c.cr650_quantity), 0);
+          if (totalCiQtyForRatio > 0) {
+            const ciRatio = (ci.cr650_quantity || 0) / totalCiQtyForRatio;
+            baseItem.OrderQuantity = round2(baseItem.OrderQuantity * ciRatio);
+            baseItem.numberOfPallets = Math.round(baseItem.numberOfPallets * ciRatio);
+            baseItem.palletsWeight = baseItem.palletized === "Yes" ? round2(baseItem.numberOfPallets * 19.38) : 0;
+          }
+
+          // ✅ Override container with actual container from container item
+          const containerGuid = ci._cr650_dcl_number_value;
+          if (containerGuid) {
+            const container = containerLookup.get(containerGuid.toLowerCase());
+            if (container) {
+              baseItem.containerNumber = container.cr650_dcl_code || container.cr650_container_type_label || "";
+            }
+          }
+
+          // ✅ Recalculate weights based on split ratio
+          // Use sum of all CI quantities as denominator (not LP loadedquantity
+          // which may have been updated during split and no longer represents the total)
+          const totalCiQty = ciForThisLp.reduce((sum, c) => sum + asNum(c.cr650_quantity), 0);
+          const splitQty = ci.cr650_quantity || 0;
+
+          if (totalCiQty > 0) {
+            const ratio = splitQty / totalCiQty;
+
+            // ✅ FIXED: Use correct property names
+            baseItem.grossWeight = round2(asNum(lpRow.cr650_grossweightkg) * ratio);
+            baseItem.netWeight = round2(asNum(lpRow.cr650_netweightkg) * ratio);
+            baseItem.totalLiters = round2(asNum(lpRow.cr650_totalvolumeorweight) * ratio);
+
+          }
+
+          // ✅ Mark split items for visual styling (2nd+ items)
+          if (splitIndex > 0) {
+            baseItem._isSplitContinuation = true;
+            baseItem._splitIndex = splitIndex;
+          }
+
+          // ✅ Add container item reference for two-way binding
+          baseItem._containerItemId = ci.cr650_dcl_container_itemsid;
+          baseItem._containerItemRef = ci;
+
+          // Add shipped options (same as non-split)
+          const orderNo = Number(lpRow.cr650_ordernumber);
+          const itemCode = String(lpRow.cr650_itemcode || "").trim();
+
+          if (orderNo && itemCode) {
+            const shippedIndex = shippedIndexMap.get(orderNo);
+            if (shippedIndex) {
+              const shippedOpts = shippedIndex.get(`${orderNo}|${itemCode}`) || [];
+              baseItem._shippedOptions = shippedOpts;
+
+              if (baseItem.containerNumber && shippedOpts.length > 0) {
+                const hasMatch = shippedOpts.some(opt => {
+                  return opt.label === baseItem.containerNumber ||
+                    opt.containerNo === baseItem.containerNumber ||
+                    opt.dn === baseItem.containerNumber;
+                });
+
+                if (!hasMatch) {
+                  shippedOpts.unshift({
+                    dn: baseItem.containerNumber,
+                    containerNo: baseItem.containerNumber,
+                    whenTs: Date.now(),
+                    label: baseItem.containerNumber
+                  });
+                }
+              }
+            }
+          }
+
+          displayRows.push(baseItem);
+        });
+      }
+    });
+
+    // Render the rows with split item styling
+    const frag = d.createDocumentFragment();
+    displayRows.forEach((it, displayIndex) => {
+      const tr = makeRowEl(it, displayIndex);
+
+      // ✅ Store original LP row ID for reference
+      if (it.serverId) {
+        tr.dataset.serverId = it.serverId;
+
+        // Mark calculated fields as manually overridden so saved Dataverse
+        // values are preserved when the user edits other fields.
+        // The override flag is cleared when the user edits a field that
+        // should trigger recalculation of the downstream field.
+        const uomCell = tr.querySelector(".uom");
+        const totalLitersCell = tr.querySelector(".total-liters");
+        const netWeightCell = tr.querySelector(".net-weight");
+        const grossWeightCell = tr.querySelector(".gross-weight");
+        if (uomCell) uomCell.dataset.manualOverride = "true";
+        if (totalLitersCell) totalLitersCell.dataset.manualOverride = "true";
+        if (netWeightCell) netWeightCell.dataset.manualOverride = "true";
+        if (grossWeightCell) grossWeightCell.dataset.manualOverride = "true";
+      }
+
+      // ✅ Store container item ID for two-way binding
+      if (it._containerItemId) {
+        tr.dataset.containerItemId = it._containerItemId;
+      }
+
+      frag.appendChild(tr);
+    });
+
+    tbody.appendChild(frag);
+
+    attachRowEvents(tbody);
+    // Don't call recalcAllRows() here - we're loading saved values from Dataverse
+    // and want to preserve user's manually entered values (like gross weight)
+    recomputeTotals();
+  }
+
+
+  /* =============================
+     10.1) IMPORT Helpers if split
+     ============================= */
+  /**
+   * ✅ NEW HELPER: Fetch container items for given LP rows
+   */
+  async function fetchContainerItemsForLpRows(lpRows) {
+    if (!lpRows || !lpRows.length) return [];
+
+    const lpIds = lpRows
+      .map(lp => lp.cr650_dcl_loading_planid)
+      .filter(Boolean);
+
+    if (!lpIds.length) return [];
+
+    // Build filter to fetch container items for these LP rows
+    const filterParts = lpIds.map(id => `_cr650_loadingplanitem_value eq ${id}`);
+    const filter = filterParts.join(" or ");
+
+    try {
+      const url = `${DCL_CONTAINER_ITEMS_API}?$filter=${enc(filter)}&$select=${DCL_CONTAINER_ITEMS_FIELDS.join(",")}`;
+      const data = await safeAjax({
+        type: "GET",
+        url,
+        headers: { Accept: "application/json;odata.metadata=minimal" },
+        _withLoader: false
+      });
+      return (data && data.value) || [];
+    } catch (err) {
+      console.error("Failed to fetch container items for LP rows", err);
+      return [];
+    }
+  }
+
+  /**
+   * ✅ NEW HELPER: Build container items lookup by LP row ID
+   */
+  function buildContainerItemsLookup(containerItems) {
+    const map = new Map();
+
+    containerItems.forEach(ci => {
+      const lpId = ci._cr650_loadingplanitem_value;
+      if (!lpId) return;
+
+      const lpIdLower = lpId.toLowerCase();
+      if (!map.has(lpIdLower)) {
+        map.set(lpIdLower, []);
+      }
+      map.get(lpIdLower).push(ci);
+    });
+
+    return map;
+  }
+
+  /**
+   * ✅ NEW HELPER: Fetch containers for current DCL
+   */
+  async function fetchContainersForCurrentDcl() {
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return [];
+
+    try {
+      const filter =
+        `_cr650_dcl_master_number_value eq guid'${CURRENT_DCL_ID}'`;
+      const url = `${DCL_CONTAINERS_API}?$filter=${enc(filter)}`;
+      const data = await safeAjax({
+        type: "GET",
+        url,
+        headers: { Accept: "application/json;odata.metadata=minimal" },
+        _withLoader: false
+      });
+      return (data && data.value) || [];
+    } catch (err) {
+      console.error("Failed to fetch containers", err);
+      return [];
+    }
+  }
+
+  /**
+   * ✅ NEW HELPER: Build container lookup by GUID
+   */
+  function buildContainerLookup(containers) {
+    const map = new Map();
+
+    containers.forEach(c => {
+      const id = c.cr650_dcl_containerid;
+      if (id) {
+        map.set(id.toLowerCase(), c);
+
+        // Add container type label for easy access
+        const typeValue = c.cr650_container_type;
+        if (typeValue != null) {
+          c.cr650_container_type_label = CONTAINER_TYPE_LABEL_FROM_OPTIONSET[typeValue] || "";
+        }
+      }
+    });
+
+    return map;
+  }
+
+
+  /**
+   * Refresh order items display after assignment changes
+   */
+  async function refreshOrderItemsDisplay() {
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) return;
+
+    try {
+      // Fetch fresh LP rows
+      const lpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
+
+      // Clear current display
+      const tbody = Q("#itemsTableBody");
+      if (tbody) {
+        tbody.innerHTML = "";
+      }
+
+      // Re-import with updated split logic
+      await importExistingDclLpRows(lpRows);
+
+      // Re-apply PDF batch tags so the chip strip stays in sync after re-render.
+      try { w.restorePdfBatchTags && w.restorePdfBatchTags(); } catch (err) { console.warn("restorePdfBatchTags (refresh) failed:", err); }
+
+      console.log("✅ Order items display refreshed to reflect assignment changes");
+    } catch (err) {
+      console.error("Failed to refresh order items display", err);
+    }
+  }
+
+
+  // ✅ Export the modified functions
+  window.importExistingDclLpRows = importExistingDclLpRows;
+  window.refreshOrderItemsDisplay = refreshOrderItemsDisplay;
+
+  /* =============================
+     11) CONTAINERS
+     ============================= */
+  function extractPackInfo(desc) {
+    if (!desc) return null;
+
+    const s = String(desc).replace(/\s+/g, " ").trim();
+
+    // Try pattern: "6 x 4 Lit" or "6 X 4 L"
+    const m1 = s.match(/(\d+)\s*[xX×]\s*([\d\.]+)\s*[Ll]/i);
+    if (m1) {
+      return {
+        units: Number(m1[1]),
+        size: Number(m1[2])
+      };
+    }
+
+    // Try pattern: "208 Liter" (drums)
+    const m2 = s.match(/(\d+)\s*[Ll]it/i);
+    if (m2) {
+      return {
+        units: 1,
+        size: Number(m2[1])
+      };
+    }
+
+    // ✅ ADD THIS NEW SECTION:
+    // Handle standalone numbers (e.g., "208" for drums)
+    const m3 = s.match(/^(\d+)$/);
+    if (m3) {
+      const num = Number(m3[1]);
+      // If it's a drum size (200-210 range), treat as drums
+      if (num >= 200 && num <= 210) {
+        return {
+          units: 1,
+          size: num  // Normalize to 208L
+        };
+      }
+    }
+
+    // No match
+    return null;
+  }
+
+
+
+  function matchFgForOutstanding(outRow) {
+    let outDesc = outRow.cr650_product_name || "";
+    const outPack = outRow.cr650_pack_desc || "";
+
+    // Clean description
+    outDesc = outDesc.replace(/^\d+,\s*/, '').trim();
+    outDesc = outDesc.replace(/:\s*L(TR)?$/i, '').trim();
+    outDesc = outDesc.replace(/^[\d\s-]+/, '').trim();
+    outDesc = outDesc.replace(/,?\s*L(TR|ITER)?$/i, '').trim();
+    outDesc = outDesc.replace(/CH-4/gi, 'CH4');
+    outDesc = outDesc.replace(/SJ|SN|SL|SP|CF-4|CF4|CI-4|CI4/gi, '').trim();
+
+    const outPackInfo = extractPackInfo(outPack);
+
+    console.log("🔍 Matching:", {
+      desc: outDesc.substring(0, 50),
+      pack: outPack,
+      packInfo: outPackInfo
+    });
+
+    let best = null;
+    let bestScore = 0;
+
+    for (const fg of FG_MASTER) {
+      const fgName = fg.cr650_fg_name || "";
+      const fgPackDetails = fg.cr650_packingdetails || "";
+      const fgPackInfo = extractPackInfo(fgPackDetails);
+
+      if (!fgName) continue;
+
+      let score = 0;
+      let hasPackMatch = false;
+      let descSim = 0;
+
+      // STRATEGY 1: Packing match (40% weight)
+      if (outPackInfo && fgPackInfo) {
+        if (outPackInfo.units === fgPackInfo.units &&
+          outPackInfo.size === fgPackInfo.size) {
+          score += 0.4;
+          hasPackMatch = true;
+        } else if (outPackInfo.size === fgPackInfo.size) {
+          score += 0.2;
+        }
+      }
+
+      // STRATEGY 2: Description similarity (50% weight)
+      descSim = descSimilarity(outDesc, fgName);
+      score += descSim * 0.5;
+
+      // STRATEGY 3: Brand match (10% weight)
+      const brand = String(fg.cr650_brand || "").toLowerCase();
+      if (brand && outDesc.toLowerCase().includes(brand)) {
+        score += 0.1;
+      }
+
+      // ✅ FIXED: Require 55% description match when pack matches
+      if (hasPackMatch && descSim < 0.55) {
+        console.log(`   ⚠️ Rejecting: ${fgName.substring(0, 40)} (desc too different: ${(descSim * 100).toFixed(0)}%)`);
+        continue;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = fg;
+      }
+    }
+
+    // ✅ FIXED: Higher thresholds (0.7 with pack, 0.45 without)
+    const threshold = outPackInfo ? 0.7 : 0.45;
+
+    if (best && bestScore >= threshold) {
+      console.log(`✅ MATCH (score: ${bestScore.toFixed(2)}):`, {
+        fg: best.cr650_fg_name.substring(0, 50),
+        pack: best.cr650_packingdetails,
+        weight: best.cr650_grossweightpercartonkg + " kg",
+        dims: `${best.cr650_lengthmm}×${best.cr650_widthmm}×${best.cr650_heightmm} mm`
+      });
+      return best;
+    }
+
+    console.log(`❌ NO MATCH (best score: ${bestScore.toFixed(2)}, threshold: ${threshold})`);
+
+    if (best && bestScore > 0.2) {
+      console.log(`   Best candidate: ${best.cr650_fg_name.substring(0, 50)} (not good enough)`);
+    }
+
+    return null;
+  }
+  w.matchFgForOutstanding = matchFgForOutstanding;
+
+  /**
+   * Debug helper: Log FG Master matching results
+   */
+  function logFgMatchingDebug(enabled = true) {
+    if (!enabled) return;
+
+    console.group("🔍 FG Master Matching Debug");
+    console.log("Total FG Master records:", window.FG_MASTER?.length || 0);
+
+    const lpRows = QA("#itemsTableBody tr.lp-data-row");
+    const matches = [];
+    const noMatches = [];
+
+    lpRows.forEach((lpRow, idx) => {
+      const description = lpRow.querySelector(".description")?.textContent || "";
+      const packaging = lpRow.querySelector(".packaging")?.textContent || "";
+
+      const pseudoOut = {
+        cr650_product_name: description,
+        cr650_pack_desc: packaging
+      };
+
+      const fg = matchFgForOutstanding(pseudoOut);
+
+      if (fg) {
+        matches.push({
+          row: idx + 1,
+          description: description.substring(0, 40),
+          matched: fg.cr650_fg_name?.substring(0, 40),
+          dimensions: `${fg.cr650_lengthmm}×${fg.cr650_widthmm}×${fg.cr650_heightmm}`,
+          weight: fg.cr650_grossweightpercartonkg
+        });
+      } else {
+        noMatches.push({
+          row: idx + 1,
+          description: description.substring(0, 40),
+          packaging: packaging
+        });
+      }
+    });
+
+    console.log(`✓ Matched: ${matches.length}`);
+    console.table(matches);
+
+    console.log(`❌ Not Matched: ${noMatches.length}`);
+    console.table(noMatches);
+
+    console.groupEnd();
+  }
+
+  // Expose to window for manual testing
+  window.logFgMatchingDebug = logFgMatchingDebug;
+
+
+  function matchFgForLpRow(lpRow) {
+    if (!lpRow) return null;
+
+    const itemCode = (lpRow.querySelector(".item-code")?.textContent || "").trim();
+    const packaging = (lpRow.querySelector(".packaging")?.textContent || "").trim();
+    const description = (lpRow.querySelector(".description")?.textContent || "").trim();
+
+    if (!itemCode && !packaging && !description) return null;
+
+    // Build pseudo Outstanding object from LP row DOM elements
+    const pseudoOut = {
+      cr650_product_name: description,
+      cr650_pack_desc: packaging,
+      cr650_product_no: itemCode
+    };
+
+    return matchFgForOutstanding(pseudoOut);
+  }
+
+  // Also expose it to window for testing
+  w.matchFgForLpRow = matchFgForLpRow;
+
+
+
+  function descSimilarity(a, b) {
+    if (!a || !b) return 0;
+
+    // Normalize both strings
+    const normalize = (str) => {
+      return String(str)
+        .toLowerCase()
+        .replace(/[^a-z0-9 ]/g, " ")  // Replace special chars with space
+        .replace(/\s+/g, " ")           // Collapse multiple spaces
+        .trim()
+        .split(" ")
+        .filter(w => w.length > 2);     // Ignore very short words
+    };
+
+    const wordsA = normalize(a);
+    const wordsB = normalize(b);
+
+    if (!wordsA.length || !wordsB.length) return 0;
+
+    const setA = new Set(wordsA);
+    const setB = new Set(wordsB);
+
+    // Count exact word matches
+    let exactMatches = 0;
+    for (const word of setA) {
+      if (setB.has(word)) exactMatches++;
+    }
+
+    // Count partial matches (substring matching)
+    let partialMatches = 0;
+    for (const wordA of wordsA) {
+      for (const wordB of wordsB) {
+        if (wordA.length >= 4 && wordB.length >= 4) {
+          if (wordA.includes(wordB) || wordB.includes(wordA)) {
+            partialMatches += 0.5; // Partial match worth 0.5
+            break;
+          }
+        }
+      }
+    }
+
+    const totalMatches = exactMatches + partialMatches;
+    const maxWords = Math.max(setA.size, setB.size);
+
+    return totalMatches / maxWords;
+  }
+
+
+  function mapContainerTypeLabel(label) {
+    if (!label) return null;
+    const v = String(label).toLowerCase();
+
+    if (v.includes("20") && v.includes("ft") && v.includes("flexi")) return "Flexi Bag 20ft";
+    if (v.includes("40") && v.includes("ft") && v.includes("flexi")) return "Flexi Bag 40ft";
+
+    if (v.includes("iso")) return "ISO Tank Container";
+    if (v.includes("high") && v.includes("cube")) return "40ft High Cube";
+
+    if (v.includes("20") && v.includes("ft")) return "20ft Container";
+    if (v.includes("40") && v.includes("ft")) return "40ft Container";
+
+    if (v.includes("bulk")) return "Bulk Tanker";
+    if (v.includes("truck")) return "Truck";
+
+    return null;
+  }
+
+  function populateContainerTypeDropdown() {
+    const select = Q("#containerTypeSelect");
+    if (!select) return;
+
+    select.innerHTML = '<option value="">Select container type...</option>';
+
+    Object.entries(CONTAINER_CONSTRAINTS).forEach(([type, cfg]) => {
+      const opt = d.createElement("option");
+      opt.value = type;
+
+      const cap = cfg.maxWeight != null
+        ? cfg.maxWeight.toLocaleString() + " kg"
+        : "capacity not specified";
+
+      const vol = cfg.maxVolume != null ? `, ~${cfg.maxVolume} m³` : "";
+
+      opt.textContent = `${type} (${cap}${vol})`;
+      select.appendChild(opt);
+    });
+  }
+
+  function getVolumeConfidenceBadge(sources) {
+    if (!sources || !sources.length) return '';
+
+    const exactCount = sources.filter(s => s === "exact").length;
+    const total = sources.length;
+
+    if (exactCount === total) {
+      return '<span style="color:#28a745;font-size:9px;margin-left:4px;">✓ Exact</span>';
+    } else if (exactCount > 0) {
+      const percent = Math.round((exactCount / total) * 100);
+      return `<span style="color:#ffc107;font-size:9px;margin-left:4px;">⚠ ${percent}% Exact</span>`;
+    } else {
+      return '<span style="color:#ffc107;font-size:9px;margin-left:4px;">⚠ Estimated</span>';
+    }
+  }
+
+  function renderContainerCards() {
+    const grid = Q("#containerCardsGrid");
+    const countSpan = Q("#containerCount");
+    const bulkToolbar = Q("#containerBulkToolbar");
+    if (!grid) return;
+
+    if (countSpan) {
+      countSpan.textContent = DCL_CONTAINERS_STATE.length;
+    }
+
+    // Show/hide bulk toolbar based on whether containers exist
+    if (bulkToolbar) {
+      bulkToolbar.style.display = DCL_CONTAINERS_STATE.length ? "flex" : "none";
+    }
+
+    // Reset Select All checkbox when re-rendering
+    const selectAllCb = Q("#containerSelectAll");
+    if (selectAllCb) selectAllCb.checked = false;
+    updateBulkDeleteButton();
+
+    if (!DCL_CONTAINERS_STATE.length) {
+      grid.innerHTML = `
+        <div class="empty-state">
+          <i class="fas fa-inbox"></i>
+          <p>No containers added yet</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Build real-time usage data from container items
+    const lpIndex = buildLpRowIndex();
+    const usageMap = new Map();
+
+    // Calculate actual weight and volume usage for each container
+    DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
+      if (!ci.containerGuid) return;
+
+      const cont = DCL_CONTAINERS_STATE.find(
+        c => c.dataverseId && ci.containerGuid &&
+          c.dataverseId.toLowerCase() === ci.containerGuid.toLowerCase()
+      );
+
+      if (!cont) return;
+
+      const lpRow = lpIndex.get((ci.lpId || "").toLowerCase());
+      if (!lpRow) return;
+
+      // Try to get FG Master match with improved error handling
+      let fg = null;
+      let fgMatchMethod = "none";
+
+      // First attempt: Parse stored originalItem (for items imported from Outstanding)
+      try {
+        const originalData = JSON.parse(lpRow.dataset.originalItem || "{}");
+        if (originalData.cr650_product_name) {
+          fg = matchFgForOutstanding(originalData);
+          if (fg) fgMatchMethod = "original-data";
+        }
+      } catch (e) {
+        // JSON parse failed - will try alternative method
+      }
+
+      // Second attempt: Build from LP row DOM elements (for items loaded from Dataverse)
+      if (!fg) {
+        const itemCode = (lpRow.querySelector(".item-code")?.textContent || "").trim();
+        const packaging = (lpRow.querySelector(".packaging")?.textContent || "").trim();
+        const description = (lpRow.querySelector(".description")?.textContent || "").trim();
+
+        if (description || packaging) {
+          const pseudoOut = {
+            cr650_product_name: description,
+            cr650_pack_desc: packaging,
+            cr650_product_no: itemCode
+          };
+
+          fg = matchFgForOutstanding(pseudoOut);
+          if (fg) fgMatchMethod = "dom-elements";
+        }
+      }
+
+      let fgMatchStatus = {
+        hasMatch: false,
+        hasCompleteDimensions: false,
+        weight: 0,
+        volume: 0
+      };
+
+      if (fg) {
+        const L = parseFloat(fg.cr650_lengthmm) || 0;
+        const W = parseFloat(fg.cr650_widthmm) || 0;
+        const H = parseFloat(fg.cr650_heightmm) || 0;
+        const cartonWeight = parseFloat(fg.cr650_grossweightpercartonkg) || 0;
+
+        fgMatchStatus.hasMatch = true;
+        fgMatchStatus.hasCompleteDimensions = !!(L > 0 && W > 0 && H > 0);
+
+        // ===== WEIGHT CALCULATION =====
+        // ALWAYS use Loading Plan data (authoritative source for weight)
+        const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
+        const loadingQty = asNum(lpRow.querySelector(".loading-qty")?.value);
+
+        if (loadingQty > 0 && totalGross > 0) {
+          fgMatchStatus.weight = (totalGross / loadingQty) * ci.quantity;
+        } else {
+          // Fallback if LP data is missing
+          fgMatchStatus.weight = ci.quantity;
+        }
+
+        // ===== VOLUME CALCULATION =====
+        if (fgMatchStatus.hasCompleteDimensions) {
+          // ✅ EXACT: Use FG Master dimensions
+          const cartonVolM3 = (L * W * H) / 1_000_000_000;
+          fgMatchStatus.volume = cartonVolM3 * ci.quantity;
+          fgMatchStatus.volumeSource = "exact";
+
+          console.log(`✓ FG Match with exact dimensions:`, {
+            item: fg.cr650_fg_name?.substring(0, 40),
+            dims: `${L}×${W}×${H}`,
+            qty: ci.quantity,
+            cartonVol: cartonVolM3.toFixed(6),
+            totalVol: fgMatchStatus.volume.toFixed(4),
+            weight: fgMatchStatus.weight.toFixed(2)
+          });
+        } else {
+          // ⚠️ ESTIMATED: FG exists but no dimensions - use product liters
+          const totalLiters = asNum(lpRow.querySelector(".total-liters")?.textContent);
+          const loadingQty = asNum(lpRow.querySelector(".loading-qty")?.value);
+
+          if (loadingQty > 0 && totalLiters > 0) {
+            const itemLiters = (totalLiters / loadingQty) * ci.quantity;
+            const packaging = lpRow.querySelector(".packaging")?.textContent?.toLowerCase() || "";
+
+            // Apply packing efficiency factor
+            let packingFactor = 1.3; // Default
+            if (packaging.includes("drum") || packaging.includes("208")) {
+              packingFactor = 1.15; // Drums pack efficiently
+            } else if (packaging.includes("carton") || packaging.includes("x")) {
+              packingFactor = 1.4; // Cartons have air gaps
+            }
+
+            fgMatchStatus.volume = (itemLiters / 1000) * packingFactor;
+            fgMatchStatus.volumeSource = "estimated";
+
+            console.warn(`⚠ FG Master missing dimensions - using estimated volume:`, {
+              item: fg.cr650_fg_name?.substring(0, 40),
+              liters: itemLiters,
+              factor: packingFactor,
+              volumeM3: fgMatchStatus.volume.toFixed(4)
+            });
+          } else {
+            fgMatchStatus.volume = 0;
+            fgMatchStatus.volumeSource = "unknown";
+          }
+        }
+
+      } else {
+        // ❌ No FG Master - estimate from LP data only
+        const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
+        const totalLiters = asNum(lpRow.querySelector(".total-liters")?.textContent);
+        const loadingQty = asNum(lpRow.querySelector(".loading-qty")?.value);
+
+        if (loadingQty > 0) {
+          // Weight from LP
+          fgMatchStatus.weight = (totalGross / loadingQty) * ci.quantity;
+
+          // Volume from product liters
+          if (totalLiters > 0) {
+            const itemLiters = (totalLiters / loadingQty) * ci.quantity;
+            const packaging = lpRow.querySelector(".packaging")?.textContent?.toLowerCase() || "";
+
+            let packingFactor = 1.3;
+            if (packaging.includes("drum") || packaging.includes("208")) packingFactor = 1.15;
+            else if (packaging.includes("carton") || packaging.includes("x")) packingFactor = 1.4;
+
+            fgMatchStatus.volume = (itemLiters / 1000) * packingFactor;
+            fgMatchStatus.volumeSource = "estimated";
+
+            console.warn(`❌ No FG Master match - using estimated volume:`, {
+              lpId: ci.lpId,
+              description: lpRow.querySelector(".description")?.textContent?.substring(0, 50),
+              liters: itemLiters,
+              volumeM3: fgMatchStatus.volume.toFixed(4)
+            });
+          } else {
+            fgMatchStatus.volume = 0;
+            fgMatchStatus.volumeSource = "unknown";
+          }
+        } else {
+          fgMatchStatus.weight = ci.quantity;
+          fgMatchStatus.volume = 0;
+          fgMatchStatus.volumeSource = "unknown";
+        }
+
+      }
+
+      // Update usage map using the single status object
+      const contId = cont.id;
+
+      if (!usageMap.has(contId)) {
+        usageMap.set(contId, {
+          weight: 0,
+          volume: 0,
+          itemCount: 0,
+          fgMatched: 0,
+          fgMissing: 0,
+          volumeSources: []
+        });
+      }
+
+      const usage = usageMap.get(contId);
+
+      // ✅ Weight stays as-is
+      usage.weight += fgMatchStatus.weight;
+
+      // ✅ ✅ ✅ FINAL FIX: Volume MUST come from FG / LP logic ONLY
+      usage.volume += fgMatchStatus.volume;
+
+      usage.itemCount += 1;
+
+      // ✅ FG tracking remains correct
+      usage.volumeSources.push(fgMatchStatus.volumeSource || "unknown");
+
+      if (fgMatchStatus.hasCompleteDimensions) {
+        usage.fgMatched += 1;
+      } else {
+        usage.fgMissing += 1;
+      }
+
+
+
+    });
+
+    // 🐛 DEBUG: Log final state before rendering
+    console.group("📊 Final usageMap state before rendering");
+    usageMap.forEach((usage, contId) => {
+      console.log(`Container ${contId}:`, {
+        itemCount: usage.itemCount,
+        fgMatched: usage.fgMatched,
+        fgMissing: usage.fgMissing,
+        percentage: usage.itemCount > 0 ? Math.round((usage.fgMatched / usage.itemCount) * 100) + "%" : "N/A"
+      });
+    });
+    console.groupEnd();
+
+    grid.innerHTML = DCL_CONTAINERS_STATE.map(c => {
+      const isSaved = !!c.dataverseId;
+      const statusBadge = isSaved
+        ? '<span style="background:#28a745;color:white;padding:2px 6px;border-radius:3px;font-size:11px;margin-left:8px;">✓ Saved</span>'
+        : '<span style="background:#ffc107;color:#333;padding:2px 6px;border-radius:3px;font-size:11px;margin-left:8px;">Unsaved</span>';
+
+      // Get real-time usage data
+      const usage = usageMap.get(c.id) || {
+        weight: 0,
+        volume: 0,
+        itemCount: 0,
+        fgMatched: 0,
+        fgMissing: 0
+      };
+
+      // Get capacity constraints
+      const constraints = CONTAINER_CONSTRAINTS[c.type] || {};
+      const maxWeight = c.maxWeight || constraints.maxWeight || 25000;
+      const maxVolume = constraints.maxVolume || null;
+
+      const usedWeight = usage.weight;
+      const usedVolume = usage.volume;
+      const itemCount = usage.itemCount;
+
+      // Calculate utilization percentages
+      const weightUtil = maxWeight > 0 ? ((usedWeight / maxWeight) * 100) : 0;
+      const volumeUtil = maxVolume > 0 ? ((usedVolume / maxVolume) * 100) : 0;
+
+      // Determine status color based on highest utilization
+      let statusColor = "#28a745"; // green
+      let statusText = "Available";
+
+      const highestUtil = Math.max(weightUtil, volumeUtil);
+
+      if (highestUtil > 100) {
+        statusColor = "#dc3545"; // red
+        statusText = "OVER CAPACITY";
+      } else if (highestUtil > 90) {
+        statusColor = "#ff6b6b"; // light red
+        statusText = "Near Full";
+      } else if (highestUtil > 70) {
+        statusColor = "#ffc107"; // yellow
+        statusText = "Filling Up";
+      }
+
+      // Determine if weight or volume is exceeded
+      const weightExceeded = weightUtil > 100;
+      const volumeExceeded = volumeUtil > 100;
+
+      return `
+        <div class="mini-container-card" data-container-id="${escapeHtml(c.id)}" style="
+          border:2px solid ${statusColor};
+          border-radius:8px;
+          padding:12px;
+          background:white;
+          position:relative;
+          ${(weightExceeded || volumeExceeded) ? 'background:#fff5f5;' : ''}
+        ">
+          ${!isSaved
+          ? '<div style="position:absolute;top:8px;right:8px;width:8px;height:8px;background:#ffc107;border-radius:50%;"></div>'
+          : ""
+        }
+
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <label class="container-card-checkbox-label">
+              <input type="checkbox" class="container-select-cb" data-container-id="${escapeHtml(c.id)}" />
+            </label>
+            <strong style="color:#333;font-size:14px;flex:1;margin-left:6px;">${escapeHtml(c.id)}</strong>
+            ${statusBadge}
+          </div>
+
+          <div style="font-size:12px;color:#6c757d;margin-bottom:6px;">
+            ${escapeHtml(c.type || "Unknown")}
+            <span style="color:${statusColor};font-weight:bold;margin-left:8px;">${statusText}</span>
+          </div>
+
+          ${itemCount > 0 ? `
+            <div style="margin-bottom:8px;padding:6px;background:#f8f9fa;border-radius:4px;">
+              <div style="font-size:11px;color:#666;">
+                Items: <strong>${itemCount}</strong>
+              </div>
+            </div>
+          ` : `
+            <div style="margin-bottom:8px;padding:6px;background:#f8f9fa;border-radius:4px;text-align:center;">
+              <div style="font-size:11px;color:#999;">No items assigned</div>
+            </div>
+          `}
+
+          <!-- Weight Information -->
+          <div style="margin-bottom:8px;">
+            <div style="font-size:11px;color:#666;margin-bottom:2px;">
+              Weight: <strong style="${weightExceeded ? 'color:#dc3545;' : ''}">${usedWeight.toFixed(0)} / ${maxWeight.toLocaleString()} kg</strong>
+              ${weightExceeded ? '<span style="color:#dc3545;font-weight:bold;"> ⚠ EXCEEDED</span>' : ''}
+            </div>
+            <div style="height:6px;background:#e9ecef;border-radius:3px;overflow:hidden;">
+              <div style="width:${Math.min(100, weightUtil).toFixed(1)}%;background:${weightExceeded ? '#dc3545' : statusColor};height:100%;transition:width 0.3s;"></div>
+            </div>
+            <div style="font-size:10px;color:#999;margin-top:2px;">
+              ${weightUtil.toFixed(1)}% utilized · ${(maxWeight - usedWeight).toFixed(0)} kg remaining
+            </div>
+          </div>
+
+          <!-- Volume Information (if applicable) -->
+          ${maxVolume ? `
+            <div style="margin-bottom:8px;">
+              <div style="font-size:11px;color:#666;margin-bottom:2px;">
+                Volume: <strong style="${volumeExceeded ? 'color:#dc3545;' : ''}">${usedVolume.toFixed(2)} / ${maxVolume} m³</strong>
+                ${getVolumeConfidenceBadge(usage.volumeSources)}
+                ${volumeExceeded ? '<span style="color:#dc3545;font-weight:bold;"> ⚠ EXCEEDED</span>' : ''}
+              </div>
+              <div style="height:6px;background:#e9ecef;border-radius:3px;overflow:hidden;">
+                <div style="width:${Math.min(100, volumeUtil).toFixed(1)}%;background:${volumeExceeded ? '#dc3545' : statusColor};height:100%;transition:width 0.3s;"></div>
+              </div>
+              <div style="font-size:10px;color:#999;margin-top:2px;">
+                ${volumeUtil.toFixed(1)}% utilized · ${(maxVolume - usedVolume).toFixed(2)} m³ remaining
+              </div>
+            </div>
+          ` : ''}
+
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#6c757d;margin-top:8px;padding-top:8px;border-top:1px solid #e9ecef;">
+            <span>Total Items: <strong>${itemCount}</strong></span>
+          </div>
+
+          ${(weightExceeded || volumeExceeded) ? `
+            <div style="margin-top:8px;padding:6px;background:#fff3cd;border:1px solid #ffeeba;border-radius:4px;">
+              <div style="font-size:11px;color:#856404;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <strong>Warning:</strong> Container capacity exceeded!
+                ${weightExceeded && volumeExceeded ? 'Both weight and volume limits exceeded.' :
+            weightExceeded ? 'Weight limit exceeded.' : 'Volume limit exceeded.'}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join("");
+
+    // Attach checkbox event listeners for bulk selection
+    attachContainerSelectionEvents(grid);
+
+    // Keep bulk LP assign toolbar and dropdown in sync with containers
+    refreshBulkAssignToolbar();
+
+    // Keep toolbar buttons and status bar in sync with state
+    updateToolbarState();
+
+    // Update the container summary badge near order items table
+    updateContainerBadgeNearTable();
+  }
+
+  /**
+   * Renders a compact container summary strip near the order items table
+   * so users don't have to scroll back to the container section.
+   */
+  function updateContainerBadgeNearTable() {
+    const section = d.getElementById("orderItemsSection");
+    if (!section) return;
+
+    let badge = d.getElementById("containerBadgeStrip");
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+
+    if (!containers.length) {
+      if (badge) badge.remove();
+      return;
+    }
+
+    if (!badge) {
+      badge = d.createElement("div");
+      badge.id = "containerBadgeStrip";
+      badge.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;background:#f0f7ff;border:1px solid #bdd7ee;border-radius:6px;margin-bottom:8px;font-size:12px;color:#1a3e5c;";
+      section.insertBefore(badge, section.firstChild);
+    }
+
+    // Count assigned vs total items
+    const totalItems = (DCL_CONTAINER_ITEMS_STATE || []).length;
+    const assignedItems = (DCL_CONTAINER_ITEMS_STATE || []).filter(ci => ci.containerGuid).length;
+    const unassigned = totalItems - assignedItems;
+
+    // Separate containers with items from empty ones
+    const withItems = [];
+    const empty = [];
+    containers.forEach(c => {
+      const itemsInContainer = (DCL_CONTAINER_ITEMS_STATE || []).filter(
+        ci => ci.containerGuid && c.dataverseId && ci.containerGuid.toLowerCase() === c.dataverseId.toLowerCase()
+      ).length;
+      if (itemsInContainer > 0) {
+        withItems.push({ container: c, count: itemsInContainer });
+      } else {
+        empty.push(c);
+      }
+    });
+
+    // Build chips only for containers that have items
+    const chips = withItems.map(({ container: c, count }) => {
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#fff;border:1px solid #d0dbe7;border-radius:4px;font-size:11px;white-space:nowrap;">
+        <i class="fas fa-box" style="font-size:9px;color:#5b8db8;"></i>
+        ${escapeHtml(c.id || c.type)} <span style="color:#888;">(${count})</span>
+      </span>`;
+    }).join("");
+
+    // Compact summary for empty containers — expandable on click
+    let emptyHtml = "";
+    if (empty.length > 0) {
+      const emptyChips = empty.map(c => {
+        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#fff;border:1px solid #e5e7eb;border-radius:4px;font-size:11px;white-space:nowrap;color:#999;">
+          <i class="fas fa-box-open" style="font-size:9px;color:#ccc;"></i>
+          ${escapeHtml(c.id || c.type)} <span style="color:#bbb;">(0)</span>
+        </span>`;
+      }).join("");
+
+      emptyHtml = `<span id="containerBadgeEmptyToggle" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;font-size:11px;white-space:nowrap;color:#6b7280;cursor:pointer;user-select:none;" title="Click to show/hide empty containers">
+        <i class="fas fa-box-open" style="font-size:9px;color:#9ca3af;"></i>
+        + ${empty.length} empty
+        <i class="fas fa-chevron-down" style="font-size:8px;margin-left:2px;transition:transform 0.2s;"></i>
+      </span>
+      <div id="containerBadgeEmptyList" style="display:none;flex-basis:100%;flex-wrap:wrap;gap:4px;padding-top:6px;">
+        ${emptyChips}
+      </div>`;
+    }
+
+    badge.innerHTML = `
+      <span style="font-weight:600;margin-right:4px;"><i class="fas fa-boxes" style="margin-right:4px;"></i>Containers:</span>
+      <span style="display:inline-flex;align-items:center;padding:3px 8px;background:#e0e7ff;border:1px solid #a5b4fc;border-radius:4px;font-size:11px;font-weight:600;color:#3730a3;white-space:nowrap;">
+        ${containers.length} total
+      </span>
+      ${chips}
+      ${emptyHtml}
+      ${unassigned > 0 ? `<span style="margin-left:auto;color:#b45309;font-weight:500;"><i class="fas fa-exclamation-circle" style="margin-right:3px;"></i>${unassigned} item${unassigned !== 1 ? 's' : ''} unassigned</span>` : `<span style="margin-left:auto;color:#15803d;font-weight:500;"><i class="fas fa-check-circle" style="margin-right:3px;"></i>All items assigned</span>`}
+    `;
+
+    // Toggle expand/collapse for empty containers
+    const toggleBtn = d.getElementById("containerBadgeEmptyToggle");
+    const emptyList = d.getElementById("containerBadgeEmptyList");
+    if (toggleBtn && emptyList) {
+      toggleBtn.onclick = function () {
+        const isHidden = emptyList.style.display === "none";
+        emptyList.style.display = isHidden ? "flex" : "none";
+        const chevron = toggleBtn.querySelector(".fa-chevron-down");
+        if (chevron) {
+          chevron.style.transform = isHidden ? "rotate(180deg)" : "rotate(0deg)";
+        }
+      };
+    }
+  }
+
+  window.renderContainerCards = renderContainerCards;
+
+
+  // [FG Dimensions modal removed — not needed per stakeholder]
+
+
+  async function loadContainersForCurrentDcl(dclGuid) {
+    if (!dclGuid || !isGuid(dclGuid)) {
+      console.warn("[DCL Containers] Missing or invalid DCL GUID in URL:", dclGuid);
+      DCL_CONTAINERS_STATE = [];
+      // REMOVE THIS LINE:
+      // renderContainerCards();
+      renderContainerSummaries();
+      return;
+    }
+
+    const selectCols = [
+      "cr650_dcl_containerid",
+      "cr650_id",
+      "cr650_container_type",
+      "cr650_container_weight",
+      "cr650_total_gross_weight_kg",
+      "_cr650_dcl_number_value"
+    ].join(",");
+
+    const filter = `_cr650_dcl_number_value eq ${dclGuid}`;
+    const url =
+      `${DCL_CONTAINERS_API}?$select=${encodeURIComponent(selectCols)}&$filter=${enc(filter)}&$top=5000`;
+
+    try {
+      const data = await safeAjax({
+        type: "GET",
+        url,
+        _withLoader: true,
+        _loaderText: "Loading containers…"
+      });
+
+      const rows = Array.isArray(data && data.value) ? data.value : [];
+
+      DCL_CONTAINERS_STATE = rows.map(r => {
+        const optionValue = r.cr650_container_type;
+        const label = CONTAINER_TYPE_LABEL_FROM_OPTIONSET[optionValue] || "Unknown";
+
+        const cfg = CONTAINER_CONSTRAINTS[label];
+        const maxFromConstraints = cfg ? cfg.maxWeight : null;
+
+        const maxWeight =
+          maxFromConstraints != null
+            ? maxFromConstraints
+            : (r.cr650_container_weight || 0);
+
+        const currentWeight = r.cr650_total_gross_weight_kg || 0;
+
+        return {
+          id: r.cr650_id || r.cr650_dcl_containerid,
+          dataverseId: r.cr650_dcl_containerid,
+          type: label,
+          maxWeight: Number(maxWeight) || 0,
+          currentWeight: Number(currentWeight) || 0,
+          items: []
+        };
+      });
+
+      // REMOVE THIS LINE:
+      // renderContainerCards();
+      renderContainerSummaries();
+    } catch (err) {
+      console.error("[DCL Containers] Failed to load containers", err);
+      DCL_CONTAINERS_STATE = [];
+      // REMOVE THIS LINE:
+      // renderContainerCards();
+      renderContainerSummaries();
+
+      showValidation(
+        "error",
+        "Failed to load containers."
+      );
+    }
+  }
+
+  async function resolveContainerGuidByCode(dclGuid, localId) {
+    if (!dclGuid || !localId) return null;
+
+    const safeCode = String(localId).replace(/'/g, "''");
+    const selectCols = "cr650_dcl_containerid,cr650_id,_cr650_dcl_number_value";
+    const filter = `_cr650_dcl_number_value eq ${dclGuid} and cr650_id eq '${safeCode}'`;
+
+    const url = `${DCL_CONTAINERS_API}?$select=${encodeURIComponent(selectCols)}` +
+      `&$filter=${encodeURIComponent(filter)}&$top=1`;
+
+    const data = await safeAjax({
+      type: "GET",
+      url,
+      _withLoader: true,
+      _loaderText: "Resolving container id…"
+    });
+
+    const rows = Array.isArray(data && data.value) ? data.value : [];
+    if (!rows.length) return null;
+
+    return rows[0].cr650_dcl_containerid || rows[0].id || null;
+  }
+
+  async function createContainerOnServer(type, id, maxWeight) {
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+      console.warn("[DCL Containers] No CURRENT_DCL_ID. Skipping server create.", { type, id });
+      showValidation("warning", "DCL id not found in URL. Container was created only in memory.");
+      return null;
+    }
+
+    const optionVal = mapContainerTypeToOptionValue(type);
+
+    const payload = {
+      cr650_id: id,
+      cr650_container_weight: maxWeight || 0,
+      cr650_total_gross_weight_kg: 0
+    };
+
+    if (optionVal != null) {
+      payload.cr650_container_type = optionVal;
+    }
+
+    payload["cr650_dcl_number@odata.bind"] = `/cr650_dcl_masters(${CURRENT_DCL_ID})`;
+
+    let res = {};
+    try {
+      res = await safeAjax({
+        type: "POST",
+        url: DCL_CONTAINERS_API,
+        data: JSON.stringify(payload),
+        contentType: "application/json; charset=utf-8",
+        headers: {
+          Accept: "application/json;odata.metadata=minimal",
+          Prefer: "return=representation"
+        },
+        dataType: "json",
+        _withLoader: true,
+        _loaderText: "Saving container…"
+      });
+    } catch (e) {
+      console.error("[DCL Containers] POST failed", e);
+      throw e;
+    }
+
+    let newId = res && (res.cr650_dcl_containerid || res.id);
+
+    if (!newId) {
+      newId = await resolveContainerGuidByCode(CURRENT_DCL_ID, id);
+    }
+
+    if (!newId) {
+      showValidation(
+        "warning",
+        `Container ${id} was created but the GUID could not be resolved.`
+      );
+      return null;
+    }
+
+    return newId;
+  }
+
+  async function deleteContainerOnServer(serverId) {
+    if (!serverId) return;
+
+    await safeAjax({
+      type: "DELETE",
+      url: `${DCL_CONTAINERS_API}(${serverId})`,
+      headers: {
+        Accept: "application/json;odata.metadata=minimal",
+        "If-Match": "*"
+      },
+      dataType: "json",
+      _withLoader: true,
+      _loaderText: "Deleting container…"
+    });
+  }
+
+  async function removeContainerCard(id) {
+    const idx = DCL_CONTAINERS_STATE.findIndex(c => c.id === id);
+    if (idx === -1) return;
+
+    const cont = DCL_CONTAINERS_STATE[idx];
+
+    if (cont.dataverseId) {
+      // Clean up container-items linked to this container (Dataverse + local)
+      await deleteContainerItemsByGuid(cont.dataverseId);
+
+      try {
+        await deleteContainerOnServer(cont.dataverseId);
+      } catch (e) {
+        console.error("[DCL Containers] Failed to delete container from server", e);
+        showValidation("error", `Failed to delete container ${id} from Dataverse.`);
+      }
+    }
+
+    DCL_CONTAINERS_STATE.splice(idx, 1);
+    renderContainerCards();
+    renderContainerSummaries();
+    rebuildAssignmentTable();
+
+  }
+  w.removeContainerCard = removeContainerCard;
+
+  /**
+   * Delete all container-items linked to a given container GUID.
+   * Removes from Dataverse first, then from local state.
+   */
+  async function deleteContainerItemsByGuid(containerGuid) {
+    if (!containerGuid) return;
+    const guidLower = containerGuid.toLowerCase();
+
+    // Find all container-items pointing to this container
+    const orphans = DCL_CONTAINER_ITEMS_STATE.filter(
+      ci => ci.containerGuid && ci.containerGuid.toLowerCase() === guidLower
+    );
+
+    if (!orphans.length) return;
+
+    console.log(`[Cleanup] Removing ${orphans.length} container-item(s) for container ${containerGuid.substring(0, 8)}…`);
+
+    for (const ci of orphans) {
+      // Delete from Dataverse if the item has a server ID
+      if (ci.id) {
+        try {
+          await safeAjax({
+            type: "DELETE",
+            url: `${DCL_CONTAINER_ITEMS_API}(${ci.id})`,
+            headers: {
+              Accept: "application/json;odata.metadata=minimal",
+              "If-Match": "*"
+            },
+            dataType: "json"
+          });
+        } catch (e) {
+          console.error(`[Cleanup] Failed to delete container-item ${ci.id}`, e);
+        }
+      }
+
+      // Remove from local state
+      const localIdx = DCL_CONTAINER_ITEMS_STATE.findIndex(s => s === ci);
+      if (localIdx !== -1) DCL_CONTAINER_ITEMS_STATE.splice(localIdx, 1);
+    }
+  }
+
+  /* =============================
+     11A-BULK) BULK CONTAINER SELECTION & DELETE
+     ============================= */
+
+  /** Attach checkbox change events to all container cards in the grid */
+  function attachContainerSelectionEvents(grid) {
+    grid.querySelectorAll(".container-select-cb").forEach(cb => {
+      cb.addEventListener("change", function () {
+        // Toggle highlight class on the parent card
+        const card = this.closest(".mini-container-card");
+        if (card) card.classList.toggle("card-selected", this.checked);
+
+        updateBulkDeleteButton();
+        syncSelectAllCheckbox();
+      });
+    });
+  }
+
+  /** Count selected checkboxes and update the "Delete Selected (N)" button */
+  function updateBulkDeleteButton() {
+    const selected = QA("#containerCardsGrid .container-select-cb:checked");
+    const countSpan = Q("#selectedContainerCount");
+    const deleteBtn = Q("#deleteSelectedContainersBtn");
+    const count = selected ? selected.length : 0;
+
+    if (countSpan) countSpan.textContent = count;
+    if (deleteBtn) deleteBtn.disabled = count === 0;
+  }
+
+  /** Keep "Select All" checkbox in sync with individual checkboxes */
+  function syncSelectAllCheckbox() {
+    const allCbs = QA("#containerCardsGrid .container-select-cb");
+    const checkedCbs = QA("#containerCardsGrid .container-select-cb:checked");
+    const selectAllCb = Q("#containerSelectAll");
+    if (!selectAllCb || !allCbs.length) return;
+    selectAllCb.checked = allCbs.length === checkedCbs.length;
+  }
+
+  /** Toggle all container checkboxes when Select All is clicked */
+  function handleSelectAll(checked) {
+    QA("#containerCardsGrid .container-select-cb").forEach(cb => {
+      cb.checked = checked;
+      const card = cb.closest(".mini-container-card");
+      if (card) card.classList.toggle("card-selected", checked);
+    });
+    updateBulkDeleteButton();
+  }
+
+  /** Bulk delete all selected containers with progress feedback */
+  async function bulkDeleteSelectedContainers() {
+    const selectedCbs = QA("#containerCardsGrid .container-select-cb:checked");
+    const ids = Array.from(selectedCbs).map(cb => cb.dataset.containerId);
+    if (!ids.length) return;
+
+    const confirmed = confirm(
+      `Delete ${ids.length} container${ids.length > 1 ? "s" : ""}?\n\nThis will remove them from the shipment and cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setLoading(true, `Deleting ${ids.length} container${ids.length > 1 ? "s" : ""}…`);
+
+    let deleted = 0;
+    let failed = 0;
+
+    for (const id of ids) {
+      const idx = DCL_CONTAINERS_STATE.findIndex(c => c.id === id);
+      if (idx === -1) continue;
+
+      const cont = DCL_CONTAINERS_STATE[idx];
+
+      if (cont.dataverseId) {
+        try {
+          // First: clean up container-items linked to this container
+          await deleteContainerItemsByGuid(cont.dataverseId);
+
+          // Then: delete the container itself from Dataverse
+          await safeAjax({
+            type: "DELETE",
+            url: `${DCL_CONTAINERS_API}(${cont.dataverseId})`,
+            headers: {
+              Accept: "application/json;odata.metadata=minimal",
+              "If-Match": "*"
+            },
+            dataType: "json"
+          });
+        } catch (e) {
+          console.error(`[Bulk Delete] Failed to delete container ${id} from server`, e);
+          failed++;
+          continue; // Skip removing from state if server delete failed
+        }
+      }
+
+      // Remove from local state
+      DCL_CONTAINERS_STATE.splice(idx, 1);
+      deleted++;
+
+      // Update progress text
+      setLoading(true, `Deleting containers… ${deleted + failed}/${ids.length}`);
+    }
+
+    setLoading(false);
+
+    // Re-render everything
+    renderContainerCards();
+    renderContainerSummaries();
+    rebuildAssignmentTable();
+
+
+    // Show result
+    if (failed > 0) {
+      showValidation("warning", `Deleted ${deleted} container${deleted !== 1 ? "s" : ""}. ${failed} failed to delete from server.`);
+    } else {
+      showValidation("success", `Successfully deleted ${deleted} container${deleted !== 1 ? "s" : ""}.`);
+    }
+  }
+
+  /* =============================
+     11A-TOOLBAR) TOOLBAR STATE & ALLOCATION STATUS
+     ============================= */
+
+  /**
+   * Update toolbar button states based on current data.
+   * Disables buttons that don't make sense in the current workflow phase.
+   */
+  function updateToolbarState() {
+    const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+    const hasContainerItems = DCL_CONTAINER_ITEMS_STATE.length > 0;
+    const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
+
+    // Assign to Containers — needs LP rows and containers
+    const assignBtn = Q("#assignToContainersBtn");
+    if (assignBtn) {
+      const canAssign = lpRowCount > 0 && hasContainers;
+      assignBtn.disabled = !canAssign;
+      assignBtn.title = lpRowCount === 0
+        ? "Add or import items first"
+        : !hasContainers
+          ? "Add containers first"
+          : hasContainerItems
+            ? "Sync changes and assign unassigned items"
+            : "Create allocations and assign to containers";
+    }
+
+    // Split buttons — only visible after container items exist
+    const splitDisplay = hasContainerItems ? "" : "none";
+    QA("#itemsTableBody .split-item").forEach(btn => {
+      btn.style.display = splitDisplay;
+    });
+
+    refreshBulkAssignToolbar();
+    updateAllocationStatusBar();
+  }
+
+  /**
+   * Update the allocation status bar text between toolbar and table.
+   */
+  function updateAllocationStatusBar() {
+    const bar = Q("#allocationStatusBar");
+    const textEl = Q("#allocationStatusText");
+    if (!bar || !textEl) return;
+
+    const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+    const ciCount = DCL_CONTAINER_ITEMS_STATE.length;
+    const assignedCount = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
+    const unassignedCount = ciCount - assignedCount;
+    const containerCount = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length;
+
+    let text = "";
+    let barClass = "status-neutral";
+
+    if (lpRowCount === 0) {
+      text = "No items yet \u2014 Import from Oracle or Add Items";
+      barClass = "status-neutral";
+    } else if (ciCount === 0) {
+      text = `${lpRowCount} item${lpRowCount !== 1 ? "s" : ""} loaded \u2014 Click "Assign to Containers" to begin`;
+      barClass = "status-action";
+    } else if (unassignedCount > 0) {
+      text = `${ciCount} allocated \u00b7 ${assignedCount} assigned \u00b7 ${unassignedCount} unassigned`;
+      if (containerCount > 0) {
+        text += ` \u00b7 ${containerCount} container${containerCount !== 1 ? "s" : ""}`;
+      }
+      barClass = "status-warning";
+    } else {
+      text = `${ciCount} item${ciCount !== 1 ? "s" : ""} \u00b7 All assigned to ${containerCount} container${containerCount !== 1 ? "s" : ""}`;
+      barClass = "status-good";
+    }
+
+    textEl.textContent = text;
+    bar.className = "allocation-status-bar " + barClass;
+  }
+
+  window.updateToolbarState = updateToolbarState;
+
+  /* =============================
+     11A-BULK-ASSIGN) BULK LP ROW ASSIGNMENT
+     ============================= */
+
+  /** Refresh the container options inside the bulk assign dropdown */
+  function refreshBulkAssignDropdown() {
+    const sel = Q("#bulkAssignContainerSelect");
+    if (!sel) return;
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+    sel.innerHTML = '<option value="">Choose container…</option>' +
+      containers.map(c =>
+        `<option value="${escapeHtml(c.dataverseId)}">${escapeHtml(c.id || c.type || "Container")}</option>`
+      ).join("");
+  }
+
+  /** Show/hide the bulk toolbar when LP rows exist; conditionally show assign controls */
+  function refreshBulkAssignToolbar() {
+    const toolbar = Q("#lpRowBulkToolbar");
+    if (!toolbar) return;
+    const hasRows = QA("#itemsTableBody tr.lp-data-row").length > 0;
+    const hasCI = DCL_CONTAINER_ITEMS_STATE.length > 0;
+
+    // Show toolbar whenever items exist (delete is always available)
+    toolbar.style.display = hasRows ? "flex" : "none";
+
+    // Show/hide assign-specific controls based on container-items
+    const assignDropdown = Q("#bulkAssignContainerSelect");
+    const assignBtn = Q("#bulkAssignBtn");
+    if (assignDropdown) assignDropdown.style.display = hasCI ? "" : "none";
+    if (assignBtn) assignBtn.style.display = hasCI ? "" : "none";
+    if (hasCI) refreshBulkAssignDropdown();
+  }
+
+  /** Update counter and disable/enable the Assign button */
+  function updateBulkAssignButton() {
+    const checked = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const countSpan = Q("#selectedRowCount");
+    const btn = Q("#bulkAssignBtn");
+    const count = checked ? checked.length : 0;
+    if (countSpan) countSpan.textContent = count;
+    if (btn) btn.disabled = count === 0 || !Q("#bulkAssignContainerSelect")?.value;
+  }
+
+  /** Update counter and disable/enable the Delete Selected (rows) button */
+  function updateBulkDeleteRowsButton() {
+    const checked = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const countSpan = Q("#selectedDeleteCount");
+    const btn = Q("#bulkDeleteRowsBtn");
+    const count = checked ? checked.length : 0;
+    if (countSpan) countSpan.textContent = count;
+    if (btn) btn.disabled = count === 0;
+  }
+
+  /** Keep header + toolbar Select All checkboxes in sync */
+  function syncLpRowSelectAll() {
+    const allCbs = QA("#itemsTableBody .lp-row-select-cb");
+    const checkedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const headerCb = Q("#lpRowSelectAllHeader");
+    const toolbarCb = Q("#lpRowSelectAll");
+    const allChecked = allCbs.length > 0 && allCbs.length === checkedCbs.length;
+    if (headerCb) headerCb.checked = allChecked;
+    if (toolbarCb) toolbarCb.checked = allChecked;
+  }
+
+  /** Toggle all row checkboxes */
+  function handleLpRowSelectAll(checked) {
+    QA("#itemsTableBody .lp-row-select-cb").forEach(cb => {
+      cb.checked = checked;
+      cb.closest("tr")?.classList.toggle("row-selected", checked);
+    });
+    updateBulkAssignButton();
+    updateBulkDeleteRowsButton();
+  }
+
+  /** Bulk assign all selected rows to the chosen container */
+  async function bulkAssignSelectedRows() {
+    const containerGuid = (Q("#bulkAssignContainerSelect")?.value || "").trim();
+    if (!containerGuid) {
+      showValidation("warning", "Please choose a container first.");
+      return;
+    }
+
+    const selectedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const rows = Array.from(selectedCbs).map(cb => cb.closest("tr.lp-data-row")).filter(Boolean);
+    if (!rows.length) return;
+
+    // Collect container-item IDs that need patching
+    const toPatch = [];
+    rows.forEach(tr => {
+      const ciId = tr.dataset.ciId;
+      if (!ciId) return;
+      const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
+      if (ci) toPatch.push({ ci, ciId, tr });
+    });
+
+    if (!toPatch.length) {
+      showValidation("warning", "Selected rows have no container items. Run 'Assign to Containers' first.");
+      return;
+    }
+
+    setLoading(true, `Assigning ${toPatch.length} item${toPatch.length > 1 ? "s" : ""} to container…`);
+
+    let success = 0;
+    let failed = 0;
+    const BATCH_SIZE = 5;
+
+    for (let start = 0; start < toPatch.length; start += BATCH_SIZE) {
+      const batch = toPatch.slice(start, start + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(({ ci, ciId }) =>
+          safeAjax({
+            type: "PATCH",
+            url: `${DCL_CONTAINER_ITEMS_API}(${ciId})`,
+            data: JSON.stringify({
+              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${containerGuid})`
+            }),
+            contentType: "application/json; charset=utf-8",
+            headers: {
+              Accept: "application/json;odata.metadata=minimal",
+              "If-Match": "*"
+            },
+            dataType: "json"
+          }).then(() => { ci.containerGuid = containerGuid; })
+        )
+      );
+
+      results.forEach((r, idx) => {
+        if (r.status === "fulfilled") success++;
+        else {
+          console.error(`[Bulk Assign] Failed to assign row ${batch[idx].ciId}`, r.reason);
+          failed++;
+        }
+      });
+
+      setLoading(true, `Assigning items… ${success + failed}/${toPatch.length}`);
+    }
+
+    setLoading(false);
+
+    // Deselect all rows
+    QA("#itemsTableBody .lp-row-select-cb:checked").forEach(cb => {
+      cb.checked = false;
+      cb.closest("tr")?.classList.remove("row-selected");
+    });
+    syncLpRowSelectAll();
+    updateBulkAssignButton();
+    updateBulkDeleteRowsButton();
+
+    // Refresh all UI
+    invalidateLpRowIndexCache();
+    rebuildAssignmentTable();
+    renderContainerCards();
+    renderContainerSummaries();
+
+
+    if (failed > 0) {
+      showValidation("warning", `Assigned ${success} item${success !== 1 ? "s" : ""}. ${failed} failed.`);
+    } else {
+      const contLabel = DCL_CONTAINERS_STATE.find(c => c.dataverseId === containerGuid)?.id || "container";
+      showValidation("success", `Assigned ${success} item${success !== 1 ? "s" : ""} to ${contLabel}.`);
+    }
+  }
+
+  /** Bulk delete all selected LP rows (with their container items) */
+  async function bulkDeleteSelectedRows() {
+    const selectedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
+    const rows = Array.from(selectedCbs).map(cb => cb.closest("tr.lp-data-row")).filter(Boolean);
+    if (!rows.length) return;
+
+    const confirmed = confirm(
+      `Delete ${rows.length} selected item${rows.length > 1 ? "s" : ""}?\n\nThis will also remove any container allocations for these items.\nThis cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setLoading(true, `Deleting ${rows.length} item${rows.length > 1 ? "s" : ""}…`);
+
+    let deleted = 0;
+    let failed = 0;
+    const total = rows.length;
+
+    // Phase 1: Collect all delete operations
+    const deleteOps = [];
+    for (const tr of rows) {
+      const serverId = tr.dataset.serverId;
+
+      // Find all container-items linked to this LP row
+      const linkedCIs = serverId
+        ? DCL_CONTAINER_ITEMS_STATE.filter(
+            ci => ci.lpId && ci.lpId.toLowerCase() === serverId.toLowerCase()
+          )
+        : [];
+
+      deleteOps.push({ tr, serverId, linkedCIs });
+    }
+
+    // Phase 2: Delete all container items in parallel batches
+    const BATCH_SIZE = 5;
+    const allCIDeletes = deleteOps.flatMap(op => op.linkedCIs);
+    for (let start = 0; start < allCIDeletes.length; start += BATCH_SIZE) {
+      const batch = allCIDeletes.slice(start, start + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map(ci =>
+          deleteContainerItem(ci.id).then(() => {
+            const idx = DCL_CONTAINER_ITEMS_STATE.findIndex(c => c.id === ci.id);
+            if (idx >= 0) DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
+          }).catch(err => console.error(`[Bulk Delete] Failed to delete CI ${ci.id}`, err))
+        )
+      );
+    }
+
+    // Phase 3: Delete all LP rows in parallel batches
+    const lpDeletes = deleteOps.filter(op => op.serverId);
+    for (let start = 0; start < lpDeletes.length; start += BATCH_SIZE) {
+      const batch = lpDeletes.slice(start, start + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(op => deleteServerRow(op.serverId))
+      );
+      results.forEach((r, idx) => {
+        if (r.status === "rejected") {
+          console.error("[Bulk Delete] Failed to delete row", r.reason);
+          failed++;
+        }
+      });
+      setLoading(true, `Deleting items… ${start + batch.length}/${total}`);
+    }
+
+    // Phase 4: Remove all rows from DOM at once
+    for (const { tr } of deleteOps) {
+      tr.remove();
+      deleted++;
+    }
+    deleted -= failed;
+
+    setLoading(false);
+
+    // Deselect remaining checkboxes
+    QA("#itemsTableBody .lp-row-select-cb:checked").forEach(cb => {
+      cb.checked = false;
+      cb.closest("tr")?.classList.remove("row-selected");
+    });
+    syncLpRowSelectAll();
+    updateBulkDeleteRowsButton();
+    updateBulkAssignButton();
+
+    // Refresh all UI — single pass
+    fullRecalcAndRefresh();
+    renderContainerCards();
+    renderContainerSummaries();
+
+    // Show result
+    if (failed > 0) {
+      showValidation("warning", `Deleted ${deleted} item${deleted !== 1 ? "s" : ""}. ${failed} failed to delete.`);
+    } else {
+      showValidation("success", `Successfully deleted ${deleted} item${deleted !== 1 ? "s" : ""}.`);
+    }
+  }
+
+  /* =============================
+     11B) CONTAINER SUMMARY BASED ON CONTAINER-ITEMS
+     ============================= */
+
+  function buildLpRowIndex() {
+    return getCachedLpRowIndex();
+  }
+
+  async function hydrateLpRowServerIds() {
+    const rows = QA("#itemsTableBody tr.lp-data-row");
+    if (!rows.length) return;
+
+    // Check if any rows are missing server IDs
+    const missingIds = rows.filter(tr => !tr.dataset.serverId);
+    if (!missingIds.length) return;
+
+    console.log(`Hydrating ${missingIds.length} LP rows with server IDs...`);
+
+    // Fetch all LP rows for this DCL
+    const lpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
+
+    // Create a lookup by order number + item code
+    const lpLookup = new Map();
+    lpRows.forEach(lp => {
+      const key = `${lp.cr650_ordernumber}|${lp.cr650_itemcode}`;
+      lpLookup.set(key, lp.cr650_dcl_loading_planid);
+    });
+
+    // Match DOM rows to server IDs
+    let matched = 0;
+    rows.forEach(tr => {
+      if (tr.dataset.serverId) return; // Already has ID
+
+      const orderNo = (tr.querySelector(".order-no")?.textContent || "").trim();
+      const itemCode = (tr.querySelector(".item-code")?.textContent || "").trim();
+      const key = `${orderNo}|${itemCode}`;
+
+      const serverId = lpLookup.get(key);
+      if (serverId) {
+        tr.dataset.serverId = serverId;
+        matched++;
+      }
+    });
+
+    console.log(`Hydrated ${matched} LP rows with server IDs`);
+  }
+
+  function computeContainerItemGrossWeight(ci, lpIndex) {
+    const lpRow = lpIndex.get((ci.lpId || "").toLowerCase());
+    if (!lpRow) {
+      return ci.quantity || 0;
+    }
+    const totalLoad = asNum(lpRow.querySelector(".loading-qty")?.value);
+    const totalGross = asNum(lpRow.querySelector(".gross-weight")?.textContent);
+    if (!totalLoad || !totalGross) {
+      return ci.quantity || 0;
+    }
+    const ratio = ci.quantity / totalLoad;
+    return totalGross * ratio;
+  }
+
+  function buildContainerSummaryFromContainerItems() {
+    const map = new Map();
+    if (!DCL_CONTAINER_ITEMS_STATE.length) return [];
+
+    const lpIndex = buildLpRowIndex();
+
+    DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
+      if (!ci.containerGuid) return;
+
+      const cont = DCL_CONTAINERS_STATE.find(
+        c => c.dataverseId && ci.containerGuid &&
+          c.dataverseId.toLowerCase() === ci.containerGuid.toLowerCase()
+      );
+
+      const contId = cont ? cont.id : (ci.containerGuid || "");
+      const type = cont ? cont.type : "Unknown";
+      const capacity = cont
+        ? (cont.maxWeight || (CONTAINER_CAPACITY_KG[cont.type] || 25000))
+        : 25000;
+
+      const gross = computeContainerItemGrossWeight(ci, lpIndex);
+
+      if (!map.has(contId)) {
+        map.set(contId, {
+          id: contId,
+          type,
+          capacityKg: capacity,
+          usedKg: 0
+        });
+      }
+      const obj = map.get(contId);
+      obj.usedKg += gross;
+    });
+
+    return Array.from(map.values());
+  }
+
+  function renderContainerItems(perCont) {
+    const list = Q("#containerCards");
+    if (!list) return;
+
+    if (!perCont || !perCont.length) {
+      list.innerHTML = "";
+      return;
+    }
+
+    const frag = d.createDocumentFragment();
+    perCont.forEach((c) => {
+      const usedPct = c.capacityKg
+        ? Math.min(100, Math.round((c.usedKg / c.capacityKg) * 100))
+        : 0;
+
+      const card = d.createElement("div");
+      card.className = "container-card";
+      card.style.border = "1px solid #ddd";
+      card.style.borderRadius = "8px";
+      card.style.padding = "12px";
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h4 style="margin:0">${escapeHtml(c.id)} (${escapeHtml(c.type)})</h4>
+          <span>Used: ${fmt2(c.usedKg)} / ${fmt2(c.capacityKg)} kg (${usedPct}%)</span>
+        </div>
+      `;
+      frag.appendChild(card);
+    });
+
+    list.innerHTML = "";
+    list.appendChild(frag);
+  }
+
+  function renderContainerSummaries(perContOpt) {
+    const sumDiv = Q("#containerSummaryList");
+    if (!sumDiv) return;
+
+    let perCont = perContOpt;
+    if (!perCont) {
+      perCont = buildContainerSummaryFromContainerItems();
+    }
+
+    if (!perCont.length) {
+      sumDiv.innerHTML = "<p style='font-size:13px;color:#666;'>No containers yet.</p>";
+      return;
+    }
+
+    const frag = d.createDocumentFragment();
+    perCont.forEach((c) => {
+      const usedPct = c.capacityKg
+        ? Math.min(100, Math.round((c.usedKg / c.capacityKg) * 100))
+        : 0;
+
+      const el = d.createElement("div");
+      el.style.border = "1px solid #ddd";
+      el.style.borderRadius = "8px";
+      el.style.padding = "12px";
+      el.innerHTML = `
+        <strong>${escapeHtml(c.id || c.type)}</strong><br>
+        Capacity: ${fmt2(c.capacityKg)} kg<br>
+        Used: ${fmt2(c.usedKg)} kg<br>
+        Utilization: ${usedPct}%
+      `;
+      frag.appendChild(el);
+    });
+
+    sumDiv.innerHTML = "";
+    sumDiv.appendChild(frag);
+  }
+
+  /* =============================
+     11C) STEP 1 ADD CONTAINERS (WITH QUANTITY)
+     ============================= */
+
+  function addContainerFromWizard() {
+    const typeSel = Q("#containerTypeSelect");
+    const maxWeightInput = Q("#containerMaxWeightInput");
+    const qtyInput = Q("#containerQtyInput");
+
+    const type = typeSel ? typeSel.value : "";
+    if (!type) {
+      showValidation("warning", "Please select a container type first.");
+      return;
+    }
+
+    let qty = asNum(qtyInput && qtyInput.value);
+    if (!qty || qty < 1) {
+      qty = 1;
+    }
+
+    const maxWeight =
+      asNum(maxWeightInput && maxWeightInput.value) ||
+      (CONTAINER_CAPACITY_KG[type] || 0);
+
+    const base = type.replace(/\s+/g, "-").toUpperCase();
+
+    const existingIds = new Set(DCL_CONTAINERS_STATE.map(c => c.id));
+    let counter = 1;
+
+    for (let i = 0; i < qty; i++) {
+      let id;
+      do {
+        id = `${base}-${String(counter).padStart(2, "0")}`;
+        counter++;
+      } while (existingIds.has(id));
+      existingIds.add(id);
+
+      const cont = {
+        id,
+        dataverseId: null,
+        type,
+        maxWeight,
+        currentWeight: 0,
+        items: []
+      };
+
+      DCL_CONTAINERS_STATE.push(cont);
+
+      createContainerOnServer(type, id, maxWeight)
+        .then((serverId) => {
+          if (serverId) {
+            cont.dataverseId = serverId;
+
+            // Ensure anything depending on containers is refreshed
+            renderContainerCards();
+            renderContainerSummaries();
+
+            // Important: refresh assignment table so the new container appears
+            rebuildAssignmentTable();
+
+      
+          }
+        })
+        .catch((e) => {
+          console.error("[DCL Containers] Failed to save container", e);
+          showValidation("error", `Failed to save container ${id} in Dataverse.`);
+        });
+    }
+
+    renderContainerCards();
+    renderContainerSummaries();
+  }
+
+  /* =============================
+     12) VALIDATION / LOGISTICS
+     ============================= */
+  function showValidation(level, msg) {
+    const host = Q("#validationAlerts") || Q("#aiWarningsContent") || Q("#aiErrorsContent") || Q("#aiSuggestionsContent");
+    if (!host) return;
+
+    const div = d.createElement("div");
+
+    const color = level === "error" ? "#f8d7da"
+      : level === "warning" ? "#fff3cd"
+        : "#d1e7dd";
+    const border = level === "error" ? "#f5c2c7"
+      : level === "warning" ? "#ffecb5"
+        : "#badbcc";
+
+    div.style.background = color;
+    div.style.border = `1px solid ${border}`;
+    div.style.borderRadius = "6px";
+    div.style.padding = "10px";
+    div.style.marginBottom = "8px";
+    div.textContent = msg;
+
+    host.appendChild(div);
+    setTimeout(() => {
+      if (div.parentNode) div.parentNode.removeChild(div);
+    }, 6000);
+  }
+
+  function runValidateAll() {
+    let issues = 0;
+    const rows = QA("#itemsTableBody tr.lp-data-row");
+
+    rows.forEach((r, idx) => {
+      const loadQty = asNum(r.querySelector(".loading-qty")?.value);
+      const orderQty = asNum(r.querySelector(".order-qty")?.textContent);
+
+      if (loadQty < 0) {
+        issues++;
+        showValidation("error", `Row ${idx + 1}: Loading Qty cannot be negative.`);
+      }
+      if (loadQty > orderQty) {
+        issues++;
+        showValidation("warning", `Row ${idx + 1}: Loading Qty exceeds Order Qty.`);
+      }
+
+      const price = asNum(r.querySelector(".unit-price")?.value);
+      if (price < 0) {
+        issues++;
+        showValidation("error", `Row ${idx + 1}: Unit price cannot be negative.`);
+      }
+    });
+
+    if (!issues) {
+      showValidation("success", "All items passed validation.");
+    }
+  }
+
+  function runLogisticsCheck() {
+    const perCont = buildContainerSummaryFromContainerItems();
+
+    const lpIndex = buildLpRowIndex();
+    const totalGross = DCL_CONTAINER_ITEMS_STATE.reduce((s, ci) => {
+      return s + computeContainerItemGrossWeight(ci, lpIndex);
+    }, 0);
+
+    if (!perCont.length) {
+      showValidation("warning", "No containers added. Add containers to run logistics checks.");
+      return;
+    }
+    if (!totalGross) {
+      showValidation("warning", "No gross weight found. Enter weights or Loading Qty first.");
+      return;
+    }
+
+    const avg = totalGross / perCont.length;
+    perCont.forEach((c) => {
+      if (avg > c.capacityKg) {
+        showValidation(
+          "warning",
+          `${c.type} may be overloaded by estimate. Consider 40ft or split loads.`
+        );
+      }
+    });
+  }
+
+  /* =============================
+     14) IMPORT CONTROLLER
+     ============================= */
+
+  async function buildShippedIndexForOrder(orderNo) {
+    try {
+      const sRows = await fetchShippedBySo(orderNo);
+      return buildShippedIndex(sRows || []);
+    } catch {
+      return new Map();
+    }
+  }
+
+  async function importAllOrdersForCurrentDcl(dclGuid, itemMaster) {
+    if (!dclGuid) {
+      alert("Missing DCL id in URL.");
+      return;
+    }
+
+    setLoading(true, "Loading orders for this DCL…");
+
+    try {
+      const orders = await fetchOrderNumbersForCurrentDcl(dclGuid);
+      if (!orders.length) {
+        alert("No orders attached to this DCL.");
+        return;
+      }
+
+      // Fetch all order data in parallel for better performance
+      const orderDataPromises = orders.map(async (orderStr) => {
+        const orderNo = Number(orderStr);
+        if (!Number.isFinite(orderNo)) return null;
+
+        try {
+          const [raw, shippedIndex] = await Promise.all([
+            fetchOrderLines(orderNo),
+            buildShippedIndexForOrder(orderNo)
+          ]);
+          return { orderNo, raw, shippedIndex };
+        } catch (err) {
+          console.warn(`Failed to fetch data for order ${orderNo}:`, err);
+          return null;
+        }
+      });
+
+      const orderDataResults = await Promise.all(orderDataPromises);
+
+      // Build a set of existing order+item keys to prevent duplicate imports
+      const existingKeys = new Set();
+      QA("#itemsTableBody tr.lp-data-row").forEach(r => {
+        const oNo = (r.querySelector(".order-no")?.textContent || "").trim();
+        const iCode = (r.querySelector(".item-code")?.textContent || "").trim();
+        if (oNo || iCode) existingKeys.add(`${oNo}|${iCode}`);
+      });
+
+      // Collect all items from all orders first, then render + persist in one batch
+      const allItems = [];
+      const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
+      let skippedCount = 0;
+
+      for (const orderData of orderDataResults) {
+        if (!orderData || !orderData.raw || !orderData.raw.length) continue;
+
+        const items = orderData.raw.map((r, i) =>
+          computeItemData(
+            adaptRawRowToOrderItem(r),
+            baseCount + allItems.length + i,
+            itemMaster,
+            orderData.shippedIndex
+          )
+        );
+
+        // Filter out items that already exist in the table
+        for (const item of items) {
+          const key = `${item.orderNo}|${item.itemCode}`;
+          if (existingKeys.has(key)) {
+            skippedCount++;
+            continue;
+          }
+          existingKeys.add(key); // prevent intra-batch duplicates too
+          allItems.push(item);
+        }
+      }
+
+      if (allItems.length) {
+        const tbody = Q("#itemsTableBody");
+        if (tbody) {
+          await appendAndPersistItems(allItems, tbody);
+        }
+      }
+
+      if (skippedCount > 0 && allItems.length > 0) {
+        showValidation("info", `Imported ${allItems.length} new row(s). Skipped ${skippedCount} already-existing row(s).`);
+      } else if (skippedCount > 0 && allItems.length === 0) {
+        showValidation("info", `All ${skippedCount} row(s) already exist. Nothing new to import.`);
+      }
+
+      if (!QA("#itemsTableBody tr.lp-data-row").length) {
+        alert("No importable lines were found for the DCL's orders.");
+      }
+
+      await ensureContainerItemsForCurrentDcl();
+      rebuildAssignmentTable();
+      renderContainerSummaries();
+
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function preloadSavedLoadingPlanRows(dclGuid) {
+    if (!dclGuid) return [];
+    setLoading(true, "Loading saved rows and shipping history…");
+    try {
+      const savedRows = await fetchExistingLoadingPlansForCurrentDcl(dclGuid);
+      if (savedRows && savedRows.length) {
+        await importExistingDclLpRows(savedRows);
+      }
+      return savedRows || [];
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* =============================
+     17) SYNC CONTAINER ASSIGNMENTS IN UNIFIED TABLE
+     ============================= */
+
+  /**
+   * Syncs container dropdown selections and palletized data in the unified
+   * Order Items table based on DCL_CONTAINER_ITEMS_STATE.
+   * Replaces the old separate assignment table.
+   */
+  function rebuildAssignmentTable() {
+    const lpRows = QA("#itemsTableBody tr.lp-data-row");
+    if (!lpRows.length) return;
+
+    const containers = (DCL_CONTAINERS_STATE || []).filter(c => c.dataverseId);
+
+    // Build container options HTML for dropdowns
+    const containerOptionsHtml = containers.map(c => {
+      const guid = c.dataverseId;
+      if (!guid) return "";
+      const label = c.id || c.type || "Container";
+      return `<option value="${escapeHtml(guid)}" title="${escapeHtml(label)}">${escapeHtml(label)}</option>`;
+    }).join("");
+
+    // Group container items by LP ID
+    const ciByLp = new Map();
+    DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
+      const lpIdLower = (ci.lpId || "").toLowerCase();
+      if (!lpIdLower) return;
+      if (!ciByLp.has(lpIdLower)) ciByLp.set(lpIdLower, []);
+      ciByLp.get(lpIdLower).push(ci);
+    });
+
+    // Update each LP row's container dropdown and store CI reference
+    lpRows.forEach(tr => {
+      const serverId = (tr.dataset.serverId || "").toLowerCase();
+      if (!serverId) return;
+
+      const containerSelect = tr.querySelector(".assign-container");
+      if (!containerSelect) return;
+
+      // Refresh options in case containers were added/removed
+      const currentVal = containerSelect.value;
+      containerSelect.innerHTML = `<option value="">--</option>${containerOptionsHtml}`;
+
+      const items = ciByLp.get(serverId) || [];
+      if (items.length > 0) {
+        // If the row already has a containerItemId (from reload/split), find that specific CI
+        const existingCiId = tr.dataset.containerItemId;
+        let ci;
+        if (existingCiId) {
+          ci = items.find(c => c.id === existingCiId) || items[0];
+        } else {
+          ci = items[0];
+        }
+        tr.dataset.ciId = ci.id || "";
+
+        if (ci.containerGuid) {
+          // Case-insensitive GUID match — Dataverse may return mixed case
+          const targetLower = ci.containerGuid.toLowerCase();
+          for (const opt of containerSelect.options) {
+            if (opt.value && opt.value.toLowerCase() === targetLower) {
+              containerSelect.value = opt.value;
+              break;
+            }
+          }
+        }
+      }
+
+      // Set tooltip to show full selected container name
+      const selectedOpt = containerSelect.options[containerSelect.selectedIndex];
+      containerSelect.title = selectedOpt ? selectedOpt.text : "";
+
+      // Update palletized display
+      const palletized = (tr.dataset.palletized || "No").trim();
+      const numberOfPallets = asNum(tr.dataset.numberOfPallets);
+      const isPalletized = palletized === "Yes";
+      const palletWeight = isPalletized ? (numberOfPallets * 19.38) : 0;
+
+      const palletizedSelect = tr.querySelector(".palletized-select");
+      if (palletizedSelect) palletizedSelect.value = palletized;
+
+      const palletsInput = tr.querySelector(".pallets-input");
+      if (palletsInput) palletsInput.value = fmt2(numberOfPallets);
+
+      const palletWeightCell = tr.querySelector(".pallet-weight");
+      if (palletWeightCell) palletWeightCell.textContent = fmt2(palletWeight);
+    });
+
+    console.log("✅ Unified table container assignments synced");
+  }
+
+  // ===== RECOMMENDED: SIMPLIFIED SPLIT (No Container Creation) =====
+  function showSimpleSplitPrompt(total, max, lpRow) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'split-overlay';
+
+      overlay.innerHTML = `
+        <div class="split-box" style="max-width:520px;">
+          <h4>Split Item</h4>
+          <div class="subtitle">Divide this quantity into separate line items for container assignment</div>
+
+          <div class="split-current">
+            <span class="split-current-label">Total Loading Quantity:</span>
+            <span class="split-current-value">${total} units</span>
+          </div>
+
+          <!-- Tab Selection - 3 Options -->
+          <div class="split-tabs-container">
+            <button class="split-tab active" data-mode="simple">
+              <i class="fas fa-divide"></i>
+              <span>Split into 2</span>
+            </button>
+            <button class="split-tab" data-mode="multiple">
+              <i class="fas fa-th"></i>
+              <span>By # of Containers</span>
+            </button>
+            <button class="split-tab" data-mode="byQuantity">
+              <i class="fas fa-boxes"></i>
+              <span>By Qty per Container</span>
+            </button>
+          </div>
+
+          <!-- Mode 1: Simple 2-way split -->
+          <div class="split-mode" id="simpleSplitMode">
+            <div class="split-input-group">
+              <label>Quantity for first container:</label>
+              <input type="number" id="splitQty" value="${Math.floor(total / 2)}" min="1" max="${max}" step="1">
+              <div class="split-validation"></div>
+            </div>
+
+            <div class="split-preview">
+              <div class="split-preview-row">
+                <span class="split-preview-label">Container 1:</span>
+                <span class="split-preview-value" id="previewFirst">${Math.floor(total / 2)} units</span>
+              </div>
+              <div class="split-preview-row">
+                <span class="split-preview-label">Container 2:</span>
+                <span class="split-preview-value" id="previewSecond">${total - Math.floor(total / 2)} units</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Mode 2: Split by Number of Containers (Equal Distribution) -->
+          <div class="split-mode" id="multipleSplitMode" style="display:none;">
+            <div class="split-input-group">
+              <label>Number of Containers:</label>
+              <input type="number" id="numRecordsInput" min="2" max="50" value="3">
+              <div class="split-help">Quantity will be distributed equally across containers</div>
+            </div>
+
+            <div id="multipleSplitPreview"></div>
+          </div>
+
+          <!-- Mode 3: Split by Quantity per Container (NEW) -->
+          <div class="split-mode" id="byQuantityMode" style="display:none;">
+            <div class="split-input-group">
+              <label>Quantity per Container:</label>
+              <input type="number" id="qtyPerContainerInput" min="1" max="${total}" value="${Math.min(250, Math.ceil(total / 4))}">
+              <div class="split-help">System will create as many containers as needed</div>
+            </div>
+
+            <div id="byQuantityPreview"></div>
+          </div>
+
+          <div class="split-btns">
+            <button class="cancel">Cancel</button>
+            <button class="ok" disabled>Confirm Split</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(overlay);
+
+      const tabs = overlay.querySelectorAll('.split-tab');
+      const simpleModeDiv = overlay.querySelector('#simpleSplitMode');
+      const multipleModeDiv = overlay.querySelector('#multipleSplitMode');
+      const byQuantityModeDiv = overlay.querySelector('#byQuantityMode');
+      const okBtn = overlay.querySelector('.ok');
+
+      let currentMode = 'simple';
+
+      // Tab switching - handles 3 modes
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          tabs.forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+
+          currentMode = tab.dataset.mode;
+
+          // Hide all modes first
+          simpleModeDiv.style.display = 'none';
+          multipleModeDiv.style.display = 'none';
+          byQuantityModeDiv.style.display = 'none';
+
+          // Show selected mode and validate
+          if (currentMode === 'simple') {
+            simpleModeDiv.style.display = 'block';
+            validateSimpleSplit();
+          } else if (currentMode === 'multiple') {
+            multipleModeDiv.style.display = 'block';
+            updateMultipleSplitPreview();
+          } else if (currentMode === 'byQuantity') {
+            byQuantityModeDiv.style.display = 'block';
+            updateByQuantityPreview();
+          }
+        });
+      });
+
+      // ========== Mode 1: Simple 2-way split ==========
+      const input = overlay.querySelector('#splitQty');
+      const validation = overlay.querySelector('.split-validation');
+      const preview = overlay.querySelector('.split-preview');
+      const previewFirst = overlay.querySelector('#previewFirst');
+      const previewSecond = overlay.querySelector('#previewSecond');
+
+      function validateSimpleSplit() {
+        const val = parseFloat(input.value);
+
+        validation.textContent = '';
+        validation.className = 'split-validation';
+        preview.classList.remove('show');
+        input.className = '';
+        okBtn.disabled = true;
+
+        if (!val || val <= 0) {
+          validation.textContent = 'Must be greater than 0';
+          validation.className = 'split-validation error';
+          input.className = 'error';
+          return false;
+        }
+
+        if (val >= total) {
+          validation.textContent = `Must be less than ${total}`;
+          validation.className = 'split-validation error';
+          input.className = 'error';
+          return false;
+        }
+
+        if (!Number.isInteger(val)) {
+          validation.textContent = 'Must be a whole number';
+          validation.className = 'split-validation error';
+          input.className = 'error';
+          return false;
+        }
+
+        const remaining = total - val;
+        previewFirst.textContent = val + ' units';
+        previewSecond.textContent = remaining + ' units';
+        preview.classList.add('show');
+        input.className = 'valid';
+        validation.textContent = 'Valid';
+        validation.className = 'split-validation success';
+        okBtn.disabled = false;
+        return true;
+      }
+
+      input.addEventListener('input', validateSimpleSplit);
+
+      // ========== Mode 2: Split by Number of Containers (Equal) ==========
+      const numInput = overlay.querySelector('#numRecordsInput');
+      const multiplePreview = overlay.querySelector('#multipleSplitPreview');
+
+      function updateMultipleSplitPreview() {
+        const numRecords = parseInt(numInput.value);
+
+        if (!numRecords || numRecords < 2) {
+          multiplePreview.innerHTML = '<div class="split-preview-error">Enter at least 2 containers</div>';
+          okBtn.disabled = true;
+          return;
+        }
+
+        if (numRecords > total) {
+          multiplePreview.innerHTML = '<div class="split-preview-error">Cannot exceed total quantity (' + total + ')</div>';
+          okBtn.disabled = true;
+          return;
+        }
+
+        const distribution = splitEvenly(total, numRecords);
+
+        multiplePreview.innerHTML = `
+          <div class="split-preview-success">
+            <div class="split-preview-header">
+              <i class="fas fa-check-circle"></i> Distribution Preview
+            </div>
+            <div class="split-preview-list">
+              ${distribution.map((qty, idx) => `
+                <div class="split-preview-item">
+                  <span>Container ${idx + 1}</span>
+                  <span class="split-preview-qty">${qty} units</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+
+        okBtn.disabled = false;
+      }
+
+      numInput.addEventListener('input', updateMultipleSplitPreview);
+
+      // ========== Mode 3: Split by Quantity per Container (NEW) ==========
+      const qtyPerInput = overlay.querySelector('#qtyPerContainerInput');
+      const byQuantityPreview = overlay.querySelector('#byQuantityPreview');
+
+      function updateByQuantityPreview() {
+        const qtyPer = parseInt(qtyPerInput.value);
+
+        if (!qtyPer || qtyPer <= 0) {
+          byQuantityPreview.innerHTML = '<div class="split-preview-error">Enter a valid quantity</div>';
+          okBtn.disabled = true;
+          return;
+        }
+
+        if (qtyPer > total) {
+          byQuantityPreview.innerHTML = '<div class="split-preview-error">Cannot exceed total quantity (' + total + ')</div>';
+          okBtn.disabled = true;
+          return;
+        }
+
+        // Calculate distribution by fixed quantity
+        const distribution = splitByFixedQuantity(total, qtyPer);
+
+        byQuantityPreview.innerHTML = `
+          <div class="split-preview-success">
+            <div class="split-preview-header">
+              <i class="fas fa-check-circle"></i> Distribution Preview (${distribution.length} containers)
+            </div>
+            <div class="split-preview-list">
+              ${distribution.map((qty, idx) => `
+                <div class="split-preview-item ${qty < qtyPer ? 'remainder' : ''}">
+                  <span>Container ${idx + 1}${qty < qtyPer ? ' (remainder)' : ''}</span>
+                  <span class="split-preview-qty">${qty} units</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+
+        okBtn.disabled = false;
+      }
+
+      qtyPerInput.addEventListener('input', updateByQuantityPreview);
+
+      // ========== Helper Functions ==========
+
+      // Split evenly into N parts (remainder goes to first — consistent with pallet distribution)
+      function splitEvenly(total, n) {
+        const base = Math.floor(total / n);
+        const remainder = total % n;
+        return Array.from({ length: n }, (_, i) =>
+          i === 0 ? base + remainder : base
+        );
+      }
+
+      // Split by fixed quantity per container
+      function splitByFixedQuantity(total, qtyPer) {
+        const distribution = [];
+        let remaining = total;
+
+        while (remaining > 0) {
+          if (remaining >= qtyPer) {
+            distribution.push(qtyPer);
+            remaining -= qtyPer;
+          } else {
+            distribution.push(remaining);
+            remaining = 0;
+          }
+        }
+
+        return distribution;
+      }
+
+      // ========== Confirm Button ==========
+      okBtn.addEventListener('click', () => {
+        if (currentMode === 'simple') {
+          const val = parseInt(input.value);
+          document.body.removeChild(overlay);
+          resolve({ mode: 'simple', value: val });
+
+        } else if (currentMode === 'multiple') {
+          const numRecords = parseInt(numInput.value);
+          const distribution = splitEvenly(total, numRecords);
+
+          if (distribution.some(q => q <= 0)) {
+            alert("Invalid: one or more containers would have zero quantity");
+            return;
+          }
+
+          document.body.removeChild(overlay);
+          resolve({ mode: 'multiple', distribution: distribution });
+
+        } else if (currentMode === 'byQuantity') {
+          const qtyPer = parseInt(qtyPerInput.value);
+          const distribution = splitByFixedQuantity(total, qtyPer);
+
+          if (distribution.some(q => q <= 0)) {
+            alert("Invalid: one or more containers would have zero quantity");
+            return;
+          }
+
+          document.body.removeChild(overlay);
+          resolve({ mode: 'multiple', distribution: distribution }); // Same format as mode 2
+        }
+      });
+
+      // Cancel button
+      overlay.querySelector('.cancel').addEventListener('click', () => {
+        document.body.removeChild(overlay);
+        resolve(null);
+      });
+
+      // Click outside to cancel
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          document.body.removeChild(overlay);
+          resolve(null);
+        }
+      });
+
+      // Initialize
+      setTimeout(() => {
+        if (currentMode === 'simple') {
+          input.focus();
+          input.select();
+          validateSimpleSplit();
+        } else {
+          updateMultipleSplitPreview();
+        }
+      }, 100);
+    });
+  }
+  /* =============================
+     18) AUTOMATIC ALLOCATION — uses container-items
+     ============================= */
+
+  function resetAllAssignments() {
+    if (!DCL_CONTAINER_ITEMS_STATE.length) return;
+
+    Promise.all(
+      DCL_CONTAINER_ITEMS_STATE.map(ci =>
+        patchContainerItem(ci.id, { "cr650_dcl_number@odata.bind": null })
+      )
+    )
+      .then(async () => {
+        // 1️⃣ Refresh container-items from Dataverse
+        await refreshContainerItemsState();
+
+        // 2️⃣ Refresh LP DOM (volume depends on this)
+        await refreshOrderItemsDisplay();
+
+        // 3️⃣ Render everything from fresh state — single pass
+        fullRecalcAndRefresh();
+        renderContainerCards();
+        renderContainerSummaries();
+  
+      })
+
+      .catch(err => {
+        console.error("Failed resetting assignments", err);
+        showValidation("error", "Failed to reset assignments.");
+      });
+  }
+
+  const Qall = (sel) => Array.from(d.querySelectorAll(sel));
+
+  function getQueryParam(name) {
+    return new URL(w.location.href).searchParams.get(name);
+  }
+
+  function isGuid(s) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      .test(String(s || "").trim());
+  }
+
+
+  function getCurrentDclGuid() {
+    if (CURRENT_DCL_ID && isGuid(CURRENT_DCL_ID)) return CURRENT_DCL_ID;
+    const id = getQueryParam("id");
+    if (id && isGuid(id)) {
+      CURRENT_DCL_ID = id;
+      return id;
+    }
+    return null;
+  }
+
+  /* =============================
+     20) BOOTSTRAP / PAGE INIT - COMPREHENSIVE VERSION
+     ============================= */
+
+  d.addEventListener("DOMContentLoaded", async () => {
+    // Prevent double-initialization if script is loaded multiple times
+    if (w.__LP_VIEW_INITIALIZED__) return;
+    w.__LP_VIEW_INITIALIZED__ = true;
+
+    // Initialize item master cache
+    const itemMaster = w.__ITEM_MASTER__ || {};
+    ITEM_MASTER_CACHE = itemMaster;
+
+    // Get DCL ID from URL
+    const dclId = getQueryParam("id");
+    CURRENT_DCL_ID = dclId;
+
+    // Update step navigation links with DCL ID
+    if (CURRENT_DCL_ID && isGuid(CURRENT_DCL_ID)) {
+      document.querySelectorAll('.step[data-step]').forEach(link => {
+        const href = link.getAttribute('href');
+        if (href && !href.includes('?id=')) {
+          link.setAttribute('href', `${href}?id=${CURRENT_DCL_ID}`);
+        }
+      });
+    }
+
+    if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+      console.warn("No valid 'id' in URL. Some features will be unavailable.");
+      setText("#dclNumber", "-");
+    } else {
+      // ✅ Single API call to fetch all DCL Master fields at once
+      try {
+        const dclMasterData = await safeAjax({
+          type: "GET",
+          url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})?$select=cr650_loadingdate,cr650_currencycode,cr650_status,cr650_dclnumber`,
+          headers: { Accept: "application/json;odata.metadata=minimal" },
+          dataType: "json",
+          _withLoader: false
+        });
+
+        LOADING_DATE = dclMasterData && dclMasterData.cr650_loadingdate ? dclMasterData.cr650_loadingdate : null;
+        console.log("📅 Stored loading date for filtering:", LOADING_DATE);
+
+        let currCode = dclMasterData && dclMasterData.cr650_currencycode ? String(dclMasterData.cr650_currencycode).trim() : null;
+        CURRENCY_CODE = currCode || "USD";
+        if (!currCode) console.warn("💱 No currency code in DCL Master, defaulting to USD");
+        console.log("💱 Using currency:", CURRENCY_CODE);
+
+        DCL_STATUS = dclMasterData && dclMasterData.cr650_status ? dclMasterData.cr650_status : null;
+        console.log("📋 DCL Status loaded:", DCL_STATUS);
+
+        const dclNumber = dclMasterData && dclMasterData.cr650_dclnumber ? dclMasterData.cr650_dclnumber : "-";
+        setText("#dclNumber", dclNumber);
+        console.log("DCL Number loaded:", dclNumber);
+      } catch (err) {
+        console.error("Failed to fetch DCL Master data:", err);
+        setText("#dclNumber", "-");
+      }
+
+      // Load saved LP rows, containers, and container items all in parallel
+      // (containers/items don't depend on LP rows)
+      await Promise.all([
+        preloadSavedLoadingPlanRows(CURRENT_DCL_ID),
+        loadContainersForCurrentDcl(CURRENT_DCL_ID),
+        refreshContainerItemsState()
+      ]);
+
+      // Re-tag rows that originated from a previous PDF upload and draw chips.
+      try { restorePdfBatchTags(); } catch (err) { console.warn("restorePdfBatchTags failed:", err); }
+
+      // Render everything after data is loaded
+      renderContainerCards();
+      rebuildAssignmentTable();
+
+      renderContainerSummaries();
+
+    }
+
+    // Initialize UI components
+    populateContainerTypeDropdown();
+    updateToolbarState();
+
+    const tbody = Q("#itemsTableBody");
+    if (tbody) attachRowEvents(tbody);
+
+    // ===== STEP 1: CONTAINER MANAGEMENT =====
+
+    const addContBtn = Q("#addContainerBtn");
+    if (addContBtn) {
+      addContBtn.addEventListener("click", addContainerFromWizard);
+    }
+
+    const clearContainersBtn = Q("#clearContainersBtn");
+    if (clearContainersBtn) {
+      clearContainersBtn.addEventListener("click", resetAllAssignments);
+    }
+
+    // Bulk container selection: Select All toggle
+    const selectAllCb = Q("#containerSelectAll");
+    if (selectAllCb) {
+      selectAllCb.addEventListener("change", function () {
+        handleSelectAll(this.checked);
+      });
+    }
+
+    // Bulk container selection: Delete Selected button
+    const deleteSelBtn = Q("#deleteSelectedContainersBtn");
+    if (deleteSelBtn) {
+      deleteSelBtn.addEventListener("click", bulkDeleteSelectedContainers);
+    }
+
+    // Bulk LP row assignment: Select All (toolbar checkbox)
+    const lpRowSelectAll = Q("#lpRowSelectAll");
+    if (lpRowSelectAll) {
+      lpRowSelectAll.addEventListener("change", function () {
+        handleLpRowSelectAll(this.checked);
+        const headerCb = Q("#lpRowSelectAllHeader");
+        if (headerCb) headerCb.checked = this.checked;
+      });
+    }
+
+    // Bulk LP row assignment: Select All (table header checkbox)
+    const lpRowSelectAllHeader = Q("#lpRowSelectAllHeader");
+    if (lpRowSelectAllHeader) {
+      lpRowSelectAllHeader.addEventListener("change", function () {
+        handleLpRowSelectAll(this.checked);
+        const toolbarCb = Q("#lpRowSelectAll");
+        if (toolbarCb) toolbarCb.checked = this.checked;
+      });
+    }
+
+    // Bulk LP row assignment: container dropdown change -> re-evaluate button state
+    const bulkContainerSel = Q("#bulkAssignContainerSelect");
+    if (bulkContainerSel) {
+      bulkContainerSel.addEventListener("change", updateBulkAssignButton);
+    }
+
+    // Bulk LP row assignment: Assign Selected button
+    const bulkAssignBtn = Q("#bulkAssignBtn");
+    if (bulkAssignBtn) {
+      bulkAssignBtn.addEventListener("click", bulkAssignSelectedRows);
+    }
+
+    // Bulk LP row deletion: Delete Selected button
+    const bulkDeleteBtn = Q("#bulkDeleteRowsBtn");
+    if (bulkDeleteBtn) {
+      bulkDeleteBtn.addEventListener("click", bulkDeleteSelectedRows);
+    }
+
+    // ===== STEP 2: ALLOCATION & ASSIGNMENT (ENHANCED) =====
+
+    /**
+     * ✅ ENHANCED: Smart update function that detects and reports all changes
+     * - New items added to Loading Plan
+     * - Quantity changes in existing items
+     * - Items removed from Loading Plan
+     * - Shows detailed notification of what changed
+     */
+    async function syncContainerItemsIncrementally() {
+      if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+        showValidation("error", "Missing or invalid DCL id in URL.");
+        return;
+      }
+
+      try {
+        setLoading(true, "Analyzing changes...");
+
+        console.log("=== SMART UPDATE: ANALYZING CHANGES ===");
+
+        // ===== STEP 1: Build current state snapshot =====
+        await hydrateLpRowServerIds();
+        const lpRows = QA("#itemsTableBody tr.lp-data-row");
+
+        // Map: LP ID → Loading Quantity
+        const currentLpState = new Map();
+        lpRows.forEach(tr => {
+          const lpId = tr.dataset.serverId;
+          if (!lpId) return;
+
+          const loadingQty = asNum(tr.querySelector(".loading-qty")?.value);
+          const itemCode = tr.querySelector(".item-code")?.textContent || "";
+          const orderNo = tr.querySelector(".order-no")?.textContent || "";
+
+          currentLpState.set(lpId.toLowerCase(), {
+            lpId,
+            loadingQty,
+            itemCode,
+            orderNo,
+            row: tr
+          });
+        });
+
+        console.log(`1. Current LP rows in Order Items: ${currentLpState.size}`);
+
+        // ===== STEP 2: Build existing CI state snapshot =====
+        // Map: LP ID → Container Items
+        const existingCiByLp = new Map();
+        DCL_CONTAINER_ITEMS_STATE.forEach(ci => {
+          const lpId = (ci.lpId || "").toLowerCase();
+          if (!lpId) return;
+
+          if (!existingCiByLp.has(lpId)) {
+            existingCiByLp.set(lpId, []);
+          }
+          existingCiByLp.get(lpId).push(ci);
+        });
+
+        console.log(`2. Existing Container Items: ${DCL_CONTAINER_ITEMS_STATE.length} (covering ${existingCiByLp.size} LP rows)`);
+
+        // ===== STEP 3: Detect changes =====
+        const changes = {
+          newItems: [],           // LP rows without any CIs
+          quantityChanges: [],    // LP rows where total CI qty ≠ loading qty
+          removedItems: [],       // CIs whose LP row no longer exists
+          noChanges: []          // LP rows that match perfectly
+        };
+
+        // Check for NEW items and QUANTITY changes
+        currentLpState.forEach((lpData, lpId) => {
+          const cis = existingCiByLp.get(lpId) || [];
+
+          if (cis.length === 0) {
+            // NEW ITEM - no container items exist
+            if (lpData.loadingQty > 0) {
+              changes.newItems.push(lpData);
+            }
+          } else {
+            // EXISTING ITEM - check if quantity changed
+            const ciTotalQty = cis.reduce((sum, ci) => sum + (ci.quantity || 0), 0);
+
+            if (Math.abs(ciTotalQty - lpData.loadingQty) > 0.01) {
+              changes.quantityChanges.push({
+                ...lpData,
+                ciTotalQty,
+                difference: lpData.loadingQty - ciTotalQty,
+                splitCount: cis.length
+              });
+            } else {
+              changes.noChanges.push(lpData);
+            }
+          }
+        });
+
+        // Check for REMOVED items (CIs whose LP row is gone)
+        existingCiByLp.forEach((cis, lpId) => {
+          if (!currentLpState.has(lpId)) {
+            changes.removedItems.push({
+              lpId,
+              cis,
+              ciCount: cis.length,
+              totalQty: cis.reduce((sum, ci) => sum + (ci.quantity || 0), 0)
+            });
+          }
+        });
+
+        console.log("3. Change Detection Results:");
+        console.log(`   - New items: ${changes.newItems.length}`);
+        console.log(`   - Quantity changes: ${changes.quantityChanges.length}`);
+        console.log(`   - Removed items: ${changes.removedItems.length}`);
+        console.log(`   - Unchanged items: ${changes.noChanges.length}`);
+
+        // ===== STEP 4: Handle changes =====
+        let createdCount = 0;
+        let updatedCount = 0;
+        let deletedCount = 0;
+
+        // A) Create CIs for NEW items
+        if (changes.newItems.length > 0) {
+          setLoading(true, `Adding ${changes.newItems.length} new item(s)...`);
+
+          for (const item of changes.newItems) {
+            try {
+              await createContainerItemOnServer(item.lpId, item.loadingQty, null, false);
+              createdCount++;
+              console.log(`   ✅ Created CI for: ${item.itemCode} (${item.loadingQty} units)`);
+            } catch (err) {
+              console.error(`   ❌ Failed to create CI for ${item.itemCode}:`, err);
+            }
+          }
+        }
+
+        // B) Handle QUANTITY changes
+        if (changes.quantityChanges.length > 0) {
+          setLoading(true, `Updating ${changes.quantityChanges.length} quantity change(s)...`);
+
+          for (const item of changes.quantityChanges) {
+            const cis = existingCiByLp.get(item.lpId.toLowerCase()) || [];
+
+            // ✅ Strategy: Update the first (non-split) CI with new quantity
+            // If item has multiple CIs (splits), user must manually adjust via split interface
+            if (cis.length === 1) {
+              try {
+                await patchContainerItem(cis[0].id, {
+                  cr650_quantity: item.loadingQty
+                });
+
+                // Update in state
+                const ciInState = DCL_CONTAINER_ITEMS_STATE.find(ci => ci.id === cis[0].id);
+                if (ciInState) {
+                  ciInState.quantity = item.loadingQty;
+                }
+
+                updatedCount++;
+                console.log(`   ✅ Updated quantity for ${item.itemCode}: ${item.ciTotalQty} → ${item.loadingQty}`);
+              } catch (err) {
+                console.error(`   ❌ Failed to update quantity for ${item.itemCode}:`, err);
+              }
+            } else {
+              // ⚠️ Split item - don't auto-update, warn user
+              console.warn(`   ⚠️ Skipped ${item.itemCode}: Has ${cis.length} splits (manual adjustment required)`);
+            }
+          }
+        }
+
+        // C) Remove orphaned CIs (items whose LP row no longer exists)
+        if (changes.removedItems.length > 0) {
+          const totalOrphaned = changes.removedItems.reduce((sum, item) => sum + item.ciCount, 0);
+          const doDelete = confirm(
+            `${totalOrphaned} orphaned container item(s) detected ` +
+            `(their loading plan row was removed).\n\n` +
+            `Delete these orphaned records?`
+          );
+
+          if (doDelete) {
+            setLoading(true, `Removing ${totalOrphaned} orphaned item(s)...`);
+
+            for (const item of changes.removedItems) {
+              for (const ci of item.cis) {
+                try {
+                  await deleteContainerItem(ci.id);
+                  deletedCount++;
+                  console.log(`   Deleted orphaned CI: ${ci.id.substring(0, 8)}...`);
+                } catch (err) {
+                  console.error(`   Failed to delete CI ${ci.id}:`, err);
+                }
+              }
+            }
+          }
+        }
+
+        // ===== STEP 5: Refresh container items state =====
+        if (createdCount > 0 || updatedCount > 0 || deletedCount > 0) {
+          setLoading(true, "Refreshing assignment table...");
+
+          // Single fetch — no retry loop needed
+          await refreshContainerItemsState();
+
+          // Refresh UI
+          rebuildAssignmentTable();
+          renderContainerCards();
+          renderContainerSummaries();
+    
+        }
+
+        // ===== STEP 6: Show smart notification =====
+        showSmartUpdateNotification(changes, createdCount, updatedCount, deletedCount);
+
+        console.log("=== SMART UPDATE COMPLETE ===");
+
+      } catch (err) {
+        console.error("Smart update failed:", err);
+        showValidation("error", "Update failed: " + err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    /**
+     * ✅ PROFESSIONAL: Toast notification system matching your app theme
+     */
+    function showNotificationToast({ type = "info", title, message, duration = 4000 }) {
+      // Remove any existing toast
+      const existingToast = document.querySelector(".update-toast");
+      if (existingToast) {
+        existingToast.remove();
+      }
+
+      // Create toast element
+      const toast = document.createElement("div");
+      toast.className = `update-toast update-toast-${type}`;
+
+      // Professional color scheme matching your theme
+      const themes = {
+        success: {
+          icon: '<i class="fas fa-check-circle"></i>',
+          bg: '#ffffff',
+          border: '#28a745',
+          iconBg: '#28a745',
+          iconColor: '#ffffff',
+          titleColor: '#155724',
+          textColor: '#495057'
+        },
+        info: {
+          icon: '<i class="fas fa-info-circle"></i>',
+          bg: '#ffffff',
+          border: '#17a2b8',
+          iconBg: '#17a2b8',
+          iconColor: '#ffffff',
+          titleColor: '#0c5460',
+          textColor: '#495057'
+        },
+        warning: {
+          icon: '<i class="fas fa-exclamation-triangle"></i>',
+          bg: '#ffffff',
+          border: '#ffc107',
+          iconBg: '#ffc107',
+          iconColor: '#ffffff',
+          titleColor: '#856404',
+          textColor: '#495057'
+        },
+        error: {
+          icon: '<i class="fas fa-times-circle"></i>',
+          bg: '#ffffff',
+          border: '#dc3545',
+          iconBg: '#dc3545',
+          iconColor: '#ffffff',
+          titleColor: '#721c24',
+          textColor: '#495057'
+        }
+      };
+
+      const theme = themes[type] || themes.info;
+
+      toast.style.cssText = `
+          position: fixed;
+          top: 80px;
+          right: 20px;
+          min-width: 350px;
+          max-width: 420px;
+          background: ${theme.bg};
+          border-left: 4px solid ${theme.border};
+          border-radius: 4px;
+          padding: 0;
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+          z-index: 10000;
+          animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          overflow: hidden;
+        `;
+
+      toast.innerHTML = `
+          <div style="
+            display: flex;
+            align-items: flex-start;
+            padding: 16px;
+            gap: 12px;
+          ">
+            <!-- Icon -->
+            <div style="
+              flex-shrink: 0;
+              width: 40px;
+              height: 40px;
+              background: ${theme.iconBg};
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: ${theme.iconColor};
+              font-size: 18px;
+            ">
+              ${theme.icon}
+            </div>
+            
+            <!-- Content -->
+            <div style="flex: 1; min-width: 0;">
+              <div style="
+                font-size: 15px;
+                font-weight: 600;
+                color: ${theme.titleColor};
+                margin-bottom: 4px;
+                line-height: 1.4;
+              ">
+                ${title}
+              </div>
+              <div style="
+                font-size: 13px;
+                color: ${theme.textColor};
+                line-height: 1.5;
+                white-space: pre-line;
+              ">
+                ${message}
+              </div>
+            </div>
+            
+            <!-- Close button -->
+            <button onclick="this.closest('.update-toast').remove()" style="
+              flex-shrink: 0;
+              background: transparent;
+              border: none;
+              color: #6c757d;
+              font-size: 20px;
+              cursor: pointer;
+              padding: 0;
+              width: 24px;
+              height: 24px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              border-radius: 4px;
+              transition: all 0.2s;
+            " onmouseover="this.style.background='#f1f3f5'; this.style.color='#212529';" onmouseout="this.style.background='transparent'; this.style.color='#6c757d';">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <!-- Progress bar -->
+          <div style="
+            height: 3px;
+            background: #e9ecef;
+            overflow: hidden;
+          ">
+            <div class="toast-progress" style="
+              height: 100%;
+              background: ${theme.border};
+              width: 100%;
+              animation: shrinkProgress ${duration}ms linear;
+            "></div>
+          </div>
+        `;
+
+      // Add CSS animations if not already added
+      if (!document.querySelector("#toast-animations")) {
+        const style = document.createElement("style");
+        style.id = "toast-animations";
+        style.textContent = `
+            @keyframes slideInRight {
+              from {
+                transform: translateX(120%);
+                opacity: 0;
+              }
+              to {
+                transform: translateX(0);
+                opacity: 1;
+              }
+            }
+            
+            @keyframes slideOutRight {
+              from {
+                transform: translateX(0);
+                opacity: 1;
+              }
+              to {
+                transform: translateX(120%);
+                opacity: 0;
+              }
+            }
+            
+            @keyframes shrinkProgress {
+              from { width: 100%; }
+              to { width: 0%; }
+            }
+            
+            .update-toast:hover .toast-progress {
+              animation-play-state: paused !important;
+            }
+          `;
+        document.head.appendChild(style);
+      }
+
+      document.body.appendChild(toast);
+
+      // Auto-remove after duration (pause on hover)
+      let timeoutId = setTimeout(() => {
+        removeToast();
+      }, duration);
+
+      // Pause timer on hover
+      toast.addEventListener('mouseenter', () => {
+        clearTimeout(timeoutId);
+      });
+
+      // Resume timer on mouse leave
+      toast.addEventListener('mouseleave', () => {
+        timeoutId = setTimeout(() => {
+          removeToast();
+        }, 1000); // Give 1 more second after mouse leaves
+      });
+
+      function removeToast() {
+        if (toast.parentNode) {
+          toast.style.animation = "slideOutRight 0.3s cubic-bezier(0.6, 0, 0.9, 0.2)";
+          setTimeout(() => toast.remove(), 300);
+        }
+      }
+    }
+
+    /**
+     * ✅ ENHANCED: Show detailed notification with professional formatting
+     */
+    function showSmartUpdateNotification(changes, createdCount, updatedCount, deletedCount) {
+      const totalChanges = createdCount + updatedCount + deletedCount;
+
+      if (totalChanges === 0) {
+        // No changes needed
+        showNotificationToast({
+          type: "info",
+          title: "All Items Up to Date",
+          message: `${changes.noChanges.length} item${changes.noChanges.length !== 1 ? 's are' : ' is'} already synchronized with the assignment table.`,
+          duration: 3500
+        });
+        return;
+      }
+
+      // Build detailed message with clear formatting
+      const parts = [];
+
+      if (createdCount > 0) {
+        parts.push(`• ${createdCount} new item${createdCount !== 1 ? 's' : ''} added to assignment table`);
+      }
+
+      if (updatedCount > 0) {
+        parts.push(`• ${updatedCount} item${updatedCount !== 1 ? 's' : ''} updated with new quantities`);
+      }
+
+      if (deletedCount > 0) {
+        parts.push(`• ${deletedCount} orphaned item${deletedCount !== 1 ? 's' : ''} removed`);
+      }
+
+      // Show warnings if any
+      const warnings = [];
+
+      const skippedSplits = changes.quantityChanges.filter(c => c.splitCount > 1);
+      if (skippedSplits.length > 0) {
+        warnings.push(`\n⚠️ ${skippedSplits.length} split item${skippedSplits.length !== 1 ? 's' : ''} skipped - please adjust manually via Split Item feature`);
+      }
+
+      if (changes.removedItems.length > 0) {
+        warnings.push(`\n⚠️ ${changes.removedItems.length} orphaned container item${changes.removedItems.length !== 1 ? 's were' : ' was'} detected but not deleted automatically`);
+      }
+
+      const messageType = warnings.length > 0 ? "warning" : "success";
+
+      showNotificationToast({
+        type: messageType,
+        title: `Update Complete - ${totalChanges} Change${totalChanges !== 1 ? 's' : ''} Applied`,
+        message: parts.join('\n') + warnings.join(''),
+        duration: warnings.length > 0 ? 6000 : 4500
+      });
+    }
+
+
+    // ===== FFD + Assign to Containers (must be inside DOMContentLoaded for syncContainerItemsIncrementally access) =====
+
+    /**
+     * First-Fit Decreasing (FFD) algorithm — fills containers before moving to the next.
+     * Sorts unassigned items by weight (heaviest first), then assigns each to the
+     * first container that has enough remaining capacity.
+     */
+    function assignItemsFFD(lpIndex) {
+      const containers = DCL_CONTAINERS_STATE
+        .filter(c => c.dataverseId)
+        .map(c => ({
+          id: c.id,
+          dataverseId: c.dataverseId,
+          type: c.type,
+          capacityKg: c.maxWeight || (CONTAINER_CAPACITY_KG[c.type] || 25000),
+          usedKg: 0,
+          items: []
+        }));
+
+      if (!containers.length) return { containers, assigned: [] };
+
+      // Pre-load existing assignments
+      DCL_CONTAINER_ITEMS_STATE
+        .filter(ci => ci.containerGuid)
+        .forEach(ci => {
+          const container = containers.find(c => c.dataverseId === ci.containerGuid);
+          if (container) {
+            container.usedKg += computeContainerItemGrossWeight(ci, lpIndex);
+          }
+        });
+
+      // Collect unassigned items with their weights
+      const unassigned = DCL_CONTAINER_ITEMS_STATE
+        .filter(ci => ci.quantity > 0 && !ci.containerGuid)
+        .map(ci => ({ ci, grossKg: computeContainerItemGrossWeight(ci, lpIndex) }));
+
+      if (!unassigned.length) return { containers, assigned: [] };
+
+      // Sort heaviest first (First-Fit Decreasing)
+      unassigned.sort((a, b) => b.grossKg - a.grossKg);
+
+      // Assign each item to the first container that fits
+      unassigned.forEach(({ ci, grossKg }) => {
+        const tgt = containers.find(c => (c.capacityKg - c.usedKg) >= grossKg)
+                    || containers[containers.length - 1]; // fallback: last container
+        tgt.items.push(ci);
+        tgt.usedKg += grossKg;
+        ci.containerGuid = tgt.dataverseId || null;
+      });
+
+      return { containers, assigned: unassigned };
+    }
+
+    /**
+     * Unified "Assign to Containers" — creates CIs if needed, then runs FFD.
+     * Single-click flow: ensure CIs exist → sync changes → assign unassigned → refresh UI.
+     */
+    async function assignToContainers() {
+      if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+        showValidation("error", "Missing or invalid DCL id in URL.");
+        return;
+      }
+
+      const hasContainers = DCL_CONTAINERS_STATE.filter(c => c.dataverseId).length > 0;
+      if (!hasContainers) {
+        showValidation("warning", "Add containers first before assigning items.");
+        return;
+      }
+
+      const lpRowCount = QA("#itemsTableBody tr.lp-data-row").length;
+      if (!lpRowCount) {
+        showValidation("warning", "No items to assign. Import or add items first.");
+        return;
+      }
+
+      try {
+        setLoading(true, "Preparing assignment\u2026");
+
+        // STEP 1: Ensure all LP rows have server IDs
+        await hydrateLpRowServerIds();
+
+        // STEP 2: Ensure container items exist (create / sync)
+        const hasExistingCIs = DCL_CONTAINER_ITEMS_STATE.length > 0;
+
+        if (hasExistingCIs) {
+          // Incremental update — detects new items, qty changes, orphans
+          await syncContainerItemsIncrementally();
+        } else {
+          // First time: create CIs from LP rows
+          const freshLpRows = await fetchExistingLoadingPlansForCurrentDcl(CURRENT_DCL_ID);
+          await ensureContainerItemsForCurrentDcl(freshLpRows);
+        }
+
+        // STEP 3: Run FFD on any unassigned items
+        const lpIndex = buildLpRowIndex();
+        const unassignedCount = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.quantity > 0 && !ci.containerGuid).length;
+
+        if (unassignedCount > 0) {
+          setLoading(true, `Assigning ${unassignedCount} item(s) to containers\u2026`);
+
+          const { assigned } = assignItemsFFD(lpIndex);
+
+          // Patch all newly assigned items on the server
+          await Promise.all(
+            assigned.map(({ ci }) =>
+              patchContainerItem(ci.id, {
+                "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${ci.containerGuid})`
+              })
+            )
+          );
+
+        }
+
+        // STEP 4: Refresh all UI from current local state
+        await refreshOrderItemsDisplay();
+        fullRecalcAndRefresh();
+        renderContainerCards();
+        renderContainerSummaries();
+
+        // Show result
+        const totalAssigned = DCL_CONTAINER_ITEMS_STATE.filter(ci => ci.containerGuid).length;
+        const totalCI = DCL_CONTAINER_ITEMS_STATE.length;
+        const stillUnassigned = totalCI - totalAssigned;
+
+        if (stillUnassigned > 0) {
+          showValidation("warning", `${totalAssigned} item(s) assigned. ${stillUnassigned} item(s) did not fit \u2014 consider adding containers.`);
+        } else {
+          showValidation("success", `All ${totalCI} item(s) assigned to containers.`);
+        }
+
+      } catch (err) {
+        console.error("Assign to Containers failed", err);
+        showValidation("error", "Failed to assign items: " + (err.message || err));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // Single "Assign to Containers" button
+    const assignToContainersBtn = Q("#assignToContainersBtn");
+    if (assignToContainersBtn) {
+      assignToContainersBtn.addEventListener("click", assignToContainers);
+    }
+
+    const optimizeBtn = Q("#optimizeBtn");
+    if (optimizeBtn) {
+      optimizeBtn.addEventListener("click", runLogisticsCheck);
+    }
+
+    // ===== ORDER ITEMS MANAGEMENT =====
+    const addItemBtn = Q("#addItemBtn");
+    if (addItemBtn) {
+      addItemBtn.addEventListener("click", async () => {
+        const currRows = QA("#itemsTableBody tr.lp-data-row").length;
+
+        const blank = computeItemData(
+          {
+            order_no: "",
+            product_no: "",
+            product_name: "",
+            released_flag: "N",
+            pack_desc: "EA",
+            pack: "EA",
+            original_order_qty: 0
+          },
+          currRows,
+          itemMaster,
+          null,
+          null
+        );
+
+        const tr = makeRowEl(blank, currRows);
+        tbody.appendChild(tr);
+        attachRowEvents(tbody);
+
+        recalcRow(tr);
+        invalidateLpRowIndexCache();
+        recomputeTotals();
+      });
+    }
+
+    const importBtn = Q("#importFromOracleBtn");
+    if (importBtn) {
+      importBtn.addEventListener("click", async () => {
+        if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+          alert("Invalid or missing DCL id in URL.");
+          return;
+        }
+        importBtn.disabled = true;
+        const oldText = importBtn.textContent;
+        importBtn.textContent = "Importing…";
+        try {
+          await importAllOrdersForCurrentDcl(CURRENT_DCL_ID, itemMaster);
+        } catch (e) {
+          console.error(e);
+          alert("Failed to import order lines for this DCL.");
+        } finally {
+          importBtn.disabled = false;
+          importBtn.textContent = oldText || "Import from Oracle";
+
+          rebuildAssignmentTable();
+    
+          renderContainerCards();
+          renderContainerSummaries();
+    
+        }
+      });
+    }
+
+    // ===== IMPORT FROM PDF =====
+
+    /**
+     * Built-in PDF text extractor — zero external dependencies.
+     * Parses PDF content streams directly, decompresses FlateDecode streams
+     * via the native DecompressionStream API, and extracts text from PDF
+     * text operators (Tj, TJ). Works for Oracle Order Document PDFs which
+     * use standard text encoding.
+     */
+
+    /** Decompress a FlateDecode (zlib/deflate) byte stream. */
+    async function inflatePdfStream(bytes) {
+      const ds = new DecompressionStream("deflate");
+      const writer = ds.writable.getWriter();
+      writer.write(bytes);
+      writer.close();
+      const reader = ds.readable.getReader();
+      const chunks = [];
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const total = chunks.reduce((s, c) => s + c.length, 0);
+      const result = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { result.set(c, off); off += c.length; }
+      return new TextDecoder("latin1").decode(result);
+    }
+
+    /** Un-escape a PDF literal string: \\n, \\(, octal codes, etc. */
+    function unescapePdfStr(s) {
+      return s
+        .replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t")
+        .replace(/\\\(/g, "(").replace(/\\\)/g, ")")
+        .replace(/\\\\/g, "\\")
+        .replace(/\\(\d{1,3})/g, function (_, oct) { return String.fromCharCode(parseInt(oct, 8)); });
+    }
+
+    /** Extract human-readable text strings from a single PDF content stream. */
+    function extractTextFromStream(content) {
+      const parts = [];
+      // Match BT … ET text object blocks.
+      // Use \b word boundaries so "ET" inside words like "PETROMIN" or "FLEET" is ignored.
+      var btRe = /\bBT\b([\s\S]*?)\bET\b/g;
+      var bm;
+      while ((bm = btRe.exec(content)) !== null) {
+        var block = bm[1];
+        // (string) Tj  — show text
+        var tjRe = /\(((?:[^()\\]|\\.)*)\)\s*Tj/g;
+        var m;
+        while ((m = tjRe.exec(block)) !== null) parts.push(unescapePdfStr(m[1]));
+        // [ (str) num (str) … ] TJ — show text with kerning
+        var tjArrRe = /\[([^\]]*)\]\s*TJ/g;
+        while ((m = tjArrRe.exec(block)) !== null) {
+          var inner = m[1];
+          var strRe = /\(((?:[^()\\]|\\.)*)\)/g;
+          var s2, line = "";
+          while ((s2 = strRe.exec(inner)) !== null) line += unescapePdfStr(s2[1]);
+          if (line) parts.push(line);
+        }
+      }
+      return parts;
+    }
+
+    /**
+     * Extracts all text from a PDF file (no external libraries).
+     * Finds every stream/endstream pair, decompresses FlateDecode streams,
+     * and extracts text via PDF operators.
+     */
+    async function extractTextFromPdf(file) {
+      var buffer = await file.arrayBuffer();
+      var bytes = new Uint8Array(buffer);
+      var raw = new TextDecoder("latin1").decode(bytes);
+
+      var allText = [];
+      var streamRe = /stream\r?\n/g;
+      var sm;
+      while ((sm = streamRe.exec(raw)) !== null) {
+        var dataStart = sm.index + sm[0].length;
+        var endIdx = raw.indexOf("endstream", dataStart);
+        if (endIdx < 0) continue;
+
+        // Check the object dictionary (up to 1 KB before "stream") for FlateDecode
+        var dictSlice = raw.substring(Math.max(0, sm.index - 1024), sm.index);
+        var isFlate = /\/FlateDecode/.test(dictSlice);
+
+        // Extract stream bytes — trim trailing newline before "endstream"
+        var streamLen = endIdx - dataStart;
+        if (raw.charCodeAt(dataStart + streamLen - 1) === 10) streamLen--;
+        if (streamLen > 0 && raw.charCodeAt(dataStart + streamLen - 1) === 13) streamLen--;
+        var streamBytes = bytes.slice(dataStart, dataStart + streamLen);
+
+        var decoded;
+        if (isFlate) {
+          try { decoded = await inflatePdfStream(streamBytes); }
+          catch (e) { continue; }
+        } else {
+          decoded = new TextDecoder("latin1").decode(streamBytes);
+        }
+
+        // Only process streams that contain text operators
+        if (decoded.indexOf("Tj") < 0 && decoded.indexOf("TJ") < 0) continue;
+
+        var parts = extractTextFromStream(decoded);
+        if (parts.length) allText.push.apply(allText, parts);
+      }
+
+      return allText.join("\n");
+    }
+
+    /**
+     * Parses the extracted PDF text into structured order items.
+     * Handles the Oracle Order Document format where fields appear on separate lines:
+     *   Line#, ItemCode-Description (may span multiple lines), Qty, UnitsCode, ...
+     *
+     * Detection strategy:
+     *   - A LINE NUMBER is a standalone 1-3 digit number whose NEXT line starts
+     *     with a product code pattern (10-15 digits followed by a dash).
+     *   - Inside a product block, a QUANTITY is a standalone number (possibly with commas)
+     *     whose NEXT line is a units code like "84P", "35D", "57P", "26P", etc.
+     *   - The quantity check is done BEFORE the line-number break so that quantities
+     *     like "250" are not mistaken for line numbers.
+     */
+    function parseOrderPdfText(text) {
+      const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+
+      // --- Extract Order Number from header ---
+      let orderNo = "";
+      for (let i = 0; i < lines.length; i++) {
+        if (/^Order\s*#$/i.test(lines[i]) && lines[i + 1]) {
+          const candidate = lines[i + 1].trim();
+          if (/^\d{6,12}$/.test(candidate)) { orderNo = candidate; break; }
+        }
+        const inline = lines[i].match(/Order\s*#\s*(\d{6,12})/i);
+        if (inline) { orderNo = inline[1]; break; }
+      }
+
+      // --- Parse line items ---
+      // Anchor on line numbers: a standalone 1-3 digit number where the next line
+      // starts with a product code (10-15 digits + dash).
+      const items = [];
+      let i = 0;
+
+      while (i < lines.length) {
+        // Look for a standalone line number where the NEXT line is a product code
+        if (!/^\d{1,3}$/.test(lines[i])) { i++; continue; }
+        const lineNo = parseInt(lines[i], 10);
+        if (lineNo < 1 || lineNo > 999) { i++; continue; }
+        // Verify the next line starts with a product code: 10-15 digits then dash
+        if (!lines[i + 1] || !/^\d{10,15}-/.test(lines[i + 1].trim())) { i++; continue; }
+
+        i++; // move past line number
+
+        // Accumulate product description lines until we find quantity + units code
+        let productBlock = "";
+        let foundProduct = false;
+
+        while (i < lines.length) {
+          const l = lines[i];
+
+          // FIRST check: is this line a quantity followed by a units code?
+          // This MUST come before the line-number break so "250" followed by "84P"
+          // is detected as qty+units, not as line number 250.
+          if (/^[\d,]+$/.test(l) && lines[i + 1] && /^\d{1,3}[A-Z]$/i.test(lines[i + 1].trim())) {
+            const qty = parseFloat(l.replace(/,/g, ""));
+            const unitsCode = lines[i + 1].trim();
+            i += 2; // skip past qty and units code
+
+            // Skip remaining fields (Sale Price, price, amount) until next item
+            while (i < lines.length) {
+              const peek = lines[i];
+              // Stop at a line number that is followed by a product code
+              if (/^\d{1,3}$/.test(peek) && lines[i + 1] && /^\d{10,15}-/.test(lines[i + 1].trim())) break;
+              if (/^Totals$/i.test(peek)) break;
+              if (/^Order\s+Document$/i.test(peek)) break;
+              i++;
+            }
+
+            // Parse productBlock: "118000004084-PETROMIN A1 SUPER SYNTHETIC 5W30 (4X4 LTR CARTON)"
+            const dashIdx = productBlock.indexOf("-");
+            let itemCode = "";
+            let description = "";
+
+            if (dashIdx > 0) {
+              itemCode = productBlock.substring(0, dashIdx).trim();
+              description = productBlock.substring(dashIdx + 1).trim();
+            } else {
+              description = productBlock;
+            }
+
+            if (itemCode && qty > 0) {
+              items.push({
+                lineNo,
+                orderNo,
+                itemCode,
+                description,
+                quantity: qty,
+                unitsCode
+              });
+            }
+            foundProduct = true;
+            break;
+          }
+
+          // Stop conditions
+          if (/^Totals$/i.test(l)) break;
+          if (/^Order\s+Document$/i.test(l)) break;
+          // New line number (digit followed by product code on next line) — break to outer loop
+          if (/^\d{1,3}$/.test(l) && lines[i + 1] && /^\d{10,15}-/.test(lines[i + 1].trim())) break;
+
+          // Otherwise accumulate into product description block
+          if (productBlock) productBlock += " ";
+          productBlock += l;
+          i++;
+        }
+
+        if (!foundProduct) continue;
+      }
+
+      return { orderNo, items };
+    }
+
+    /**
+     * Converts a parsed PDF item into the same shape that adaptRawRowToOrderItem() returns,
+     * so it can be fed directly into computeItemData().
+     * outstandingIndex: Map of itemCode → outstanding report row (for released_flag lookup).
+     * Packaging code = last 2 digits of the item code.
+     */
+    function pdfItemToOrderItem(pdfItem, outstandingIndex) {
+      var packCode = pdfItem.itemCode ? pdfItem.itemCode.slice(-2) : "";
+      var releasedFlag = "N";
+      if (outstandingIndex) {
+        var osRow = outstandingIndex.get(pdfItem.itemCode);
+        if (osRow) releasedFlag = String(osRow.cr650_released_flag || "").toUpperCase() === "Y" ? "Y" : "N";
+      }
+      return {
+        order_no:           pdfItem.orderNo,
+        product_no:         pdfItem.itemCode,
+        product_name:       pdfItem.description,
+        released_flag:      releasedFlag,
+        pack_desc:          packCode,
+        pack:               packCode,
+        original_order_qty: pdfItem.quantity
+      };
+    }
+
+    /* =============================
+       PDF ITEM SELECTION MODAL
+       Shows parsed PDF items so the user can pick which to import.
+       Returns a promise → array of chosen pdfItems (or null if cancelled).
+       ============================= */
+    function showPdfItemSelectionModal(pdfItems, orderNo, existingKeys, outstandingIndex) {
+      return new Promise((resolve) => {
+        const overlay = d.createElement("div");
+        overlay.id = "itemSelectModal";
+
+        // track selection
+        const selected = new Set();
+        const dupFlags = pdfItems.map(p => existingKeys.has(`${p.orderNo}|${p.itemCode}`));
+        const selectableCount = dupFlags.filter(f => !f).length;
+
+        // helpers
+        function renderCounter() {
+          const counter = overlay.querySelector(".ism-counter");
+          if (counter) counter.innerHTML = `<strong>${selected.size}</strong> of ${selectableCount} selected`;
+          const importBtn = overlay.querySelector(".ism-btn-import");
+          if (importBtn) {
+            importBtn.disabled = selected.size === 0;
+            importBtn.textContent = selected.size
+              ? `Import ${selected.size} Item${selected.size > 1 ? "s" : ""}`
+              : "Import Selected";
+          }
+        }
+
+        function isVisibleIdx(idx) {
+          const card = overlay.querySelector(`.ism-item[data-idx="${idx}"]`);
+          return card && card.style.display !== "none";
+        }
+
+        function syncSelectAll() {
+          const cb = overlay.querySelector("#ismSelectAll");
+          if (!cb) return;
+          let visibleSelectable = 0, visibleSelected = 0;
+          pdfItems.forEach((_, i) => {
+            if (dupFlags[i]) return;
+            if (!isVisibleIdx(i)) return;
+            visibleSelectable++;
+            if (selected.has(i)) visibleSelected++;
+          });
+          cb.checked = visibleSelectable > 0 && visibleSelected === visibleSelectable;
+          cb.indeterminate = visibleSelected > 0 && visibleSelected < visibleSelectable;
+        }
+
+        // build HTML
+        overlay.innerHTML = `
+          <div class="ism-panel">
+            <div class="ism-header">
+              <h3><i class="fas fa-list-check"></i> Select Items to Import</h3>
+              <button class="ism-close" title="Close">&times;</button>
+            </div>
+
+            <div class="ism-toolbar">
+              <input type="text" class="ism-search" placeholder="Search by item code, description…">
+              <label class="ism-select-all-wrap">
+                <input type="checkbox" id="ismSelectAll">
+                <span>Select All</span>
+              </label>
+              <span class="ism-counter"></span>
+            </div>
+
+            <div class="ism-list"></div>
+
+            <div class="ism-footer">
+              <button class="ism-btn ism-btn-cancel">Cancel</button>
+              <button class="ism-btn ism-btn-import" disabled>Import Selected</button>
+            </div>
+          </div>
+        `;
+
+        // populate list
+        const listEl = overlay.querySelector(".ism-list");
+
+        if (!pdfItems.length) {
+          listEl.innerHTML = '<div class="ism-empty"><i class="fas fa-inbox"></i>No order items found in this PDF.</div>';
+        } else {
+          pdfItems.forEach((pdfItem, idx) => {
+            const isDup = dupFlags[idx];
+            const card = d.createElement("div");
+            card.className = "ism-item" + (isDup ? " ism-duplicate" : "");
+            card.dataset.idx = idx;
+
+            // lookup released flag from outstanding data
+            let releasedFlag = "N";
+            if (outstandingIndex) {
+              const osRow = outstandingIndex.get(pdfItem.itemCode);
+              if (osRow) releasedFlag = String(osRow.cr650_released_flag || "").toUpperCase() === "Y" ? "Y" : "N";
+            }
+            const relBadge = releasedFlag === "Y"
+              ? '<span class="ism-badge ism-badge-released">Released</span>'
+              : '<span class="ism-badge ism-badge-notrel">Not Released</span>';
+            const dupBadge = isDup ? '<span class="ism-badge ism-badge-dup">Already Imported</span>' : "";
+
+            card.innerHTML = `
+              <input type="checkbox" ${isDup ? "disabled" : ""}>
+              <div class="ism-item-info">
+                <div class="ism-item-top">
+                  <span class="ism-item-code">${escapeHtml(pdfItem.itemCode)}</span>
+                  <span class="ism-badge ism-badge-order">SO# ${escapeHtml(pdfItem.orderNo || orderNo)}</span>
+                  ${relBadge}${dupBadge}
+                </div>
+                <div class="ism-item-desc" title="${escapeHtml(pdfItem.description)}">${escapeHtml(pdfItem.description)}</div>
+                <div class="ism-item-meta">
+                  <span><i class="fas fa-cubes"></i> Qty: ${Number(pdfItem.quantity || 0).toLocaleString()}</span>
+                  <span><i class="fas fa-hashtag"></i> Line ${pdfItem.lineNo}</span>
+                  <span><i class="fas fa-box"></i> ${escapeHtml(pdfItem.unitsCode || "—")}</span>
+                </div>
+              </div>
+            `;
+
+            // toggle selection
+            if (!isDup) {
+              const toggle = () => {
+                const cb = card.querySelector("input[type=checkbox]");
+                if (selected.has(idx)) { selected.delete(idx); card.classList.remove("selected"); cb.checked = false; }
+                else { selected.add(idx); card.classList.add("selected"); cb.checked = true; }
+                renderCounter();
+                syncSelectAll();
+              };
+              card.addEventListener("click", (e) => { if (e.target.tagName !== "INPUT") toggle(); });
+              card.querySelector("input[type=checkbox]").addEventListener("change", () => toggle());
+            }
+
+            listEl.appendChild(card);
+          });
+        }
+
+        renderCounter();
+
+        // search / filter
+        overlay.querySelector(".ism-search").addEventListener("input", (e) => {
+          const q = e.target.value.toLowerCase().trim();
+          overlay.querySelectorAll(".ism-item").forEach(card => {
+            const idx = Number(card.dataset.idx);
+            const row = pdfItems[idx];
+            if (!q) { card.style.display = ""; return; }
+            const haystack = `${row.orderNo} ${row.itemCode} ${row.description}`.toLowerCase();
+            card.style.display = haystack.includes(q) ? "" : "none";
+          });
+          syncSelectAll();
+        });
+
+        // select all
+        overlay.querySelector("#ismSelectAll").addEventListener("change", (e) => {
+          const checked = e.target.checked;
+          pdfItems.forEach((_, i) => {
+            if (dupFlags[i]) return;
+            if (!isVisibleIdx(i)) return;
+            const card = overlay.querySelector(`.ism-item[data-idx="${i}"]`);
+            const cb = card.querySelector("input[type=checkbox]");
+            if (checked) { selected.add(i); card.classList.add("selected"); cb.checked = true; }
+            else { selected.delete(i); card.classList.remove("selected"); cb.checked = false; }
+          });
+          renderCounter();
+        });
+
+        // cancel / close
+        const close = () => {
+          overlay.classList.remove("active");
+          setTimeout(() => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 200);
+          resolve(null);
+        };
+        overlay.querySelector(".ism-close").addEventListener("click", close);
+        overlay.querySelector(".ism-btn-cancel").addEventListener("click", close);
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+        // import
+        overlay.querySelector(".ism-btn-import").addEventListener("click", () => {
+          const chosen = [...selected].sort((a, b) => a - b).map(i => pdfItems[i]);
+          overlay.classList.remove("active");
+          setTimeout(() => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 200);
+          resolve(chosen);
+        });
+
+        // show
+        d.body.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add("active"));
+        overlay.querySelector(".ism-search").focus();
+      });
+    }
+
+
+    // --- Import from PDF button handler (multi-file + chip strip) ---
+    const pdfImportBtn = Q("#importFromPdfBtn");
+    const pdfFileInput = Q("#pdfFileInput");
+
+    if (pdfImportBtn && pdfFileInput) {
+      pdfImportBtn.addEventListener("click", () => pdfFileInput.click());
+
+      pdfFileInput.addEventListener("change", async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+
+        const oldText = pdfImportBtn.textContent;
+        pdfImportBtn.disabled = true;
+
+        const progressEl = Q("#pdfImportProgress");
+        const tbody = Q("#itemsTableBody");
+        renderPdfImportProgress(files);
+
+        const summary = { files: 0, items: 0, skipped: 0, failed: 0 };
+
+        try {
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            pdfImportBtn.textContent = `Reading PDF ${i + 1}/${files.length}…`;
+            updatePdfImportProgress(i, "processing");
+            try {
+              const res = await processSinglePdf(file, tbody);
+              if (res.cancelled) {
+                updatePdfImportProgress(i, "skipped", "Cancelled");
+              } else if (res.imported === 0) {
+                updatePdfImportProgress(i, "skipped", res.reason || "No new items");
+                summary.skipped += res.skippedDuplicates || 0;
+              } else {
+                updatePdfImportProgress(i, "ok",
+                  `${res.imported} item${res.imported === 1 ? "" : "s"}` +
+                  (res.skippedDuplicates ? ` · ${res.skippedDuplicates} duplicate${res.skippedDuplicates === 1 ? "" : "s"} skipped` : "")
+                );
+                summary.files++;
+                summary.items += res.imported;
+                summary.skipped += res.skippedDuplicates || 0;
+              }
+            } catch (err) {
+              console.error(`[PDF Import] ${file.name} failed:`, err);
+              updatePdfImportProgress(i, "error", err && err.message ? err.message : "Failed");
+              summary.failed++;
+            }
+          }
+
+          if (summary.items > 0) {
+            setLoading(true, "Refreshing allocations…");
+            try {
+              await ensureContainerItemsForCurrentDcl();
+              rebuildAssignmentTable();
+              renderContainerSummaries();
+            } finally {
+              setLoading(false);
+            }
+          }
+
+          renderPdfBatchChips();
+
+          if (summary.files || summary.items || summary.skipped || summary.failed) {
+            const parts = [];
+            if (summary.items) parts.push(`${summary.items} item${summary.items === 1 ? "" : "s"} imported from ${summary.files} PDF${summary.files === 1 ? "" : "s"}`);
+            if (summary.skipped) parts.push(`${summary.skipped} duplicate${summary.skipped === 1 ? "" : "s"} skipped`);
+            if (summary.failed) parts.push(`${summary.failed} PDF${summary.failed === 1 ? "" : "s"} failed`);
+            showValidation(summary.failed ? "warning" : "success", parts.join(" · "));
+          }
+        } finally {
+          pdfImportBtn.disabled = false;
+          pdfImportBtn.textContent = oldText || "Import from PDF";
+          e.target.value = "";
+          if (progressEl) {
+            setTimeout(() => {
+              progressEl.hidden = true;
+              progressEl.innerHTML = "";
+            }, 4000);
+          }
+        }
+      });
+    }
+
+    /**
+     * Process one PDF file: extract → parse → modal → append & persist.
+     * Tags the newly-created rows with an uploadBatchId and records the batch
+     * (filename + timestamp + serverIds + order numbers) so the chip strip can
+     * later delete every row that originated from this upload.
+     *
+     * @returns {{ imported:number, skippedDuplicates:number, cancelled?:boolean, reason?:string }}
+     */
+    async function processSinglePdf(file, tbody) {
+      setLoading(true, `Extracting data from ${file.name}…`);
+
+      let parsedOrderNo = "";
+      let parsedItems = [];
+      const outstandingIndex = new Map();
+      const existingKeys = new Set();
+
+      try {
+        const text = await extractTextFromPdf(file);
+        const result = parseOrderPdfText(text);
+        parsedOrderNo = result.orderNo;
+        parsedItems = result.items;
+
+        if (!parsedItems.length) {
+          setLoading(false);
+          return { imported: 0, skippedDuplicates: 0, reason: "No order items found" };
+        }
+
+        setLoading(true, `Looking up released status for ${file.name}…`);
+        try {
+          const osRows = await fetchOrderLines(parsedOrderNo);
+          osRows.forEach(function (r) {
+            const code = (r.cr650_product_no || "").trim();
+            if (code && !outstandingIndex.has(code)) outstandingIndex.set(code, r);
+          });
+        } catch (osErr) {
+          console.warn(`Could not fetch outstanding report for order ${parsedOrderNo}:`, osErr);
+        }
+
+        QA("#itemsTableBody tr.lp-data-row").forEach(r => {
+          const oNo = (r.querySelector(".order-no")?.textContent || "").trim();
+          const iCode = (r.querySelector(".item-code")?.textContent || "").trim();
+          if (oNo || iCode) existingKeys.add(`${oNo}|${iCode}`);
+        });
+      } finally {
+        setLoading(false);
+      }
+
+      const chosen = await showPdfItemSelectionModal(parsedItems, parsedOrderNo, existingKeys, outstandingIndex);
+      if (!chosen || !chosen.length) {
+        return { imported: 0, skippedDuplicates: 0, cancelled: true };
+      }
+
+      const newItems = [];
+      let skippedDuplicates = 0;
+      for (const pdfItem of chosen) {
+        const key = `${pdfItem.orderNo}|${pdfItem.itemCode}`;
+        if (existingKeys.has(key)) {
+          skippedDuplicates++;
+          continue;
+        }
+        existingKeys.add(key);
+        newItems.push(pdfItem);
+      }
+
+      if (!newItems.length) {
+        return { imported: 0, skippedDuplicates, reason: "All selected items already exist" };
+      }
+
+      setLoading(true, `Importing selected items from ${file.name}…`);
+      try {
+        const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
+        const computed = newItems.map((pdfItem, idx) =>
+          computeItemData(pdfItemToOrderItem(pdfItem, outstandingIndex), baseCount + idx, itemMaster, null)
+        );
+
+        const preExistingRows = new Set(QA("#itemsTableBody tr.lp-data-row"));
+        if (tbody) await appendAndPersistItems(computed, tbody);
+
+        // The rows just added are the ones that weren't in preExistingRows.
+        const addedRows = QA("#itemsTableBody tr.lp-data-row").filter(r => !preExistingRows.has(r));
+        const batchId = `b_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const serverIds = [];
+        const orderNumbers = new Set();
+        addedRows.forEach(tr => {
+          tr.dataset.uploadBatchId = batchId;
+          const sid = tr.dataset.serverId;
+          if (sid) serverIds.push(sid);
+          const oNo = (tr.querySelector(".order-no")?.textContent || "").trim();
+          if (oNo) orderNumbers.add(oNo);
+        });
+
+        if (serverIds.length) {
+          const batches = loadPdfBatches();
+          batches[batchId] = {
+            filename: file.name,
+            timestamp: Date.now(),
+            serverIds,
+            orderNumbers: Array.from(orderNumbers)
+          };
+          savePdfBatches(batches);
+        }
+
+        return { imported: newItems.length, skippedDuplicates };
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    /* =============================
+       PDF UPLOAD BATCH PERSISTENCE
+       ============================= */
+
+    function pdfBatchStorageKey() {
+      // Scope per DCL master so different DCLs keep independent chip strips.
+      return `lp.pdfBatches.v1.${CURRENT_DCL_ID || "none"}`;
+    }
+
+    function loadPdfBatches() {
+      try {
+        const raw = w.localStorage.getItem(pdfBatchStorageKey());
+        return raw ? (JSON.parse(raw) || {}) : {};
+      } catch (err) {
+        console.warn("Could not read PDF batches from localStorage:", err);
+        return {};
+      }
+    }
+
+    function savePdfBatches(batches) {
+      try {
+        w.localStorage.setItem(pdfBatchStorageKey(), JSON.stringify(batches || {}));
+      } catch (err) {
+        console.warn("Could not persist PDF batches to localStorage:", err);
+      }
+    }
+
+    /**
+     * After rows are (re)loaded from the server, re-apply dataset.uploadBatchId
+     * to every row whose serverId is recorded in a batch. Also prunes batch
+     * entries whose rows no longer exist (e.g. deleted outside this UI).
+     */
+    function restorePdfBatchTags() {
+      const batches = loadPdfBatches();
+      const batchIds = Object.keys(batches);
+      if (!batchIds.length) {
+        renderPdfBatchChips();
+        return;
+      }
+
+      const rowsByServerId = new Map();
+      QA("#itemsTableBody tr.lp-data-row").forEach(tr => {
+        const sid = (tr.dataset.serverId || "").toLowerCase();
+        if (sid) rowsByServerId.set(sid, tr);
+      });
+
+      let mutated = false;
+      for (const bid of batchIds) {
+        const b = batches[bid];
+        if (!b || !Array.isArray(b.serverIds)) continue;
+        const stillPresent = [];
+        for (const sid of b.serverIds) {
+          const tr = rowsByServerId.get(String(sid).toLowerCase());
+          if (tr) {
+            tr.dataset.uploadBatchId = bid;
+            stillPresent.push(sid);
+          }
+        }
+        if (stillPresent.length !== b.serverIds.length) {
+          b.serverIds = stillPresent;
+          mutated = true;
+        }
+        if (!stillPresent.length) {
+          delete batches[bid];
+          mutated = true;
+        }
+      }
+      if (mutated) savePdfBatches(batches);
+      renderPdfBatchChips();
+    }
+    w.restorePdfBatchTags = restorePdfBatchTags;
+
+    /* =============================
+       PDF BATCH CHIP STRIP
+       ============================= */
+
+    function renderPdfBatchChips() {
+      const host = Q("#pdfBatchChips");
+      if (!host) return;
+
+      const batches = loadPdfBatches();
+      const entries = Object.entries(batches)
+        .filter(([, b]) => b && Array.isArray(b.serverIds) && b.serverIds.length)
+        .sort((a, b) => (a[1].timestamp || 0) - (b[1].timestamp || 0));
+
+      if (!entries.length) {
+        host.hidden = true;
+        host.innerHTML = "";
+        return;
+      }
+
+      const locked = String(DCL_STATUS || "").toLowerCase() === "submitted";
+
+      const chips = entries.map(([bid, b]) => {
+        const rowCount = b.serverIds.length;
+        const orderCount = (b.orderNumbers || []).length;
+        const fname = escapeHtml(b.filename || "PDF");
+        const meta = `${rowCount} item${rowCount === 1 ? "" : "s"}` +
+          (orderCount ? ` · ${orderCount} order${orderCount === 1 ? "" : "s"}` : "");
+        const removeBtn = locked
+          ? `<span class="pdf-batch-chip__remove pdf-batch-chip__remove--disabled" title="Loading Plan is locked — cannot delete" aria-disabled="true"><i class="fas fa-lock"></i></span>`
+          : `<button type="button" class="pdf-batch-chip__remove" data-batch-id="${escapeHtml(bid)}" title="Remove this PDF and all its items" aria-label="Remove ${fname}"><i class="fas fa-times"></i></button>`;
+        return `<span class="pdf-batch-chip${locked ? " pdf-batch-chip--locked" : ""}" data-batch-id="${escapeHtml(bid)}">
+          <i class="fas fa-file-pdf pdf-batch-chip__icon"></i>
+          <span class="pdf-batch-chip__name" title="${fname}">${fname}</span>
+          <span class="pdf-batch-chip__meta">${meta}</span>
+          ${removeBtn}
+        </span>`;
+      }).join("");
+
+      host.innerHTML = `<span class="pdf-batch-chips__label"><i class="fas fa-paperclip"></i> Imported PDFs</span>${chips}`;
+      host.hidden = false;
+
+      host.querySelectorAll(".pdf-batch-chip__remove[data-batch-id]").forEach(btn => {
+        btn.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          const bid = btn.getAttribute("data-batch-id");
+          if (bid) deletePdfBatch(bid);
+        });
+      });
+    }
+    w.renderPdfBatchChips = renderPdfBatchChips;
+
+    /**
+     * Delete every row that originated from the given PDF upload batch
+     * (and any container items linked to those rows), then remove the
+     * batch entry from localStorage.
+     */
+    async function deletePdfBatch(batchId) {
+      const batches = loadPdfBatches();
+      const batch = batches[batchId];
+      if (!batch) return;
+
+      if (String(DCL_STATUS || "").toLowerCase() === "submitted") {
+        alert("This Loading Plan is locked — imported PDFs cannot be removed.");
+        return;
+      }
+
+      // Resolve rows by batch tag first, then fall back to serverIds from storage.
+      const allRows = QA("#itemsTableBody tr.lp-data-row");
+      const taggedRows = allRows.filter(r => r.dataset.uploadBatchId === batchId);
+      const serverIdSet = new Set((batch.serverIds || []).map(s => String(s).toLowerCase()));
+      const resolvedRows = taggedRows.length
+        ? taggedRows
+        : allRows.filter(r => serverIdSet.has((r.dataset.serverId || "").toLowerCase()));
+
+      const rowCount = resolvedRows.length;
+      const orderCount = (batch.orderNumbers || []).length;
+      const fname = batch.filename || "this PDF";
+
+      if (!rowCount) {
+        // Nothing left to delete — just clean up the stored entry.
+        delete batches[batchId];
+        savePdfBatches(batches);
+        renderPdfBatchChips();
+        return;
+      }
+
+      const confirmed = confirm(
+        `Delete ${fname}?\n\nThis will remove ${rowCount} line item${rowCount === 1 ? "" : "s"}` +
+        (orderCount ? ` across ${orderCount} order${orderCount === 1 ? "" : "s"}` : "") +
+        ` and any container allocations for those items.\n\nThis cannot be undone.`
+      );
+      if (!confirmed) return;
+
+      setLoading(true, `Removing ${fname}…`);
+
+      const BATCH_SIZE = 5;
+      let failed = 0;
+
+      // Phase 1: delete linked container items.
+      const linkedCIs = [];
+      for (const tr of resolvedRows) {
+        const sid = tr.dataset.serverId;
+        if (!sid) continue;
+        const sidLower = sid.toLowerCase();
+        (DCL_CONTAINER_ITEMS_STATE || []).forEach(ci => {
+          if (ci.lpId && ci.lpId.toLowerCase() === sidLower) linkedCIs.push(ci);
+        });
+      }
+      for (let start = 0; start < linkedCIs.length; start += BATCH_SIZE) {
+        const slice = linkedCIs.slice(start, start + BATCH_SIZE);
+        await Promise.allSettled(
+          slice.map(ci =>
+            deleteContainerItem(ci.id).then(() => {
+              const idx = DCL_CONTAINER_ITEMS_STATE.findIndex(c => c.id === ci.id);
+              if (idx >= 0) DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
+            }).catch(err => console.error(`[PDF Batch Delete] Failed CI ${ci.id}`, err))
+          )
+        );
+      }
+
+      // Phase 2: delete LP rows in parallel batches.
+      const toDelete = resolvedRows.filter(tr => tr.dataset.serverId);
+      for (let start = 0; start < toDelete.length; start += BATCH_SIZE) {
+        const slice = toDelete.slice(start, start + BATCH_SIZE);
+        const results = await Promise.allSettled(
+          slice.map(tr => deleteServerRow(tr.dataset.serverId))
+        );
+        results.forEach(r => { if (r.status === "rejected") failed++; });
+        setLoading(true, `Removing ${fname}… ${Math.min(start + slice.length, toDelete.length)}/${toDelete.length}`);
+      }
+
+      // Phase 3: remove DOM rows and untracked rows (if any).
+      resolvedRows.forEach(tr => tr.remove());
+      invalidateLpRowIndexCache();
+
+      // Phase 4: drop the batch entry.
+      delete batches[batchId];
+      savePdfBatches(batches);
+
+      setLoading(false);
+
+      fullRecalcAndRefresh();
+      renderContainerCards();
+      renderContainerSummaries();
+      renderPdfBatchChips();
+
+      if (failed > 0) {
+        showValidation("warning", `Removed ${fname} (${rowCount - failed}/${rowCount} items). ${failed} failed to delete.`);
+      } else {
+        showValidation("success", `Removed ${fname} and ${rowCount} line item${rowCount === 1 ? "" : "s"}.`);
+      }
+    }
+
+    /* =============================
+       MULTI-PDF IMPORT PROGRESS LIST
+       ============================= */
+
+    function renderPdfImportProgress(files) {
+      const host = Q("#pdfImportProgress");
+      if (!host) return;
+      host.innerHTML = files.map((f, i) => `
+        <div class="pdf-import-progress__item" data-idx="${i}">
+          <i class="fas fa-hourglass-start pdf-import-progress__icon"></i>
+          <span class="pdf-import-progress__name">${escapeHtml(f.name)}</span>
+          <span class="pdf-import-progress__status">Queued</span>
+        </div>
+      `).join("");
+      host.hidden = false;
+    }
+
+    function updatePdfImportProgress(idx, state, detail) {
+      const host = Q("#pdfImportProgress");
+      if (!host) return;
+      const item = host.querySelector(`.pdf-import-progress__item[data-idx="${idx}"]`);
+      if (!item) return;
+      const icon = item.querySelector(".pdf-import-progress__icon");
+      const status = item.querySelector(".pdf-import-progress__status");
+      const map = {
+        processing: { cls: "is-processing", icon: "fa-spinner fa-spin", text: "Processing…" },
+        ok:         { cls: "is-ok",         icon: "fa-check-circle",   text: detail || "Done" },
+        skipped:    { cls: "is-skipped",    icon: "fa-minus-circle",   text: detail || "Skipped" },
+        error:      { cls: "is-error",      icon: "fa-exclamation-triangle", text: detail || "Failed" }
+      };
+      const m = map[state] || map.processing;
+      item.classList.remove("is-processing", "is-ok", "is-skipped", "is-error");
+      item.classList.add(m.cls);
+      if (icon) icon.className = `fas ${m.icon} pdf-import-progress__icon`;
+      if (status) status.textContent = m.text;
+    }
+
+    // ===== VALIDATION & LOGISTICS =====
+
+    const validateBtn = Q("#validateAllBtn");
+    if (validateBtn) {
+      validateBtn.addEventListener("click", runValidateAll);
+    }
+
+    const logisticsBtn = Q("#logisticsCheckBtn");
+    if (logisticsBtn) {
+      logisticsBtn.addEventListener("click", runLogisticsCheck);
+    }
+
+    // ✅ Auto-save Additional Comments on change
+    const commentsField = Q("#additionalComments");
+    if (commentsField) {
+      let commentsSaveTimeout;
+      commentsField.addEventListener("input", () => {
+        clearTimeout(commentsSaveTimeout);
+        commentsSaveTimeout = setTimeout(() => {
+          saveAdditionalDetailsToDataverse().catch(err => {
+            console.error("Failed to auto-save comments:", err);
+          });
+        }, 1000); // Save 1 second after user stops typing
+      });
+    }
+
+    // ===== AUTO-SAVE LP ADDITIONAL COMMENTS =====
+    const lpCommentsField = Q("#lpAdditionalComments");
+    const lpCommentsCharCount = Q("#lpCommentsCharCount");
+    const lpCommentsSaveIndicator = Q("#lpCommentsSaveIndicator");
+
+    if (lpCommentsField) {
+      let lpCommentsSaveTimeout;
+
+      // Update character counter
+      function updateLpCommentsCharCount() {
+        if (lpCommentsCharCount) {
+          lpCommentsCharCount.textContent = lpCommentsField.value.length;
+        }
+      }
+
+      // Show save indicator
+      function showLpCommentsSaved() {
+        if (lpCommentsSaveIndicator) {
+          lpCommentsSaveIndicator.textContent = '✓ Saved';
+          lpCommentsSaveIndicator.style.color = '#10b981';
+          lpCommentsSaveIndicator.style.opacity = '1';
+          setTimeout(() => {
+            lpCommentsSaveIndicator.style.opacity = '0';
+          }, 2000);
+        }
+      }
+
+      // Show save error
+      function showLpCommentsSaveError() {
+        if (lpCommentsSaveIndicator) {
+          lpCommentsSaveIndicator.textContent = '✗ Save failed';
+          lpCommentsSaveIndicator.style.color = '#ef4444';
+          lpCommentsSaveIndicator.style.opacity = '1';
+          setTimeout(() => {
+            lpCommentsSaveIndicator.style.opacity = '0';
+          }, 3000);
+        }
+      }
+
+      // Auto-save function
+      async function autoSaveLpComments() {
+        if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+          console.warn("No valid DCL ID - cannot save LP comments");
+          return;
+        }
+
+        clearTimeout(lpCommentsSaveTimeout);
+        lpCommentsSaveTimeout = setTimeout(async () => {
+          try {
+            const comments = lpCommentsField.value.trim();
+
+            const payload = {
+              cr650_additionalco_lp: comments || null
+            };
+
+            await safeAjax({
+              type: "PATCH",
+              url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})`,
+              data: JSON.stringify(payload),
+              contentType: "application/json; charset=utf-8",
+              headers: {
+                Accept: "application/json;odata.metadata=minimal",
+                "If-Match": "*"
+              },
+              dataType: "json",
+              _withLoader: false
+            });
+
+            console.log("✅ LP comments saved");
+            showLpCommentsSaved();
+
+          } catch (err) {
+            console.error("❌ Failed to save LP comments:", err);
+            showLpCommentsSaveError();
+          }
+        }, 1000); // Save 1 second after user stops typing
+      }
+
+      // Load existing LP comments (with auto-fetch from customer if empty)
+      async function loadLpComments() {
+        if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+          return;
+        }
+
+        try {
+          // Fetch existing LP comments AND customer name from DCL Master
+          const data = await safeAjax({
+            type: "GET",
+            url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})?$select=cr650_additionalco_lp,cr650_customername`,
+            headers: {
+              Accept: "application/json;odata.metadata=minimal"
+            },
+            dataType: "json",
+            _withLoader: false
+          });
+
+          if (data && data.cr650_additionalco_lp) {
+            // DCL already has LP comments - use them
+            lpCommentsField.value = data.cr650_additionalco_lp;
+            updateLpCommentsCharCount();
+            console.log("✅ Loaded existing LP comments");
+          } else if (data && data.cr650_customername) {
+            // No LP comments yet - try to fetch from customer's default comments
+            const customerName = data.cr650_customername.trim();
+            console.log("🔍 No LP comments found, checking customer defaults for:", customerName);
+
+            try {
+              // Look up customer by name in Customer Management entity
+              const customerUrl = `/_api/cr650_updated_dcl_customers?$filter=cr650_customername eq '${encodeURIComponent(customerName)}'&$select=cr650_loadingplancomments&$top=1`;
+
+              const customerData = await safeAjax({
+                type: "GET",
+                url: customerUrl,
+                headers: {
+                  Accept: "application/json;odata.metadata=minimal"
+                },
+                dataType: "json",
+                _withLoader: false
+              });
+
+              if (customerData && customerData.value && customerData.value.length > 0) {
+                const customer = customerData.value[0];
+                if (customer.cr650_loadingplancomments && customer.cr650_loadingplancomments.trim()) {
+                  // Auto-populate with customer's default LP comments
+                  lpCommentsField.value = customer.cr650_loadingplancomments;
+                  updateLpCommentsCharCount();
+                  console.log("✅ Auto-populated LP comments from customer defaults");
+
+                  // Auto-save the populated comments to DCL Master
+                  autoSaveLpComments();
+                }
+              } else {
+                console.log("ℹ️ Customer has no default LP comments configured");
+              }
+            } catch (customerErr) {
+              console.warn("⚠️ Could not fetch customer LP comments:", customerErr);
+            }
+          }
+        } catch (err) {
+          console.warn("⚠️ Could not load LP comments:", err);
+        }
+      }
+
+      // Event listeners
+      lpCommentsField.addEventListener("input", () => {
+        updateLpCommentsCharCount();
+        autoSaveLpComments();
+      });
+
+      // Initial load
+      updateLpCommentsCharCount();
+      loadLpComments();
+    }
+    // ===== "SAVE & NEXT" BUTTON =====
+    const saveAndNextBtn = Q("#saveAndNextBtn");
+    if (saveAndNextBtn) {
+      saveAndNextBtn.addEventListener("click", async () => {
+        
+        // Show loading state
+        saveAndNextBtn.disabled = true;
+        const originalHTML = saveAndNextBtn.innerHTML;
+        saveAndNextBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        // Save everything
+        const result = await saveAllChanges();
+        
+        // Restore button
+        saveAndNextBtn.disabled = false;
+        saveAndNextBtn.innerHTML = originalHTML;
+        
+        if (result.success) {
+          // ✅ SUCCESS: Keep it simple
+          showNotificationToast({
+            type: "success",
+            title: "✓ All Changes Saved",
+            message: "Proceeding to next step...",
+            duration: 2000
+          });
+          
+          setTimeout(() => {
+            window.location.href = `/DCL-Document-Generator?id=${CURRENT_DCL_ID}`;
+          }, 1000);
+          
+        } else {
+          // ❌ ERROR: Show helpful details
+          const failedItems = [];
+          
+          // Collect what failed
+          if (result.errors && result.errors.length > 0) {
+            result.errors.forEach(err => {
+              if (err.type === "Comments") {
+                failedItems.push("Loading Plan comments");
+              } else if (err.type === "Order item") {
+                failedItems.push(err.item || "Order item");
+              } else {
+                failedItems.push(err.type);
+              }
+            });
+          }
+          
+          const errorMessage = failedItems.length > 0
+            ? `Could not save:\n• ${failedItems.join("\n• ")}`
+            : "An error occurred. Please try again.";
+          
+          showNotificationToast({
+            type: "error",
+            title: "❌ Save Failed",
+            message: errorMessage,
+            duration: 5000
+          });
+        }
+      });
+    }
+    // ===== TOP NAVIGATION LINKS =====
+    const stepLinks = QA('#stepIndicators a');
+    stepLinks.forEach(link => {
+      link.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const targetUrl = link.href;
+        
+        // Save everything
+        const success = await saveAllChanges();
+        
+        if (success) {
+          showNotificationToast({
+            type: "success",
+            title: "✓ All Changes Saved Successfully",
+            message: "Navigating...",
+            duration: 1500
+          });
+          
+          setTimeout(() => {
+            window.location.href = targetUrl;
+          }, 800);
+        } else {
+          showNotificationToast({
+            type: "error",
+            title: "Save Failed",
+            message: "Cannot navigate - please try again",
+            duration: 4000
+          });
+        }
+      });
+    });
+
+    // ===== WIZARD STEPS NAVIGATION (if you have radio buttons) =====
+    const stepRadios = QA('input[name="wizardStep"]');
+    const sections = QA(".wizard-step");
+
+    if (stepRadios.length > 0 && sections.length > 0) {
+      stepRadios.forEach((radio, i) => {
+        radio.addEventListener("change", () => {
+          if (radio.checked) {
+            const val = Number(radio.value);
+            sections.forEach((sec, j) => {
+              sec.style.display = (j === val - 1) ? "block" : "none";
+            });
+          }
+        });
+      });
+
+      // Initialize first step
+      if (stepRadios[0]) stepRadios[0].checked = true;
+      sections.forEach((sec, i) => {
+        sec.style.display = (i === 0) ? "block" : "none";
+      });
+    }
+
+    // ===== INITIAL CALCULATIONS =====
+    // Don't call recalcAllRows() - preserve saved values from Dataverse (like manually set gross weight)
+    recomputeTotals();
+  });
+
+  // ===== SAVE ALL FUNCTION (IIFE level — accessible from initEnhancedOrderTable & keyboard shortcuts) =====
+  async function saveAllChanges() {
+    const lpCommentsField = Q("#lpAdditionalComments");
+    let savedCount = 0;
+    const errors = [];
+
+    try {
+      if (!CURRENT_DCL_ID || !isGuid(CURRENT_DCL_ID)) {
+        throw new Error("Invalid DCL ID");
+      }
+
+      setLoading(true, "Saving all changes…");
+
+      // ===== 1. SAVE LP COMMENTS =====
+      if (lpCommentsField && lpCommentsField.value.trim()) {
+        try {
+          const commentText = lpCommentsField.value.trim();
+          await safeAjax({
+            type: "PATCH",
+            url: `${DCL_MASTER_API}(${CURRENT_DCL_ID})`,
+            data: JSON.stringify({ cr650_additionalco_lp: commentText }),
+            contentType: "application/json; charset=utf-8",
+            headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+            dataType: "json",
+            _withLoader: false
+          });
+          savedCount++;
+          console.log("✅ LP comments saved");
+        } catch (err) {
+          console.error("❌ LP comments failed:", err);
+          errors.push({ type: "Comments", error: err.message });
+        }
+      }
+
+      // ===== 2. SAVE ALL LP ROWS =====
+      // Save every row in the table — not just rows with .row-save buttons.
+      // Users edit cells directly (contenteditable + inputs) without
+      // entering Edit mode, so we must persist ALL rows.
+      const allLpRows = QA("#itemsTableBody tr.lp-data-row");
+
+      for (const tr of allLpRows) {
+        try {
+          const payload = buildPayloadFromRow(tr, CURRENT_DCL_ID);
+          let serverId = tr.dataset.serverId;
+
+          if (serverId && isGuid(serverId)) {
+            // UPDATE existing record
+            await safeAjax({
+              type: "PATCH",
+              url: `${DCL_LP_API}(${serverId})`,
+              data: JSON.stringify(payload),
+              contentType: "application/json; charset=utf-8",
+              headers: { Accept: "application/json;odata.metadata=minimal", "If-Match": "*" },
+              dataType: "json",
+              _withLoader: false
+            });
+          } else {
+            // CREATE new record
+            const res = await safeAjax({
+              type: "POST",
+              url: DCL_LP_API,
+              data: JSON.stringify(payload),
+              contentType: "application/json; charset=utf-8",
+              headers: { Accept: "application/json;odata.metadata=minimal", Prefer: "return=representation" },
+              dataType: "json",
+              _withLoader: false
+            });
+            const newId = res && (res.cr650_dcl_loading_planid || res.id);
+            if (newId) tr.dataset.serverId = newId;
+          }
+
+          savedCount++;
+
+          // Clear modified visual state for this row
+          tr.classList.remove("row-modified");
+          tr.querySelectorAll(".cell-modified").forEach(c => c.classList.remove("cell-modified"));
+
+        } catch (err) {
+          const itemCode = (tr.querySelector(".item-code")?.textContent || "unknown").trim();
+          console.error(`❌ Row save failed (${itemCode}):`, err);
+          errors.push({ type: `Row ${itemCode}`, error: err.message });
+        }
+      }
+
+      // ===== 3. CLEAR MODIFIED TRACKING =====
+      MODIFIED_ROWS.clear();
+      ORIGINAL_ROW_DATA.clear();
+      updateModifiedIndicator();
+
+      // ===== 4. UPDATE DCL MASTER TOTALS =====
+      recomputeTotals();
+
+      // ===== 5. SYNC CONTAINER ITEMS =====
+      // Sync CI quantities to match DOM loading qty for every row that has a CI
+      for (const tr of allLpRows) {
+        const ciId = tr.dataset.ciId;
+        if (!ciId) continue;
+        const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
+        if (!ci) continue;
+        const domLoadQty = asNum(tr.querySelector(".loading-qty")?.value);
+        if (ci.quantity !== domLoadQty) {
+          try {
+            await patchContainerItem(ciId, { cr650_quantity: domLoadQty });
+            ci.quantity = domLoadQty;
+          } catch (err) {
+            console.error(`❌ CI qty sync failed for CI ${ciId}:`, err);
+            errors.push({ type: `CI sync ${ciId.substring(0, 8)}`, error: err.message });
+          }
+        }
+      }
+
+      await ensureContainerItemsForCurrentDcl();
+      rebuildAssignmentTable();
+      renderContainerSummaries();
+
+      // ===== 6. BUILD RESULT =====
+      const totalAttempted = allLpRows.length + (lpCommentsField?.value ? 1 : 0);
+      const totalFailed = errors.length;
+
+      let message = "";
+      if (savedCount > 0) {
+        message = `Saved ${savedCount} item(s) to Dataverse`;
+      }
+      if (totalFailed > 0) {
+        message += `\nFailed: ${totalFailed} item(s)`;
+        errors.forEach(e => { message += `\n  - ${e.type}: ${e.error}`; });
+      }
+      if (totalAttempted === 0) {
+        message = "No changes to save";
+      }
+
+      const success = totalAttempted > 0 && totalFailed === 0;
+
+      if (success) {
+        showValidation("success", message);
+      } else if (totalFailed > 0 && savedCount > 0) {
+        showValidation("warning", message);
+      } else if (totalFailed > 0) {
+        showValidation("error", message);
+      }
+
+      return { success, attempted: totalAttempted, succeeded: savedCount, failed: totalFailed, message, errors };
+
+    } catch (err) {
+      console.error("❌ Unexpected error:", err);
+      showValidation("error", "Critical error: " + err.message);
+      return {
+        success: false, attempted: 0, succeeded: 0, failed: 0,
+        message: "Critical error: " + err.message, errors: [{ type: "System", error: err.message }]
+      };
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ============================================================
+  // 🟢 UNRELEASED ORDERS CHECK - ADD THIS ENTIRE SECTION
+  // ============================================================
+
+  async function checkUnreleasedOrders(dclId) {
+    try {
+      console.log("🔍 Checking for unreleased orders...");
+
+      const response = await fetch(
+        `/_api/cr650_dcl_loading_plans?$filter=_cr650_dcl_number_value eq ${dclId}` +
+        `&$select=cr650_ordernumber,cr650_itemcode,cr650_itemdescription,cr650_releasestatus,cr650_loadedquantity`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        console.error('Failed to fetch loading plan items');
+        return true;
+      }
+
+      const data = await response.json();
+      const items = data.value || [];
+
+      if (items.length === 0) {
+        return true;
+      }
+
+      // Group unreleased items by order number
+      const unreleasedOrdersMap = new Map();
+
+      items.forEach(item => {
+        const releaseStatus = item.cr650_releasestatus;
+        const orderNumber = item.cr650_ordernumber;
+
+        // Adjust this logic to match your field values
+        const isNotReleased = releaseStatus !== 'Y' && releaseStatus !== 0;
+
+        if (isNotReleased && orderNumber) {
+          if (!unreleasedOrdersMap.has(orderNumber)) {
+            unreleasedOrdersMap.set(orderNumber, []);
+          }
+          unreleasedOrdersMap.get(orderNumber).push({
+            itemCode: item.cr650_itemcode || 'N/A',
+            description: item.cr650_itemdescription || 'No description',
+            quantity: item.cr650_loadedquantity || 0
+          });
+        }
+      });
+
+      if (unreleasedOrdersMap.size === 0) {
+        console.log('✅ All orders are released');
+        return true;
+      }
+
+      // Show professional modal
+      return showUnreleasedDialog(unreleasedOrdersMap);
+
+    } catch (error) {
+      console.error('Error checking unreleased orders:', error);
+      return true;
+    }
+  }
+
+  function showUnreleasedDialog(ordersMap) {
+    return new Promise((resolve) => {
+      // Create modal overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'unreleased-overlay';
+
+      // Build order cards HTML
+      let ordersHTML = '';
+      let itemCount = 0;
+
+      ordersMap.forEach((items, orderNumber) => {
+        itemCount += items.length;
+        const itemsHTML = items.map(item => `
+          <div class="unreleased-item">
+            <div class="unreleased-item-icon">
+              <i class="fas fa-box"></i>
+            </div>
+            <div class="unreleased-item-details">
+              <div class="unreleased-item-code">${escapeHtml(item.itemCode)}</div>
+              <div class="unreleased-item-desc">${escapeHtml(item.description)}</div>
+              <div class="unreleased-item-qty">Qty: ${item.quantity}</div>
+            </div>
+          </div>
+        `).join('');
+
+        ordersHTML += `
+          <div class="unreleased-order-card">
+            <div class="unreleased-order-header">
+              <div class="unreleased-order-number">
+                <i class="fas fa-file-invoice"></i>
+                Order #${escapeHtml(orderNumber)}
+              </div>
+              <div class="unreleased-order-badge">Not Released</div>
+            </div>
+            <div class="unreleased-items-list">
+              ${itemsHTML}
+            </div>
+          </div>
+        `;
+      });
+
+      overlay.innerHTML = `
+        <div class="unreleased-modal">
+          <div class="unreleased-header">
+            <div class="unreleased-header-icon">
+              <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h3 class="unreleased-title">Unreleased Orders Detected</h3>
+            <p class="unreleased-subtitle">
+              ${ordersMap.size} order${ordersMap.size > 1 ? 's' : ''} with ${itemCount} item${itemCount > 1 ? 's' : ''} not released
+            </p>
+          </div>
+          
+          <div class="unreleased-alert">
+            <i class="fas fa-info-circle"></i>
+            <span>Generating the loading plan with unreleased orders may cause issues in the shipment process.</span>
+          </div>
+          
+          <div class="unreleased-content">
+            ${ordersHTML}
+          </div>
+          
+          <div class="unreleased-footer">
+            <button class="unreleased-btn unreleased-btn-cancel">
+              <i class="fas fa-times"></i>
+              Cancel
+            </button>
+            <button class="unreleased-btn unreleased-btn-proceed">
+              <i class="fas fa-check"></i>
+              Proceed Anyway
+            </button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(overlay);
+
+      // Add animation
+      setTimeout(() => overlay.classList.add('show'), 10);
+
+      // Event handlers
+      const cancelBtn = overlay.querySelector('.unreleased-btn-cancel');
+      const proceedBtn = overlay.querySelector('.unreleased-btn-proceed');
+
+      function closeModal(shouldProceed) {
+        overlay.classList.remove('show');
+        setTimeout(() => {
+          document.body.removeChild(overlay);
+          resolve(shouldProceed);
+        }, 300);
+      }
+
+      cancelBtn.addEventListener('click', () => closeModal(false));
+      proceedBtn.addEventListener('click', () => closeModal(true));
+
+      // Close on overlay click
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          closeModal(false);
+        }
+      });
+
+      // Close on ESC key
+      const escHandler = (e) => {
+        if (e.key === 'Escape') {
+          document.removeEventListener('keydown', escHandler);
+          closeModal(false);
+        }
+      };
+      document.addEventListener('keydown', escHandler);
+    });
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Expose to window
+  window.checkUnreleasedOrders = checkUnreleasedOrders;
+
+  /* =====================================================
+     ENHANCED ORDER TABLE - EXCEL-LIKE EDITING SYSTEM
+     ===================================================== */
+
+  // Track modified rows
+  let MODIFIED_ROWS = new Set();
+  let ORIGINAL_ROW_DATA = new Map();
+
+  // Attach change tracking to editable cells in a row
+  function attachCellChangeTracking(tr) {
+    if (!tr) return; // Defensive check
+
+    // Track contenteditable cells
+    tr.querySelectorAll('.ce, .ce-num').forEach(cell => {
+      cell.addEventListener('input', () => handleCellChange(tr, cell));
+      cell.addEventListener('blur', () => handleCellBlur(tr, cell));
+      cell.addEventListener('keydown', handleCellKeydown);
+      cell.addEventListener('focus', () => handleCellFocus(tr, cell));
+    });
+
+    // Track loading qty input
+    const loadingQtyInput = tr.querySelector('.loading-qty');
+    if (loadingQtyInput) {
+      loadingQtyInput.addEventListener('input', () => handleCellChange(tr, loadingQtyInput));
+    }
+
+  }
+
+  // Handle cell change - mark row as modified
+  function handleCellChange(tr, cell) {
+    const serverId = tr.dataset.serverId;
+    const rowKey = serverId || tr.dataset.tempId || generateTempId(tr);
+
+    // Mark cell as modified
+    cell.classList.add('cell-modified');
+
+    // Mark row as modified
+    tr.classList.add('row-modified');
+    MODIFIED_ROWS.add(rowKey);
+
+    // Update the modified indicator
+    updateModifiedIndicator();
+  }
+
+  // Handle cell blur - recalculation and override clearing is handled
+  // by the tbody blur handler in attachRowEvents, so this only does
+  // modification tracking cleanup if needed.
+  function handleCellBlur(tr, cell) {
+    // No recalc here — the delegated blur handler in attachRowEvents
+    // handles override clearing + recalcRow + recomputeTotals already.
+  }
+
+  // Handle cell focus
+  function handleCellFocus(tr, cell) {
+    // No visual effects - keep it clean
+  }
+
+  // Handle keyboard navigation
+  function handleCellKeydown(e) {
+    const cell = e.target;
+    const tr = cell.closest('tr');
+    const cells = Array.from(tr.querySelectorAll('.ce, .ce-num, .loading-qty'));
+    const currentIndex = cells.indexOf(cell);
+
+    switch(e.key) {
+      case 'Tab':
+        // Let default Tab behavior work
+        break;
+      case 'Enter':
+        e.preventDefault();
+        e.stopPropagation();
+        cell.blur();
+        // Move to next row, same column
+        const nextRow = tr.nextElementSibling;
+        if (nextRow && nextRow.classList.contains('lp-data-row')) {
+          const cellClass = cell.className.split(' ').find(c => c.startsWith('order-') || c.startsWith('item-') || c.startsWith('description') || c.startsWith('packaging') || c.startsWith('uom') || c.startsWith('pack') || c.startsWith('loading') || c.startsWith('total') || c.startsWith('net') || c.startsWith('gross') || c.startsWith('pending'));
+          const nextCell = nextRow.querySelector('.' + cellClass) || nextRow.querySelector('.ce, .loading-qty');
+          if (nextCell) nextCell.focus();
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        cell.blur();
+        break;
+      case 'ArrowDown':
+        if (e.altKey) {
+          e.preventDefault();
+          const nextRow = tr.nextElementSibling;
+          if (nextRow && nextRow.classList.contains('lp-data-row')) {
+            const cellSelector = '.' + Array.from(cell.classList).find(c => ['order-no', 'item-code', 'description', 'packaging', 'uom', 'pack', 'order-qty', 'loading-qty'].includes(c));
+            const nextCell = nextRow.querySelector(cellSelector) || nextRow.querySelector('.ce');
+            if (nextCell) nextCell.focus();
+          }
+        }
+        break;
+      case 'ArrowUp':
+        if (e.altKey) {
+          e.preventDefault();
+          const prevRow = tr.previousElementSibling;
+          if (prevRow && prevRow.classList.contains('lp-data-row')) {
+            const cellSelector = '.' + Array.from(cell.classList).find(c => ['order-no', 'item-code', 'description', 'packaging', 'uom', 'pack', 'order-qty', 'loading-qty'].includes(c));
+            const prevCell = prevRow.querySelector(cellSelector) || prevRow.querySelector('.ce');
+            if (prevCell) prevCell.focus();
+          }
+        }
+        break;
+    }
+  }
+
+  // Generate temporary ID for new rows
+  function generateTempId(tr) {
+    const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    tr.dataset.tempId = tempId;
+    return tempId;
+  }
+
+  // Update modified indicator in toolbar
+  function updateModifiedIndicator() {
+    const indicator = d.getElementById('modifiedIndicator');
+    const countSpan = d.getElementById('modifiedCount');
+    const saveBtn = d.getElementById('saveAllChangesBtn');
+    const discardBtn = d.getElementById('discardChangesBtn');
+
+    const count = MODIFIED_ROWS.size;
+
+    if (count > 0) {
+      indicator.style.display = 'inline-flex';
+      countSpan.textContent = count;
+      saveBtn.style.display = 'inline-flex';
+      discardBtn.style.display = 'inline-flex';
+    } else {
+      indicator.style.display = 'none';
+      saveBtn.style.display = 'none';
+      discardBtn.style.display = 'none';
+    }
+  }
+
+  // Get current values from a row
+  function getRowCurrentValues(tr) {
+    return {
+      orderNo: (tr.querySelector('.order-no')?.textContent || '').trim(),
+      itemCode: (tr.querySelector('.item-code')?.textContent || '').trim(),
+      description: (tr.querySelector('.description')?.textContent || '').trim(),
+      releaseStatus: (tr.querySelector('.release-status-value')?.textContent || tr.querySelector('.release-status-select')?.value || 'N').trim(),
+      packaging: (tr.querySelector('.packaging')?.textContent || '').trim(),
+      uom: asNum(tr.querySelector('.uom')?.textContent),
+      pack: (tr.querySelector('.pack')?.textContent || '').trim(),
+      orderQty: asNum(tr.querySelector('.order-qty')?.textContent),
+      loadingQty: asNum(tr.querySelector('.loading-qty')?.value)
+    };
+  }
+
+  // Discard All Changes
+  function discardAllChanges() {
+    if (MODIFIED_ROWS.size === 0) {
+      showValidation("info", "No changes to discard.");
+      return;
+    }
+
+    const count = MODIFIED_ROWS.size;
+
+    if (!confirm(`Discard changes to ${count} rows? This cannot be undone.`)) {
+      return;
+    }
+
+    const rows = QA("#itemsTableBody tr.lp-data-row.row-modified");
+
+    rows.forEach(tr => {
+      const originalValues = JSON.parse(tr.dataset.originalValues || '{}');
+
+      // Restore original values
+      const orderNoCell = tr.querySelector('.order-no');
+      const itemCodeCell = tr.querySelector('.item-code');
+      const descCell = tr.querySelector('.description');
+      const releaseSpan = tr.querySelector('.release-status-value');
+      const releaseSelect = tr.querySelector('.release-status-select');
+      const packagingCell = tr.querySelector('.packaging');
+      const uomCell = tr.querySelector('.uom');
+      const packCell = tr.querySelector('.pack');
+      const orderQtyCell = tr.querySelector('.order-qty');
+      const loadingQtyInput = tr.querySelector('.loading-qty');
+
+      if (orderNoCell) orderNoCell.textContent = originalValues.orderNo || '';
+      if (itemCodeCell) itemCodeCell.textContent = originalValues.itemCode || '';
+      if (descCell) descCell.textContent = originalValues.description || '';
+      if (releaseSpan) releaseSpan.textContent = originalValues.releaseStatus || 'N';
+      if (releaseSelect) releaseSelect.value = originalValues.releaseStatus || 'N';
+      if (packagingCell) packagingCell.textContent = originalValues.packaging || '';
+      if (uomCell) uomCell.textContent = fmt2(originalValues.uom || 0);
+      if (packCell) packCell.textContent = originalValues.pack || '';
+      if (orderQtyCell) orderQtyCell.textContent = fmt2(originalValues.orderQty || 0);
+      if (loadingQtyInput) loadingQtyInput.value = fmt2(originalValues.loadingQty || 0);
+
+      // Remove modified styling
+      tr.classList.remove('row-modified');
+      tr.querySelectorAll('.cell-modified').forEach(c => c.classList.remove('cell-modified'));
+
+      // Recalculate
+      recalcRow(tr);
+    });
+
+    // Clear tracking
+    MODIFIED_ROWS.clear();
+    updateModifiedIndicator();
+    recomputeTotals();
+
+    showValidation("info", `Discarded changes to ${count} rows.`);
+  }
+
+  // Toggle Fullscreen Mode
+  function toggleFullscreen() {
+    const section = d.getElementById('orderItemsSection');
+    const btn = d.getElementById('fullscreenTableBtn');
+    const icon = btn.querySelector('i');
+
+    section.classList.toggle('fullscreen-mode');
+
+    if (section.classList.contains('fullscreen-mode')) {
+      icon.classList.remove('fa-expand');
+      icon.classList.add('fa-compress');
+      btn.title = 'Exit Fullscreen';
+
+      // Add keyboard hint
+      let hint = d.querySelector('.keyboard-hint');
+      if (!hint) {
+        hint = d.createElement('div');
+        hint.className = 'keyboard-hint';
+        hint.innerHTML = '<kbd>Tab</kbd> Navigate | <kbd>Enter</kbd> Next Row | <kbd>Esc</kbd> Exit Cell | <kbd>Ctrl+S</kbd> Save All';
+        section.appendChild(hint);
+      }
+      hint.style.display = 'block';
+
+      // Trap ESC to exit fullscreen
+      d.addEventListener('keydown', exitFullscreenOnEsc);
+    } else {
+      icon.classList.remove('fa-compress');
+      icon.classList.add('fa-expand');
+      btn.title = 'Toggle Fullscreen';
+
+      const hint = d.querySelector('.keyboard-hint');
+      if (hint) hint.style.display = 'none';
+
+      d.removeEventListener('keydown', exitFullscreenOnEsc);
+    }
+  }
+
+  function exitFullscreenOnEsc(e) {
+    if (e.key === 'Escape' && d.getElementById('orderItemsSection').classList.contains('fullscreen-mode')) {
+      // Only exit fullscreen if not editing a cell
+      if (d.activeElement.tagName !== 'TD' && !d.activeElement.classList.contains('ce')) {
+        toggleFullscreen();
+      }
+    }
+  }
+
+  // Warn before leaving with unsaved changes
+  function setupUnsavedChangesWarning() {
+    w.addEventListener('beforeunload', (e) => {
+      if (MODIFIED_ROWS.size > 0) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    });
+  }
+
+  // Global keyboard shortcuts
+  function setupGlobalKeyboardShortcuts() {
+    d.addEventListener('keydown', (e) => {
+      // Ctrl+S to save all (always prevent browser save dialog)
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        saveAllChanges();
+      }
+
+      // Ctrl+Z to discard (with confirmation)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) {
+        if (MODIFIED_ROWS.size > 0) {
+          e.preventDefault();
+          discardAllChanges();
+        }
+      }
+    });
+  }
+
+  // Initialize enhanced table features
+  function initEnhancedOrderTable() {
+    try {
+      // Attach event listeners to toolbar buttons
+      const saveAllBtn = d.getElementById('saveAllChangesBtn');
+      const discardBtn = d.getElementById('discardChangesBtn');
+      const fullscreenBtn = d.getElementById('fullscreenTableBtn');
+
+      if (saveAllBtn) {
+        saveAllBtn.addEventListener('click', saveAllChanges);
+      }
+
+      if (discardBtn) {
+        discardBtn.addEventListener('click', discardAllChanges);
+      }
+
+      if (fullscreenBtn) {
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+      }
+
+      // Setup unsaved changes warning
+      setupUnsavedChangesWarning();
+
+      // Setup global keyboard shortcuts
+      setupGlobalKeyboardShortcuts();
+
+      // Attach change tracking to existing rows (if any exist)
+      const existingRows = QA("#itemsTableBody tr.lp-data-row");
+      if (existingRows && existingRows.length > 0) {
+        existingRows.forEach(attachCellChangeTracking);
+      }
+
+      console.log("✅ Enhanced Order Table initialized - Excel-like editing enabled");
+    } catch (err) {
+      console.warn("⚠️ Enhanced Order Table init error (non-critical):", err);
+    }
+  }
+
+  // Initialize on DOM ready
+  d.addEventListener("DOMContentLoaded", () => {
+    // Wait for next frame so the table is populated
+    setTimeout(initEnhancedOrderTable, 0);
+  });
+
+  // Expose functions globally
+  w.saveAllChanges = saveAllChanges;
+  w.discardAllChanges = discardAllChanges;
+  w.toggleFullscreen = toggleFullscreen;
+  w.attachCellChangeTracking = attachCellChangeTracking;
+
+})(window, document);  
