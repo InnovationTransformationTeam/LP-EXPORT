@@ -152,9 +152,9 @@ const COLUMN_DEFINITIONS = [
     { key: 'perLtrCost', header: 'Per Ltr. Cost (AED)', source: 'formula', field: '(Total Freight / Qty ltrs) * 3.675', width: 160, type: 'currency', decimals: 2 },
     { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: '(Total Freight / Qty MT) * 3.675', width: 160, type: 'currency', decimals: 2 },
 
-    // Editable remarks on DCL Master (new Dataverse column: cr650_accrual_remarks)
+    // Editable General Remarks on DCL Master (new Dataverse column: cr650_accrual_remarks)
     // Summary Accruals only - user-entered free text
-    { key: 'remarks', header: 'Remarks', source: 'cr650_dcl_masters', field: 'cr650_accrual_remarks', width: 220, type: 'editable', summaryOnly: true }
+    { key: 'generalRemarks', header: 'General Remarks', source: 'cr650_dcl_masters', field: 'cr650_accrual_remarks', width: 220, type: 'editable', summaryOnly: true }
 ];
 
 // Dataverse field on cr650_dcl_masters used to persist the editable Summary Remarks column.
@@ -672,8 +672,8 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         otherCharges: parseFloat(docCharges.otherCharges) || 0,
         expensesRemarks: docCharges.expensesRemarks || '',
 
-        // Editable Summary Remarks - persisted on DCL Master (cr650_accrual_remarks)
-        remarks: dcl?.[REMARKS_FIELD] || '',
+        // Editable General Remarks (Summary only) - persisted on DCL Master (cr650_accrual_remarks)
+        generalRemarks: dcl?.[REMARKS_FIELD] || '',
 
         // Freight from Discounts/Charges table (cr650_dcl_discounts_chargeses)
         freightCharges: freightTotal,
@@ -857,7 +857,7 @@ async function saveRemarks(dclId, value) {
         }
         // Sync in-memory data so refreshes / re-renders keep the new value
         state.allData.forEach(r => {
-            if (r._dclId === dclId) r.remarks = value;
+            if (r._dclId === dclId) r.generalRemarks = value;
         });
     } catch (e) {
         console.error('Failed to save remarks:', e);
