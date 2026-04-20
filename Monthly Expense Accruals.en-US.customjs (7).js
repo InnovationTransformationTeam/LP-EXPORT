@@ -65,22 +65,21 @@ function toAED(amount, currency, conversionRate) {
 
 // ============================================================================
 // CONTAINER TYPE CODE MAPPING (cr650_container_type numeric codes to text)
+// Aligned with the DCL Document Generator dropdown so Container Type column
+// covers ALL options including Truck and Bulk Tanker.
 // ============================================================================
 const CONTAINER_TYPE_MAP = {
-    1: '20ft Container',
-    2: '40ft Container',
-    3: '40ft High Cube',
-    4: 'ISO Tank Container',
-    5: 'Flexi Bag 20ft',
-    6: 'Flexi Bag 40ft',
-    7: 'Bulk Tanker',
-    8: 'Truck'
+    1: '20 ft. Container',
+    2: '40 ft. Container',
+    3: 'Truck',
+    4: 'Bulk Tanker'
 };
 
 function resolveContainerType(rawValue) {
-    if (!rawValue && rawValue !== 0) return '';
+    if (rawValue === null || rawValue === undefined || rawValue === '') return '';
     const num = parseInt(rawValue);
     if (!isNaN(num) && CONTAINER_TYPE_MAP[num]) return CONTAINER_TYPE_MAP[num];
+    // Fallback: keep raw text so unusual types (e.g. ISO Tank, Flexi Bag) still render
     return String(rawValue);
 }
 
@@ -99,7 +98,7 @@ const COLUMN_DEFINITIONS = [
 
     // From AR Reports (cr650_dcl_ar_reports) with DCL Masters fallback
     { key: 'customerPO', header: 'Customer PO Number', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customerponumber / cr650_po_customer_number', width: 150, type: 'text' },
-    { key: 'shipmentMonth', header: 'Shipment Month', source: 'cr650_dcl_shipped_orderses + cr650_dcl_masters', field: 'cr650_shipment_date / cr650_sailing_date', width: 120, type: 'month', transform: 'toMonth' },
+    { key: 'shipmentMonth', header: 'Shipment Month', source: 'cr650_dcl_shipped_orderses', field: 'cr650_shipment_date', width: 120, type: 'month', transform: 'toMonth' },
     { key: 'itemBrand', header: 'Item Brand', source: 'cr650_dcl_ar_reports', field: 'cr650_itemtype', width: 120, type: 'text' },
     { key: 'customerClass', header: 'Customer Class of Business', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customerclassofbusiness / cr650_cob', width: 180, type: 'text' },
     { key: 'customerNumber', header: 'Customer Number', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customernumber', width: 140, type: 'text' },
@@ -126,6 +125,11 @@ const COLUMN_DEFINITIONS = [
     { key: 'insuranceCharges', header: 'Insurance Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=insurance)', width: 150, type: 'currency', decimals: 2 },
     { key: 'inspectionCharges', header: 'Inspection Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=inspection)', width: 150, type: 'currency', decimals: 2 },
 
+    // Other Charges (sum of charges from "Other Documents" with a charge amount)
+    { key: 'otherCharges', header: 'Other Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=other, charge>0)', width: 140, type: 'currency', decimals: 2 },
+    // Expenses Remarks (document name + remarks for each other-doc that has a charge)
+    { key: 'expensesRemarks', header: 'Expenses Remarks', source: 'cr650_dcl_documents', field: 'cr650_doc_type + cr650_remarks (doc_type=other, charge>0)', width: 220, type: 'text' },
+
     // Freight from Discounts & Charges table (cr650_dcl_discounts_chargeses)
     { key: 'freightCharges', header: 'Freight Charges', source: 'cr650_dcl_discounts_chargeses', field: 'cr650_amount (type=freight)', width: 140, type: 'currency', decimals: 2 },
 
@@ -146,25 +150,37 @@ const COLUMN_DEFINITIONS = [
 
     // Cost Calculations (AED conversion - derived from system data)
     { key: 'perLtrCost', header: 'Per Ltr. Cost (AED)', source: 'formula', field: '(Total Freight / Qty ltrs) * 3.675', width: 160, type: 'currency', decimals: 2 },
-    { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: '(Total Freight / Qty MT) * 3.675', width: 160, type: 'currency', decimals: 2 }
+    { key: 'perMTCost', header: 'Per Mts. Cost (AED)', source: 'formula', field: '(Total Freight / Qty MT) * 3.675', width: 160, type: 'currency', decimals: 2 },
+
+    // Editable remarks on DCL Master (new Dataverse column: cr650_accrual_remarks)
+    // Summary Accruals only - user-entered free text
+    { key: 'remarks', header: 'Remarks', source: 'cr650_dcl_masters', field: 'cr650_accrual_remarks', width: 220, type: 'editable', summaryOnly: true }
 ];
+
+// Dataverse field on cr650_dcl_masters used to persist the editable Summary Remarks column.
+// NOTE: This column must be added manually in Dataverse (simple text, length ~2000).
+const REMARKS_FIELD = 'cr650_accrual_remarks';
 
 // ============================================================================
 // REPORT VIEW DEFINITIONS
 // ============================================================================
 // Expense Accruals Report: simplified view per stakeholder
+// Includes Other Charges & Expenses Remarks (per stakeholder req. #2)
 const EXPENSE_REPORT_KEYS = [
     'businessUnit', 'exportExecutive', 'shipmentMonth', 'customerClass',
     'customerNumber', 'customerName', 'containerType', 'containerQty',
     'unitPIFreight', 'cooCharges', 'mofaCharges', 'docCharges',
-    'insuranceCharges', 'inspectionCharges', 'unitActualFreight',
+    'insuranceCharges', 'inspectionCharges', 'otherCharges',
+    'expensesRemarks', 'unitActualFreight',
     'totalFreight', 'perLtrCost', 'perMTCost'
 ];
 
-// Summary Accruals Report: all columns
+// Summary Accruals Report: all columns EXCEPT ones flagged as non-summary
+// (none currently excluded, but summaryOnly columns are filtered out of Expense)
 function getActiveColumns() {
     if (state.activeReport === 'expense') {
-        return COLUMN_DEFINITIONS.filter(col => EXPENSE_REPORT_KEYS.includes(col.key));
+        return COLUMN_DEFINITIONS.filter(col =>
+            EXPENSE_REPORT_KEYS.includes(col.key) && !col.summaryOnly);
     }
     return COLUMN_DEFINITIONS;
 }
@@ -552,7 +568,7 @@ function mergeDataOptimized() {
 
         const customerPO = ar.cr650_customerponumber;
         const shipped = shippedByPO.get(customerPO)?.[0];
-        const emptyCharges = { cooCharges: 0, mofaCharges: 0, documentationCharges: 0, insuranceCharges: 0, inspectionCharges: 0 };
+        const emptyCharges = { cooCharges: 0, mofaCharges: 0, documentationCharges: 0, insuranceCharges: 0, inspectionCharges: 0, otherCharges: 0, expensesRemarks: '' };
         const emptyExtra = { freightCharges: 0, flexiBagsCharges: 0, otherCharges: 0 };
         const custInfo = ar.cr650_customernumber ? customerByCode.get(ar.cr650_customernumber) : null;
 
@@ -636,9 +652,10 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         containerType: containerInfo.type,
         containerQty: contQty,
 
-        // Shipment month: shipped orders first, then DCL master sailing date
-        shipmentMonth: shipped ? extractMonth(shipped.cr650_shipment_date)
-            : (dcl?.cr650_sailing_date ? extractMonth(dcl.cr650_sailing_date) : "N/A"),
+        // Shipment month: Shipped Order Reports ONLY (per stakeholder req. #4)
+        // Filter must stay in sync with this column.
+        shipmentMonth: shipped?.cr650_shipment_date ? extractMonth(shipped.cr650_shipment_date) : "N/A",
+        _shipmentDate: shipped?.cr650_shipment_date || null,
 
         // Shipping line: DCL master has cr650_shippingline, shipped orders as fallback
         shippingLine: dcl?.cr650_shippingline || shipped?.cr650_shippingline || "N/A",
@@ -652,6 +669,11 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         docCharges: parseFloat(docCharges.documentationCharges) || 0,
         insuranceCharges: parseFloat(docCharges.insuranceCharges) || 0,
         inspectionCharges: parseFloat(docCharges.inspectionCharges) || 0,
+        otherCharges: parseFloat(docCharges.otherCharges) || 0,
+        expensesRemarks: docCharges.expensesRemarks || '',
+
+        // Editable Summary Remarks - persisted on DCL Master (cr650_accrual_remarks)
+        remarks: dcl?.[REMARKS_FIELD] || '',
 
         // Freight from Discounts/Charges table (cr650_dcl_discounts_chargeses)
         freightCharges: freightTotal,
@@ -688,11 +710,18 @@ function extractDocCharges(docs) {
     mofaCharges: 0,
     documentationCharges: 0,
     insuranceCharges: 0,
-    inspectionCharges: 0
+    inspectionCharges: 0,
+    // Sum of charges for any "Other Documents" (custom-named folders) with charge > 0
+    otherCharges: 0,
+    // Concatenated "<doc name>: <remarks>" pairs for each other-doc with a charge
+    expensesRemarks: ''
   };
 
+  const otherRemarkParts = [];
+
   docs.forEach(doc => {
-    const type = (doc.cr650_doc_type || "").toLowerCase().trim();
+    const rawType = (doc.cr650_doc_type || "").trim();
+    const type = rawType.toLowerCase();
     const amount = Number(doc.cr650_chargeamount || 0);
 
     if (!amount) return;
@@ -717,8 +746,20 @@ function extractDocCharges(docs) {
     else if (type.includes("inspection")) {
       charges.inspectionCharges += amount;
     }
+    // System Invoice is not an expense accrual line - skip its charges
+    else if (type.includes("system invoice") || type.includes("sys invoice")) {
+      // intentionally skipped
+    }
+    // Anything else with a charge = "Other Documents" custom folder
+    else {
+      charges.otherCharges += amount;
+      const remarks = (doc.cr650_remarks || "").trim();
+      const piece = remarks ? `${rawType}: ${remarks}` : rawType;
+      if (piece) otherRemarkParts.push(piece);
+    }
   });
 
+  charges.expensesRemarks = otherRemarkParts.join(' | ');
   return charges;
 }
 
@@ -780,6 +821,58 @@ function extractMonth(dateStr) {
     } catch {
         return "N/A";
     }
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[m]));
+}
+
+function escapeAttr(s) {
+    return escapeHtml(s);
+}
+
+// Persist an edited Remarks value to the DCL Master row in Dataverse.
+async function saveRemarks(dclId, value) {
+    if (!dclId) return;
+    try {
+        const body = {};
+        body[REMARKS_FIELD] = value || null;
+        const res = await fetch(`/_api/cr650_dcl_masters(${dclId})`, {
+            method: 'PATCH',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json; charset=utf-8',
+                'OData-MaxVersion': '4.0',
+                'OData-Version': '4.0',
+                '__RequestVerificationToken': getRequestVerificationToken()
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+            const t = await res.text().catch(() => '');
+            throw new Error(`HTTP ${res.status}: ${t}`);
+        }
+        // Sync in-memory data so refreshes / re-renders keep the new value
+        state.allData.forEach(r => {
+            if (r._dclId === dclId) r.remarks = value;
+        });
+    } catch (e) {
+        console.error('Failed to save remarks:', e);
+        showError('Failed to save Remarks. Please try again.');
+    }
+}
+
+function getRequestVerificationToken() {
+    const input = document.querySelector('input[name="__RequestVerificationToken"]');
+    if (input?.value) return input.value;
+    const meta = document.querySelector('meta[name="__RequestVerificationToken"]');
+    if (meta?.content) return meta.content;
+    const c = (document.cookie || '').split('; ').find(x => x.startsWith('__RequestVerificationToken='));
+    if (c) return decodeURIComponent(c.split('=')[1]);
+    return '';
 }
 
 function buildContainerType(dcl) {
@@ -927,14 +1020,46 @@ function populateFilters() {
     populateDropdown("filterCustomer", unique(state.allData.map(x => x.customerName)));
     populateDropdown("filterCountry", unique(state.allData.map(x => x.country)));
 
-    // Years from shipment dates
+    // Month filter must stay in sync with the Shipment Month column
+    // (extracted from cr650_dcl_shipped_orderses.cr650_shipment_date only).
+    populateMonthFilterFromData();
+
+    // Years from actual shipment dates in the data
     const years = unique(
         state.allData
-            .map(r => r.shipmentMonth)
-            .filter(m => m !== "N/A")
-            .map(m => new Date().getFullYear())
+            .map(r => r._shipmentDate)
+            .filter(Boolean)
+            .map(dateStr => {
+                try { return new Date(dateStr).getFullYear(); } catch { return null; }
+            })
+            .filter(y => y && !isNaN(y))
     );
     populateDropdown("filterYear", years);
+}
+
+function populateMonthFilterFromData() {
+    const select = document.getElementById("filterMonth");
+    if (!select) return;
+
+    const monthNames = ["January","February","March","April","May","June",
+        "July","August","September","October","November","December"];
+    const shortMonths = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+
+    // Which months actually appear in the Shipment Month column?
+    const present = new Set(
+        state.allData
+            .map(r => r.shipmentMonth)
+            .filter(m => m && m !== "N/A")
+    );
+
+    select.innerHTML = '<option value="">All Months</option>';
+    shortMonths.forEach((short, idx) => {
+        if (!present.has(short)) return;
+        const opt = document.createElement("option");
+        opt.value = String(idx + 1);
+        opt.textContent = monthNames[idx];
+        select.appendChild(opt);
+    });
 }
 
 function populateDropdown(id, items) {
@@ -1169,6 +1294,15 @@ function renderTable() {
                 cellContent = cellContent.replace(/\n/g, '<br>');
             }
 
+            // Editable Remarks cell (Summary Accruals only) - persists to Dataverse
+            if (col.type === 'editable') {
+                const dclId = record._dclId || '';
+                const safe = escapeAttr(record[col.key] || '');
+                return `<td class="editable-cell" data-key="${col.key}" data-dcl-id="${dclId}">
+                    <textarea class="ea-remarks-input" rows="2" placeholder="Add remarks...">${escapeHtml(record[col.key] || '')}</textarea>
+                </td>`;
+            }
+
             return `<td class="${cssClass}" data-key="${col.key}">${cellContent}</td>`;
         }).join('');
 
@@ -1179,12 +1313,34 @@ function renderTable() {
     tbody.innerHTML = '';
     tbody.appendChild(fragment);
 
+    bindEditableRemarks();
+
     const startRecord = (state.currentPage - 1) * CONFIG.pageSize + 1;
     const endRecord = Math.min(state.currentPage * CONFIG.pageSize, state.filteredData.length);
     document.getElementById("recordCount").textContent =
         `Showing ${startRecord}-${endRecord} of ${state.filteredData.length} records`;
 
     updatePaginationUI();
+}
+
+// Hook up blur-to-save on each editable Remarks cell rendered in the Summary view.
+function bindEditableRemarks() {
+    document.querySelectorAll('.editable-cell .ea-remarks-input').forEach(ta => {
+        if (ta.dataset.bound) return;
+        ta.dataset.bound = '1';
+
+        const cell = ta.closest('.editable-cell');
+        const dclId = cell?.dataset.dclId;
+        if (!dclId) return;
+
+        let prevValue = ta.value;
+        ta.addEventListener('blur', () => {
+            const val = ta.value.trim();
+            if (val === prevValue) return;
+            prevValue = val;
+            saveRemarks(dclId, val);
+        });
+    });
 }
 
 /* -------------------------------------------------

@@ -686,6 +686,33 @@ body {
     font-weight: 400;
 }
 
+/* Editable Remarks cell (Summary Accruals only) */
+.ea-table td.editable-cell {
+    padding: var(--space-2);
+    white-space: normal;
+    min-width: 220px;
+}
+
+.ea-remarks-input {
+    width: 100%;
+    min-height: 48px;
+    padding: var(--space-2);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--gray-800);
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    resize: vertical;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ea-remarks-input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: var(--shadow-focus);
+}
+
 /* ============================================================================
    BADGES
    ============================================================================ */
