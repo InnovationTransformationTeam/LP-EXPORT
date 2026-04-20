@@ -54,6 +54,7 @@
     "cr650_totalvolumeorweight",
     "cr650_netweightkg",
     "cr650_grossweightkg",
+    "cr650_upload_batch_id",
     "createdon",
     "modifiedon"
   ];
@@ -1289,6 +1290,7 @@
 
     return {
       serverId: lpRow.cr650_dcl_loading_planid || null,
+      uploadBatchId: lpRow.cr650_upload_batch_id || "",
 
       orderNo: lpRow.cr650_ordernumber || "",
       itemCode: lpRow.cr650_itemcode || "",
@@ -1331,6 +1333,11 @@
     tr.dataset.palletWeight = String(item.palletsWeight || 0);
     tr.dataset.palletized = item.palletized || "No";
     tr.dataset.numberOfPallets = String(item.numberOfPallets || 0);
+
+    // PDF upload batch id — set here so the payload builder picks it up on POST.
+    if (item.uploadBatchId) {
+      tr.dataset.uploadBatchId = item.uploadBatchId;
+    }
 
     // Store original values for change tracking
     tr.dataset.originalValues = JSON.stringify({
@@ -2692,6 +2699,12 @@
       cr650_grossweightkg: grossW
     };
 
+    // Preserve the PDF upload batch id when this row was imported from a PDF.
+    // (Empty string clears it; the chip strip uses this to group rows by upload.)
+    if (Object.prototype.hasOwnProperty.call(tr.dataset, "uploadBatchId")) {
+      payload.cr650_upload_batch_id = tr.dataset.uploadBatchId || null;
+    }
+
     // ─────────────────────────────────────
     // DCL MASTER BINDING
     // ─────────────────────────────────────
@@ -3086,6 +3099,11 @@
       // ✅ Store container item ID for two-way binding
       if (it._containerItemId) {
         tr.dataset.containerItemId = it._containerItemId;
+      }
+
+      // ✅ Preserve PDF upload batch id so the chip strip can group by upload
+      if (it.uploadBatchId) {
+        tr.dataset.uploadBatchId = it.uploadBatchId;
       }
 
       frag.appendChild(tr);
@@ -4726,6 +4744,7 @@
     fullRecalcAndRefresh();
     renderContainerCards();
     renderContainerSummaries();
+    try { w.renderPdfBatchChips && w.renderPdfBatchChips(); } catch (err) {}
 
     // Show result
     if (failed > 0) {
@@ -7039,9 +7058,9 @@
 
     /**
      * Process one PDF file: extract → parse → modal → append & persist.
-     * Tags the newly-created rows with an uploadBatchId and records the batch
-     * (filename + timestamp + serverIds + order numbers) so the chip strip can
-     * later delete every row that originated from this upload.
+     * Stamps each new item with an uploadBatchId before saving so the
+     * cr650_upload_batch_id column is populated at POST time. The chip
+     * strip then derives batches by grouping DOM rows by that id.
      *
      * @returns {{ imported:number, skippedDuplicates:number, cancelled?:boolean, reason?:string }}
      */
@@ -7107,37 +7126,15 @@
 
       setLoading(true, `Importing selected items from ${file.name}…`);
       try {
+        const batchId = newPdfBatchId();
         const baseCount = QA("#itemsTableBody tr.lp-data-row").length;
-        const computed = newItems.map((pdfItem, idx) =>
-          computeItemData(pdfItemToOrderItem(pdfItem, outstandingIndex), baseCount + idx, itemMaster, null)
-        );
-
-        const preExistingRows = new Set(QA("#itemsTableBody tr.lp-data-row"));
-        if (tbody) await appendAndPersistItems(computed, tbody);
-
-        // The rows just added are the ones that weren't in preExistingRows.
-        const addedRows = QA("#itemsTableBody tr.lp-data-row").filter(r => !preExistingRows.has(r));
-        const batchId = `b_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const serverIds = [];
-        const orderNumbers = new Set();
-        addedRows.forEach(tr => {
-          tr.dataset.uploadBatchId = batchId;
-          const sid = tr.dataset.serverId;
-          if (sid) serverIds.push(sid);
-          const oNo = (tr.querySelector(".order-no")?.textContent || "").trim();
-          if (oNo) orderNumbers.add(oNo);
+        const computed = newItems.map((pdfItem, idx) => {
+          const item = computeItemData(pdfItemToOrderItem(pdfItem, outstandingIndex), baseCount + idx, itemMaster, null);
+          item.uploadBatchId = batchId;
+          return item;
         });
 
-        if (serverIds.length) {
-          const batches = loadPdfBatches();
-          batches[batchId] = {
-            filename: file.name,
-            timestamp: Date.now(),
-            serverIds,
-            orderNumbers: Array.from(orderNumbers)
-          };
-          savePdfBatches(batches);
-        }
+        if (tbody) await appendAndPersistItems(computed, tbody);
 
         return { imported: newItems.length, skippedDuplicates };
       } finally {
@@ -7146,75 +7143,41 @@
     }
 
     /* =============================
-       PDF UPLOAD BATCH PERSISTENCE
+       PDF UPLOAD BATCH: DOM-DERIVED GROUPING
        ============================= */
 
-    function pdfBatchStorageKey() {
-      // Scope per DCL master so different DCLs keep independent chip strips.
-      return `lp.pdfBatches.v1.${CURRENT_DCL_ID || "none"}`;
-    }
-
-    function loadPdfBatches() {
-      try {
-        const raw = w.localStorage.getItem(pdfBatchStorageKey());
-        return raw ? (JSON.parse(raw) || {}) : {};
-      } catch (err) {
-        console.warn("Could not read PDF batches from localStorage:", err);
-        return {};
-      }
-    }
-
-    function savePdfBatches(batches) {
-      try {
-        w.localStorage.setItem(pdfBatchStorageKey(), JSON.stringify(batches || {}));
-      } catch (err) {
-        console.warn("Could not persist PDF batches to localStorage:", err);
-      }
+    function newPdfBatchId() {
+      return `b_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     }
 
     /**
-     * After rows are (re)loaded from the server, re-apply dataset.uploadBatchId
-     * to every row whose serverId is recorded in a batch. Also prunes batch
-     * entries whose rows no longer exist (e.g. deleted outside this UI).
+     * Walk the current table and group rows by dataset.uploadBatchId.
+     * Returns an array of { batchId, rows, orderNumbers } sorted by the
+     * table position of each batch's first row (so older uploads appear
+     * on the left).
      */
-    function restorePdfBatchTags() {
-      const batches = loadPdfBatches();
-      const batchIds = Object.keys(batches);
-      if (!batchIds.length) {
-        renderPdfBatchChips();
-        return;
-      }
-
-      const rowsByServerId = new Map();
-      QA("#itemsTableBody tr.lp-data-row").forEach(tr => {
-        const sid = (tr.dataset.serverId || "").toLowerCase();
-        if (sid) rowsByServerId.set(sid, tr);
+    function collectPdfBatches() {
+      const rows = QA("#itemsTableBody tr.lp-data-row");
+      const byBatch = new Map();
+      rows.forEach(tr => {
+        const bid = tr.dataset.uploadBatchId;
+        if (!bid) return;
+        if (!byBatch.has(bid)) byBatch.set(bid, { batchId: bid, rows: [], orderNumbers: new Set() });
+        const entry = byBatch.get(bid);
+        entry.rows.push(tr);
+        const oNo = (tr.querySelector(".order-no")?.textContent || "").trim();
+        if (oNo) entry.orderNumbers.add(oNo);
       });
-
-      let mutated = false;
-      for (const bid of batchIds) {
-        const b = batches[bid];
-        if (!b || !Array.isArray(b.serverIds)) continue;
-        const stillPresent = [];
-        for (const sid of b.serverIds) {
-          const tr = rowsByServerId.get(String(sid).toLowerCase());
-          if (tr) {
-            tr.dataset.uploadBatchId = bid;
-            stillPresent.push(sid);
-          }
-        }
-        if (stillPresent.length !== b.serverIds.length) {
-          b.serverIds = stillPresent;
-          mutated = true;
-        }
-        if (!stillPresent.length) {
-          delete batches[bid];
-          mutated = true;
-        }
-      }
-      if (mutated) savePdfBatches(batches);
-      renderPdfBatchChips();
+      return Array.from(byBatch.values()).map(b => ({
+        batchId: b.batchId,
+        rows: b.rows,
+        orderNumbers: Array.from(b.orderNumbers)
+      }));
     }
+
+    // Legacy alias: some call-sites still invoke restorePdfBatchTags() after
+    // reloading rows. With DOM-derived grouping, "restoring" is just rendering.
+    function restorePdfBatchTags() { renderPdfBatchChips(); }
     w.restorePdfBatchTags = restorePdfBatchTags;
 
     /* =============================
@@ -7225,12 +7188,8 @@
       const host = Q("#pdfBatchChips");
       if (!host) return;
 
-      const batches = loadPdfBatches();
-      const entries = Object.entries(batches)
-        .filter(([, b]) => b && Array.isArray(b.serverIds) && b.serverIds.length)
-        .sort((a, b) => (a[1].timestamp || 0) - (b[1].timestamp || 0));
-
-      if (!entries.length) {
+      const batches = collectPdfBatches();
+      if (!batches.length) {
         host.hidden = true;
         host.innerHTML = "";
         return;
@@ -7238,18 +7197,22 @@
 
       const locked = String(DCL_STATUS || "").toLowerCase() === "submitted";
 
-      const chips = entries.map(([bid, b]) => {
-        const rowCount = b.serverIds.length;
-        const orderCount = (b.orderNumbers || []).length;
-        const fname = escapeHtml(b.filename || "PDF");
-        const meta = `${rowCount} item${rowCount === 1 ? "" : "s"}` +
-          (orderCount ? ` · ${orderCount} order${orderCount === 1 ? "" : "s"}` : "");
+      const chips = batches.map(b => {
+        const rowCount = b.rows.length;
+        const orders = b.orderNumbers;
+        const primaryOrder = orders[0] || "";
+        const extraOrders = orders.length > 1 ? ` +${orders.length - 1}` : "";
+        const label = primaryOrder ? `SO# ${primaryOrder}${extraOrders}` : "PDF upload";
+        const tooltip = orders.length > 1
+          ? `Orders: ${orders.map(o => "SO# " + o).join(", ")}`
+          : (primaryOrder ? `Order SO# ${primaryOrder}` : "Imported from PDF");
+        const meta = `${rowCount} item${rowCount === 1 ? "" : "s"}`;
         const removeBtn = locked
           ? `<span class="pdf-batch-chip__remove pdf-batch-chip__remove--disabled" title="Loading Plan is locked — cannot delete" aria-disabled="true"><i class="fas fa-lock"></i></span>`
-          : `<button type="button" class="pdf-batch-chip__remove" data-batch-id="${escapeHtml(bid)}" title="Remove this PDF and all its items" aria-label="Remove ${fname}"><i class="fas fa-times"></i></button>`;
-        return `<span class="pdf-batch-chip${locked ? " pdf-batch-chip--locked" : ""}" data-batch-id="${escapeHtml(bid)}">
+          : `<button type="button" class="pdf-batch-chip__remove" data-batch-id="${escapeHtml(b.batchId)}" title="Remove this PDF and all its items" aria-label="Remove ${escapeHtml(label)}"><i class="fas fa-times"></i></button>`;
+        return `<span class="pdf-batch-chip${locked ? " pdf-batch-chip--locked" : ""}" data-batch-id="${escapeHtml(b.batchId)}" title="${escapeHtml(tooltip)}">
           <i class="fas fa-file-pdf pdf-batch-chip__icon"></i>
-          <span class="pdf-batch-chip__name" title="${fname}">${fname}</span>
+          <span class="pdf-batch-chip__name">${escapeHtml(label)}</span>
           <span class="pdf-batch-chip__meta">${meta}</span>
           ${removeBtn}
         </span>`;
@@ -7269,48 +7232,45 @@
     w.renderPdfBatchChips = renderPdfBatchChips;
 
     /**
-     * Delete every row that originated from the given PDF upload batch
-     * (and any container items linked to those rows), then remove the
-     * batch entry from localStorage.
+     * Delete every row whose cr650_upload_batch_id matches this chip's
+     * batchId, plus any container items linked to those rows. Dataverse
+     * is the source of truth — once the rows are gone, the chip can't
+     * re-derive, so re-rendering is all the cleanup needed.
      */
     async function deletePdfBatch(batchId) {
-      const batches = loadPdfBatches();
-      const batch = batches[batchId];
-      if (!batch) return;
+      if (!batchId) return;
 
       if (String(DCL_STATUS || "").toLowerCase() === "submitted") {
         alert("This Loading Plan is locked — imported PDFs cannot be removed.");
         return;
       }
 
-      // Resolve rows by batch tag first, then fall back to serverIds from storage.
-      const allRows = QA("#itemsTableBody tr.lp-data-row");
-      const taggedRows = allRows.filter(r => r.dataset.uploadBatchId === batchId);
-      const serverIdSet = new Set((batch.serverIds || []).map(s => String(s).toLowerCase()));
-      const resolvedRows = taggedRows.length
-        ? taggedRows
-        : allRows.filter(r => serverIdSet.has((r.dataset.serverId || "").toLowerCase()));
+      const resolvedRows = QA("#itemsTableBody tr.lp-data-row")
+        .filter(r => r.dataset.uploadBatchId === batchId);
 
-      const rowCount = resolvedRows.length;
-      const orderCount = (batch.orderNumbers || []).length;
-      const fname = batch.filename || "this PDF";
-
-      if (!rowCount) {
-        // Nothing left to delete — just clean up the stored entry.
-        delete batches[batchId];
-        savePdfBatches(batches);
+      if (!resolvedRows.length) {
         renderPdfBatchChips();
         return;
       }
 
+      const orderNumbers = new Set();
+      resolvedRows.forEach(tr => {
+        const oNo = (tr.querySelector(".order-no")?.textContent || "").trim();
+        if (oNo) orderNumbers.add(oNo);
+      });
+      const rowCount = resolvedRows.length;
+      const orderCount = orderNumbers.size;
+      const orderLabel = orderCount === 1
+        ? `SO# ${Array.from(orderNumbers)[0]}`
+        : `${orderCount} orders`;
+
       const confirmed = confirm(
-        `Delete ${fname}?\n\nThis will remove ${rowCount} line item${rowCount === 1 ? "" : "s"}` +
-        (orderCount ? ` across ${orderCount} order${orderCount === 1 ? "" : "s"}` : "") +
-        ` and any container allocations for those items.\n\nThis cannot be undone.`
+        `Delete this PDF import (${orderLabel})?\n\nThis will remove ${rowCount} line item${rowCount === 1 ? "" : "s"} ` +
+        `and any container allocations for those items.\n\nThis cannot be undone.`
       );
       if (!confirmed) return;
 
-      setLoading(true, `Removing ${fname}…`);
+      setLoading(true, `Removing ${orderLabel}…`);
 
       const BATCH_SIZE = 5;
       let failed = 0;
@@ -7345,16 +7305,12 @@
           slice.map(tr => deleteServerRow(tr.dataset.serverId))
         );
         results.forEach(r => { if (r.status === "rejected") failed++; });
-        setLoading(true, `Removing ${fname}… ${Math.min(start + slice.length, toDelete.length)}/${toDelete.length}`);
+        setLoading(true, `Removing ${orderLabel}… ${Math.min(start + slice.length, toDelete.length)}/${toDelete.length}`);
       }
 
-      // Phase 3: remove DOM rows and untracked rows (if any).
+      // Phase 3: remove DOM rows.
       resolvedRows.forEach(tr => tr.remove());
       invalidateLpRowIndexCache();
-
-      // Phase 4: drop the batch entry.
-      delete batches[batchId];
-      savePdfBatches(batches);
 
       setLoading(false);
 
@@ -7364,9 +7320,9 @@
       renderPdfBatchChips();
 
       if (failed > 0) {
-        showValidation("warning", `Removed ${fname} (${rowCount - failed}/${rowCount} items). ${failed} failed to delete.`);
+        showValidation("warning", `Removed ${orderLabel} (${rowCount - failed}/${rowCount} items). ${failed} failed to delete.`);
       } else {
-        showValidation("success", `Removed ${fname} and ${rowCount} line item${rowCount === 1 ? "" : "s"}.`);
+        showValidation("success", `Removed ${orderLabel} and ${rowCount} line item${rowCount === 1 ? "" : "s"}.`);
       }
     }
 
