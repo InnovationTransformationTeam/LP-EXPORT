@@ -45,9 +45,12 @@ const CONFIG = {
 };
 
 // ============================================================================
-// CURRENCY CONVERSION RATES (to AED)
+// CURRENCY CONVERSION (live AED rates for every world currency)
+// Source: @fawazahmed0/currency-api - same source the Upload Center uses, so
+// numbers stay consistent between the two screens. Rates are cached in
+// localStorage for 1 hour. Static table below is the offline/failure fallback.
 // ============================================================================
-const AED_RATES = {
+let AED_RATES = {
     'AED': 1,
     'USD': 3.6725,
     'SAR': 0.9793,
@@ -55,11 +58,60 @@ const AED_RATES = {
     'GBP': 4.65
 };
 
+const AED_RATES_CACHE_KEY = 'accruals_aed_rates_v1';
+const AED_RATES_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function loadAedRates() {
+    try {
+        const cached = JSON.parse(localStorage.getItem(AED_RATES_CACHE_KEY) || 'null');
+        if (cached && (Date.now() - cached.ts) < AED_RATES_TTL_MS && cached.rates?.AED === 1) {
+            AED_RATES = cached.rates;
+            return;
+        }
+    } catch (_) { /* ignore cache parse errors */ }
+
+    const primaryUrl = 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/aed.json';
+    const fallbackUrl = 'https://latest.currency-api.pages.dev/v1/currencies/aed.json';
+
+    try {
+        let data;
+        try {
+            const r = await fetch(primaryUrl);
+            if (!r.ok) throw new Error(`Primary ${r.status}`);
+            data = await r.json();
+        } catch (_) {
+            const r = await fetch(fallbackUrl);
+            if (!r.ok) throw new Error(`Fallback ${r.status}`);
+            data = await r.json();
+        }
+
+        // Response shape: { "date": "...", "aed": { "usd": 0.2725, "eur": 0.25, ... } }
+        // aed.usd = 0.2725 means 1 AED = 0.2725 USD → USD→AED rate = 1/0.2725.
+        const aedToX = data?.aed;
+        if (aedToX && typeof aedToX === 'object') {
+            const inverted = { 'AED': 1 };
+            for (const [code, aedPerUnit] of Object.entries(aedToX)) {
+                if (typeof aedPerUnit === 'number' && aedPerUnit > 0) {
+                    inverted[code.toUpperCase()] = 1 / aedPerUnit;
+                }
+            }
+            AED_RATES = inverted;
+            localStorage.setItem(AED_RATES_CACHE_KEY, JSON.stringify({ ts: Date.now(), rates: AED_RATES }));
+            console.log(`Loaded live AED rates for ${Object.keys(inverted).length} currencies`);
+        }
+    } catch (e) {
+        console.warn('Live AED rates failed - using static fallback table', e);
+    }
+}
+
 function toAED(amount, currency, conversionRate) {
     if (!amount || isNaN(amount)) return 0;
     const cur = (currency || 'USD').toUpperCase().trim();
-    // Use AR report's conversion rate if available, otherwise fallback to static rates
-    const rate = (conversionRate && !isNaN(conversionRate)) ? conversionRate : (AED_RATES[cur] || AED_RATES['USD']);
+    // AR report's per-transaction rate wins when present (most accurate for that row);
+    // otherwise use the live rate table; finally fall back to USD if the currency is unknown.
+    const rate = (conversionRate && !isNaN(conversionRate))
+        ? conversionRate
+        : (AED_RATES[cur] || AED_RATES['USD']);
     return amount * rate;
 }
 
@@ -343,6 +395,7 @@ async function loadAllData() {
 
     try {
         // Parallel loading with progress tracking - all Dataverse tables
+        // plus a single call to fetch live AED FX rates for every world currency.
         const promises = [
             trackedFetch("/_api/cr650_dcl_masters?$top=5000", "DCL Masters"),
             trackedFetch("/_api/cr650_dcl_ar_reports?$top=5000", "AR Reports"),
@@ -356,7 +409,12 @@ async function loadAllData() {
             trackedFetch("/_api/cr650_dcl_orders?$top=5000", "DCL Orders")
         ];
 
+        // Load live FX rates in parallel so the merge has up-to-date numbers.
+        // Never blocks the UI: if it fails, the static fallback table is used.
+        const ratesPromise = loadAedRates();
+
         const [dcl, ar, docs, shipped, customers, discCharges, updatedCust, containers, loadingPlans, orders] = await Promise.all(promises);
+        await ratesPromise;
 
         state.dclMasters = dcl.value || [];
         state.arReports = ar.value || [];
