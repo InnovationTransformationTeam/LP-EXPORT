@@ -57,7 +57,15 @@
 
       <!-- Order Items -->
       <div class="items-section" id="orderItemsSection">
-        <h3 class="section-title">Order Items</h3>
+        <h3 class="section-title">
+          <span>Order Items</span>
+          <span id="assignCounter" class="assign-counter assign-counter--empty" hidden aria-live="polite">
+            <span class="assign-counter__dot"></span>
+            <span class="assign-counter__text">
+              <span id="assignCounterUnassigned">0</span> <span class="assign-counter__sep">/</span> <span id="assignCounterTotal">0</span> items left to assign
+            </span>
+          </span>
+        </h3>
 
         <!-- Toolbar — grouped by workflow phase -->
         <div class="items-toolbar">
@@ -270,7 +278,49 @@
         </div>
       </div>
 
+      <!-- Assignment Summary — live view of every line item that has been assigned to a container. -->
+      <section class="summary-section" id="assignmentSummarySection" aria-labelledby="assignmentSummaryTitle">
+        <div class="summary-section__header">
+          <div class="summary-section__titleblock">
+            <h3 class="section-title" id="assignmentSummaryTitle">
+              <i class="fas fa-layer-group"></i>
+              <span>Assignment Summary</span>
+              <span id="summaryAssignedBadge" class="summary-badge" aria-live="polite">0 assigned</span>
+            </h3>
+            <p class="summary-section__subtitle">
+              Line items that are loaded into containers. Remove a row to return it to <em>Order Items</em>, or delete a whole container to return all of its items at once.
+            </p>
+          </div>
+        </div>
+
+        <div class="summary-table-container" id="summaryTableContainer">
+          <table id="summaryTable" class="summary-table">
+            <thead>
+              <tr>
+                <th>Container</th>
+                <th>Order #</th>
+                <th>Item Code</th>
+                <th class="summary-col--desc">Item Description</th>
+                <th class="summary-col--num">Qty</th>
+                <th class="summary-col--num">Total L/Kgs</th>
+                <th class="summary-col--num">Net Weight</th>
+                <th class="summary-col--num">Gross Weight</th>
+                <th class="summary-col--action" aria-label="Actions"></th>
+              </tr>
+            </thead>
+            <tbody id="summaryTableBody"></tbody>
+          </table>
+
+          <div id="summaryEmptyState" class="summary-empty-state" hidden>
+            <i class="fas fa-cubes"></i>
+            <div class="summary-empty-state__title">No items assigned yet</div>
+            <div class="summary-empty-state__hint">Pick rows in <em>Order Items</em> and assign them to a container to see them here.</div>
+          </div>
+        </div>
+      </section>
+
       <!-- [FG Dimensions Modal removed — not needed per stakeholder] -->
+
 
 
 

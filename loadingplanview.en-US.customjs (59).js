@@ -4563,8 +4563,16 @@
   /** Toggle all row checkboxes */
   function handleLpRowSelectAll(checked) {
     QA("#itemsTableBody .lp-row-select-cb").forEach(cb => {
+      const tr = cb.closest("tr");
+      // Skip rows that have been moved to the Assignment Summary — only
+      // visible (unassigned) rows should participate in bulk selection.
+      if (tr && tr.classList.contains("lp-row--assigned-hidden")) {
+        cb.checked = false;
+        tr.classList.remove("row-selected");
+        return;
+      }
       cb.checked = checked;
-      cb.closest("tr")?.classList.toggle("row-selected", checked);
+      tr?.classList.toggle("row-selected", checked);
     });
     updateBulkAssignButton();
     updateBulkDeleteRowsButton();
@@ -5294,7 +5302,220 @@
     });
 
     console.log("✅ Unified table container assignments synced");
+
+    // Keep the Assignment Summary table in lockstep with the LP rows.
+    try { renderAssignmentSummary(); } catch (err) { console.warn("renderAssignmentSummary failed:", err); }
   }
+
+  /* =============================
+     ASSIGNMENT SUMMARY
+     Shows every line item that has been committed to a container
+     (has a matching cr650_dcl_container_itemses record). Order Items
+     hides those rows so the two tables partition the same row set.
+     ============================= */
+
+  // Small stable palette for container color pills — hash(containerLabel) → index.
+  const CONTAINER_PILL_PALETTE = [
+    { bg: "#DBEAFE", fg: "#1E40AF" }, // blue
+    { bg: "#D1FAE5", fg: "#065F46" }, // emerald
+    { bg: "#FEF3C7", fg: "#92400E" }, // amber
+    { bg: "#FCE7F3", fg: "#9D174D" }, // pink
+    { bg: "#EDE9FE", fg: "#5B21B6" }, // violet
+    { bg: "#CFFAFE", fg: "#155E75" }, // cyan
+    { bg: "#FFE4E6", fg: "#9F1239" }, // rose
+    { bg: "#ECFCCB", fg: "#3F6212" }  // lime
+  ];
+  function pillColorFor(key) {
+    const s = String(key || "");
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    const idx = Math.abs(h) % CONTAINER_PILL_PALETTE.length;
+    return CONTAINER_PILL_PALETTE[idx];
+  }
+
+  function updateAssignCounter(unassigned, total) {
+    const host = Q("#assignCounter");
+    if (!host) return;
+    const uEl = Q("#assignCounterUnassigned");
+    const tEl = Q("#assignCounterTotal");
+    if (uEl) uEl.textContent = String(unassigned);
+    if (tEl) tEl.textContent = String(total);
+
+    // State classes drive color: empty, all-assigned (done), partial, none-assigned.
+    host.classList.remove("assign-counter--empty", "assign-counter--done", "assign-counter--partial", "assign-counter--pending");
+    if (!total) {
+      host.classList.add("assign-counter--empty");
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    if (unassigned === 0) host.classList.add("assign-counter--done");
+    else if (unassigned === total) host.classList.add("assign-counter--pending");
+    else host.classList.add("assign-counter--partial");
+  }
+
+  function summaryCellText(tr, sel) {
+    const n = tr.querySelector(sel);
+    if (!n) return "";
+    if (n.tagName === "INPUT" || n.tagName === "SELECT" || n.tagName === "TEXTAREA") return (n.value || "").trim();
+    return (n.textContent || "").trim();
+  }
+
+  function buildSummaryRowEl(lpTr, ci, containerLabel, containerKey) {
+    const row = d.createElement("tr");
+    row.className = "summary-row";
+    row.dataset.ciId = ci.id;
+    if (lpTr.dataset.serverId) row.dataset.serverId = lpTr.dataset.serverId;
+
+    const pill = pillColorFor(containerKey || containerLabel);
+    const orderNo = summaryCellText(lpTr, ".order-no");
+    const itemCode = summaryCellText(lpTr, ".item-code");
+    const desc = summaryCellText(lpTr, ".description");
+    // Prefer the current (edited) value of the input for qty; else the CI snapshot.
+    const qtyFromInput = asNum(lpTr.querySelector(".loading-qty")?.value);
+    const qty = qtyFromInput || asNum(ci.quantity);
+    const totalL = summaryCellText(lpTr, ".total-liters");
+    const netW = summaryCellText(lpTr, ".net-weight");
+    const grossW = summaryCellText(lpTr, ".gross-weight");
+
+    row.innerHTML = `
+      <td class="summary-col--container">
+        <span class="container-pill" style="background:${pill.bg};color:${pill.fg};" title="${escapeHtml(containerLabel)}">
+          <span class="container-pill__dot" style="background:${pill.fg};"></span>
+          ${escapeHtml(containerLabel || "—")}
+        </span>
+      </td>
+      <td class="summary-col--order">${escapeHtml(orderNo)}</td>
+      <td class="summary-col--code">${escapeHtml(itemCode)}</td>
+      <td class="summary-col--desc" title="${escapeHtml(desc)}">${escapeHtml(desc)}</td>
+      <td class="summary-col--num">${escapeHtml(String(fmt2(qty)))}</td>
+      <td class="summary-col--num">${escapeHtml(totalL)}</td>
+      <td class="summary-col--num">${escapeHtml(netW)}</td>
+      <td class="summary-col--num">${escapeHtml(grossW)}</td>
+      <td class="summary-col--action">
+        <button type="button" class="summary-unassign-btn" data-ci-id="${escapeHtml(ci.id)}" title="Return to Order Items" aria-label="Unassign this item">
+          <i class="fas fa-undo"></i>
+        </button>
+      </td>
+    `;
+    return row;
+  }
+
+  function renderAssignmentSummary() {
+    const tbody = Q("#summaryTableBody");
+    const table = Q("#summaryTable");
+    const emptyState = Q("#summaryEmptyState");
+    const badge = Q("#summaryAssignedBadge");
+    if (!tbody) {
+      // Summary section missing from the page (shouldn't happen in the current HTML).
+      return;
+    }
+
+    const containerByGuid = new Map();
+    (DCL_CONTAINERS_STATE || []).forEach(c => {
+      if (c && c.dataverseId) containerByGuid.set(c.dataverseId.toLowerCase(), c);
+    });
+    const ciById = new Map();
+    (DCL_CONTAINER_ITEMS_STATE || []).forEach(ci => {
+      if (ci && ci.id) ciById.set(ci.id, ci);
+    });
+
+    const lpRows = QA("#itemsTableBody tr.lp-data-row");
+    let unassigned = 0;
+    const frag = d.createDocumentFragment();
+
+    lpRows.forEach(tr => {
+      const ciId = tr.dataset.containerItemId || tr.dataset.ciId || "";
+      const ci = ciId ? ciById.get(ciId) : null;
+
+      if (ci) {
+        // Assigned — hide from Order Items, mirror into Summary.
+        tr.classList.add("lp-row--assigned-hidden");
+        const container = containerByGuid.get((ci.containerGuid || "").toLowerCase());
+        const containerLabel = container ? (container.id || container.type || "Container") : "Unknown";
+        const containerKey = container ? (container.id || container.dataverseId || containerLabel) : containerLabel;
+        frag.appendChild(buildSummaryRowEl(tr, ci, containerLabel, containerKey));
+      } else {
+        tr.classList.remove("lp-row--assigned-hidden");
+        unassigned++;
+      }
+    });
+
+    tbody.innerHTML = "";
+    tbody.appendChild(frag);
+
+    const assignedCount = lpRows.length - unassigned;
+    if (badge) badge.textContent = `${assignedCount} assigned`;
+    if (emptyState) emptyState.hidden = assignedCount > 0;
+    if (table) table.style.display = assignedCount > 0 ? "" : "none";
+
+    updateAssignCounter(unassigned, lpRows.length);
+
+    // Wire unassign buttons.
+    tbody.querySelectorAll(".summary-unassign-btn[data-ci-id]").forEach(btn => {
+      btn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        const id = btn.getAttribute("data-ci-id");
+        if (id) unassignLineItem(id);
+      });
+    });
+  }
+  w.renderAssignmentSummary = renderAssignmentSummary;
+
+  /**
+   * Return an assigned line item back to Order Items by deleting its
+   * cr650_dcl_container_itemses record. The underlying LP row is left
+   * untouched — only the container link is removed.
+   */
+  async function unassignLineItem(ciId) {
+    if (!ciId) return;
+    if (String(DCL_STATUS || "").toLowerCase() === "submitted") {
+      alert("This Loading Plan is locked — items cannot be unassigned.");
+      return;
+    }
+
+    const btn = Q(`#summaryTableBody .summary-unassign-btn[data-ci-id="${ciId}"]`);
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add("is-loading");
+    }
+    setLoading(true, "Returning item to Order Items…");
+
+    try {
+      await deleteContainerItem(ciId);
+
+      const idx = (DCL_CONTAINER_ITEMS_STATE || []).findIndex(c => c && c.id === ciId);
+      if (idx >= 0) DCL_CONTAINER_ITEMS_STATE.splice(idx, 1);
+
+      // Clear any LP row(s) that were pointing at this CI.
+      QA("#itemsTableBody tr.lp-data-row").forEach(tr => {
+        if (tr.dataset.containerItemId === ciId || tr.dataset.ciId === ciId) {
+          delete tr.dataset.containerItemId;
+          delete tr.dataset.ciId;
+          const sel = tr.querySelector(".assign-container");
+          if (sel) sel.value = "";
+          tr.classList.remove("lp-row--assigned-hidden");
+        }
+      });
+
+      rebuildAssignmentTable();          // syncs dropdowns + calls renderAssignmentSummary
+      fullRecalcAndRefresh();
+      renderContainerCards();
+      renderContainerSummaries();
+
+      showValidation("success", "Item returned to Order Items.");
+    } catch (err) {
+      console.error("Unassign failed:", err);
+      showValidation("warning", `Failed to unassign item${err && err.message ? ": " + err.message : ""}.`);
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove("is-loading");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+  w.unassignLineItem = unassignLineItem;
 
   // ===== RECOMMENDED: SIMPLIFIED SPLIT (No Container Creation) =====
   function showSimpleSplitPrompt(total, max, lpRow) {

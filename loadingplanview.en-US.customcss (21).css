@@ -12107,3 +12107,269 @@
     gap: 0.5rem;
   }
 }
+
+/* =============================================================
+   ASSIGNMENT SUMMARY + "ITEMS LEFT TO ASSIGN" COUNTER
+   ============================================================= */
+
+/* --- Counter pill in the Order Items section header --- */
+#orderItemsSection .section-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.assign-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.assign-counter__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.6) inset;
+}
+.assign-counter__text { white-space: nowrap; }
+.assign-counter__sep { opacity: 0.5; margin: 0 2px; }
+#assignCounterUnassigned { font-weight: 700; }
+#assignCounterTotal { font-weight: 600; opacity: 0.8; }
+
+.assign-counter--pending {
+  background: #FEF3C7;
+  color: #92400E;
+  border-color: #FDE68A;
+}
+.assign-counter--partial {
+  background: #DBEAFE;
+  color: #1E40AF;
+  border-color: #BFDBFE;
+}
+.assign-counter--done {
+  background: #D1FAE5;
+  color: #065F46;
+  border-color: #A7F3D0;
+}
+.assign-counter--done .assign-counter__text::before {
+  content: "\f058"; /* fa-check-circle */
+  font-family: "Font Awesome 5 Free";
+  font-weight: 900;
+  margin-right: 6px;
+}
+
+/* --- Hide assigned rows in Order Items (they live in Summary) --- */
+.lp-row--assigned-hidden { display: none !important; }
+
+/* --- Summary section shell --- */
+.summary-section {
+  margin: 24px 0 16px;
+  padding: 20px 24px;
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.summary-section__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 16px;
+}
+.summary-section__titleblock { min-width: 0; flex: 1; }
+.summary-section #assignmentSummaryTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px 0;
+  padding: 0;
+  border-bottom: 0;
+  color: #0F172A;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.summary-section #assignmentSummaryTitle > i {
+  color: #2563EB;
+  font-size: 16px;
+}
+.summary-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  background: #EEF2FF;
+  color: #4338CA;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.summary-section__subtitle {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.summary-section__subtitle em {
+  font-style: normal;
+  font-weight: 600;
+  color: #1E293B;
+}
+
+/* --- Summary table --- */
+.summary-table-container {
+  position: relative;
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid #E5E7EB;
+  background: #fff;
+}
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.summary-table thead th {
+  position: sticky;
+  top: 0;
+  background: #F8FAFC;
+  color: #475569;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 12px;
+  border-bottom: 1px solid #E5E7EB;
+  z-index: 1;
+}
+.summary-table thead th.summary-col--num,
+.summary-table tbody td.summary-col--num { text-align: right; font-variant-numeric: tabular-nums; }
+.summary-table thead th.summary-col--action { width: 44px; text-align: center; }
+.summary-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #F1F5F9;
+  color: #0F172A;
+  vertical-align: middle;
+}
+.summary-table tbody tr:last-child td { border-bottom: none; }
+.summary-table tbody tr:hover td { background: #F8FAFC; }
+
+.summary-col--desc {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.summary-col--container { white-space: nowrap; }
+.summary-col--order,
+.summary-col--code { font-weight: 500; color: #1E293B; }
+
+/* --- Container pill inside the Summary row --- */
+.container-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.container-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* --- Unassign button --- */
+.summary-unassign-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #E5E7EB;
+  border-radius: 50%;
+  background: #fff;
+  color: #64748B;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.summary-unassign-btn:hover:not(:disabled) {
+  background: #EFF6FF;
+  color: #1D4ED8;
+  border-color: #BFDBFE;
+  transform: translateY(-1px);
+}
+.summary-unassign-btn:active:not(:disabled) { transform: translateY(0); }
+.summary-unassign-btn:disabled,
+.summary-unassign-btn.is-loading {
+  opacity: 0.55;
+  cursor: progress;
+}
+.summary-unassign-btn.is-loading i {
+  animation: summary-spin 0.8s linear infinite;
+}
+@keyframes summary-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* --- Empty state --- */
+.summary-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 20px;
+  text-align: center;
+  color: #64748B;
+}
+.summary-empty-state > i {
+  font-size: 28px;
+  color: #CBD5E1;
+  margin-bottom: 10px;
+}
+.summary-empty-state__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 4px;
+}
+.summary-empty-state__hint {
+  font-size: 12.5px;
+  color: #64748B;
+}
+.summary-empty-state__hint em {
+  font-style: normal;
+  font-weight: 600;
+  color: #1E293B;
+}
+
+/* --- Smooth enter animation for newly assigned rows --- */
+.summary-table tbody tr.summary-row {
+  animation: summary-row-in 0.22s ease both;
+}
+@keyframes summary-row-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 960px) {
+  .summary-section { padding: 16px; }
+  .summary-col--desc { max-width: 220px; }
+}
