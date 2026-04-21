@@ -87,10 +87,16 @@
           </div>
 
           <!-- Phase 2: Allocation -->
-          <div class="toolbar-group">
+          <!--
+            Auto "Assign to Containers" button is disabled for now — users
+            assign via the Bulk Assign toolbar (select rows → pick container
+            → Assign Selected). The button is kept hidden (not deleted) so
+            it can be brought back later when capacity math is trustworthy.
+          -->
+          <div class="toolbar-group" hidden>
             <span class="toolbar-group-label">Allocation</span>
             <div class="toolbar-group-buttons">
-              <button type="button" id="assignToContainersBtn" class="btn btn-outline" title="Create container items and assign to containers">
+              <button type="button" id="assignToContainersBtn" class="btn btn-outline" title="Create container items and assign to containers" hidden>
                 <i class="fas fa-boxes"></i> Assign to Containers
               </button>
             </div>

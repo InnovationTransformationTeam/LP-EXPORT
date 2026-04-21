@@ -4516,17 +4516,19 @@
     const toolbar = Q("#lpRowBulkToolbar");
     if (!toolbar) return;
     const hasRows = QA("#itemsTableBody tr.lp-data-row").length > 0;
-    const hasCI = DCL_CONTAINER_ITEMS_STATE.length > 0;
+    const hasContainers = (DCL_CONTAINERS_STATE || []).filter(c => c && c.dataverseId).length > 0;
 
     // Show toolbar whenever items exist (delete is always available)
     toolbar.style.display = hasRows ? "flex" : "none";
 
-    // Show/hide assign-specific controls based on container-items
+    // Show assign controls as soon as there is at least one container to assign to.
+    // (Previously gated on container-items existing, which trapped users behind the
+    // aggressive auto-assign button.)
     const assignDropdown = Q("#bulkAssignContainerSelect");
     const assignBtn = Q("#bulkAssignBtn");
-    if (assignDropdown) assignDropdown.style.display = hasCI ? "" : "none";
-    if (assignBtn) assignBtn.style.display = hasCI ? "" : "none";
-    if (hasCI) refreshBulkAssignDropdown();
+    if (assignDropdown) assignDropdown.style.display = hasContainers ? "" : "none";
+    if (assignBtn) assignBtn.style.display = hasContainers ? "" : "none";
+    if (hasContainers) refreshBulkAssignDropdown();
   }
 
   /** Update counter and disable/enable the Assign button */
@@ -4578,7 +4580,15 @@
     updateBulkDeleteRowsButton();
   }
 
-  /** Bulk assign all selected rows to the chosen container */
+  /**
+   * Bulk assign selected rows to the chosen container.
+   *
+   * Works from scratch — if a row has no container-item yet, a new
+   * cr650_dcl_container_itemses record is POSTed linked to that
+   * container and the chosen LP row. If a row already has a CI, the
+   * existing CI is PATCHed to point at the new container. No auto-
+   * assign prerequisite, no packing algorithm, no capacity checks.
+   */
   async function bulkAssignSelectedRows() {
     const containerGuid = (Q("#bulkAssignContainerSelect")?.value || "").trim();
     if (!containerGuid) {
@@ -4590,26 +4600,38 @@
     const rows = Array.from(selectedCbs).map(cb => cb.closest("tr.lp-data-row")).filter(Boolean);
     if (!rows.length) return;
 
-    // Collect container-item IDs that need patching
+    // Make sure every row has a server id before we try to link a CI to it.
+    await hydrateLpRowServerIds();
+
+    // Partition rows: PATCH existing CIs, POST new CIs for the rest.
     const toPatch = [];
+    const toCreate = [];
     rows.forEach(tr => {
+      const lpId = tr.dataset.serverId;
+      if (!lpId) return; // LP row was never persisted; skip.
       const ciId = tr.dataset.ciId;
-      if (!ciId) return;
-      const ci = DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId);
-      if (ci) toPatch.push({ ci, ciId, tr });
+      const existingCi = ciId ? (DCL_CONTAINER_ITEMS_STATE || []).find(c => c && c.id === ciId) : null;
+      if (existingCi) {
+        toPatch.push({ ci: existingCi, ciId, tr });
+      } else {
+        const qty = asNum(tr.querySelector(".loading-qty")?.value) || asNum(tr.querySelector(".order-qty")?.textContent);
+        toCreate.push({ lpId, qty, tr });
+      }
     });
 
-    if (!toPatch.length) {
-      showValidation("warning", "Selected rows have no container items. Run 'Assign to Containers' first.");
+    if (!toPatch.length && !toCreate.length) {
+      showValidation("warning", "Selected rows could not be assigned (no valid server ids yet).");
       return;
     }
 
-    setLoading(true, `Assigning ${toPatch.length} item${toPatch.length > 1 ? "s" : ""} to container…`);
+    const total = toPatch.length + toCreate.length;
+    setLoading(true, `Assigning ${total} item${total > 1 ? "s" : ""} to container…`);
 
     let success = 0;
     let failed = 0;
     const BATCH_SIZE = 5;
 
+    // Phase 1 — PATCH rows that already had a CI.
     for (let start = 0; start < toPatch.length; start += BATCH_SIZE) {
       const batch = toPatch.slice(start, start + BATCH_SIZE);
       const results = await Promise.allSettled(
@@ -4633,17 +4655,60 @@
       results.forEach((r, idx) => {
         if (r.status === "fulfilled") success++;
         else {
-          console.error(`[Bulk Assign] Failed to assign row ${batch[idx].ciId}`, r.reason);
+          console.error(`[Bulk Assign] Failed to PATCH row ${batch[idx].ciId}`, r.reason);
           failed++;
         }
       });
 
-      setLoading(true, `Assigning items… ${success + failed}/${toPatch.length}`);
+      setLoading(true, `Assigning items… ${success + failed}/${total}`);
+    }
+
+    // Phase 2 — POST new CIs for rows that had none.
+    for (let start = 0; start < toCreate.length; start += BATCH_SIZE) {
+      const batch = toCreate.slice(start, start + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(({ lpId, qty }) =>
+          createContainerItemOnServer(lpId, qty, containerGuid, false)
+            .then(newId => ({ lpId, qty, newId }))
+        )
+      );
+
+      results.forEach((r, idx) => {
+        const entry = batch[idx];
+        if (r.status === "fulfilled") {
+          const newId = r.value && r.value.newId;
+          if (newId) {
+            entry.tr.dataset.ciId = newId;
+            // Track the new CI in local state so the Summary can render it
+            // without waiting for a full refresh.
+            DCL_CONTAINER_ITEMS_STATE.push({
+              id: newId,
+              lpId: entry.lpId,
+              quantity: entry.qty,
+              containerGuid: containerGuid,
+              dclMasterGuid: CURRENT_DCL_ID || null,
+              isSplitItem: false
+            });
+          }
+          success++;
+        } else {
+          console.error(`[Bulk Assign] Failed to POST new CI for LP ${entry.lpId}`, r.reason);
+          failed++;
+        }
+      });
+
+      setLoading(true, `Assigning items… ${success + failed}/${total}`);
+    }
+
+    // If any POSTs didn't return an id (some Dataverse configs return 204),
+    // fetch authoritative state so the Summary can still pick them up.
+    if (toCreate.some(e => !e.tr.dataset.ciId)) {
+      try { await refreshContainerItemsState(); } catch (err) { console.warn("refreshContainerItemsState failed after POSTs:", err); }
     }
 
     setLoading(false);
 
-    // Deselect all rows
+    // Deselect remaining checkboxes.
     QA("#itemsTableBody .lp-row-select-cb:checked").forEach(cb => {
       cb.checked = false;
       cb.closest("tr")?.classList.remove("row-selected");
@@ -4652,17 +4717,16 @@
     updateBulkAssignButton();
     updateBulkDeleteRowsButton();
 
-    // Refresh all UI
+    // Refresh the UI — rebuildAssignmentTable triggers renderAssignmentSummary.
     invalidateLpRowIndexCache();
     rebuildAssignmentTable();
     renderContainerCards();
     renderContainerSummaries();
 
-
     if (failed > 0) {
       showValidation("warning", `Assigned ${success} item${success !== 1 ? "s" : ""}. ${failed} failed.`);
     } else {
-      const contLabel = DCL_CONTAINERS_STATE.find(c => c.dataverseId === containerGuid)?.id || "container";
+      const contLabel = (DCL_CONTAINERS_STATE || []).find(c => c.dataverseId === containerGuid)?.id || "container";
       showValidation("success", `Assigned ${success} item${success !== 1 ? "s" : ""} to ${contLabel}.`);
     }
   }
