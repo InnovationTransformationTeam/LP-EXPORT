@@ -191,12 +191,20 @@
       const actionButtons = document.querySelectorAll(
         "#addItemBtn, " +
         "#importFromOracleBtn, " +
+        "#importFromPdfBtn, " +
         "#updateAllBtn, " +
         "#assignToContainersBtn, " +
         "#addContainerBtn, " +
         "#addDiscountChargeBtn, " +
         "#saveDiscountsBtn, " +
         "#loadDiscountsBtn, " +
+        "#bulkAssignBtn, " +
+        "#bulkAssignContainerSelect, " +
+        "#bulkDeleteRowsBtn, " +
+        "#lpRowSelectAll, " +
+        "#lpRowSelectAllHeader, " +
+        ".lp-row-select-cb, " +
+        ".summary-unassign-btn, " +
         ".lp-edit, " +
         ".row-save, " +
         ".row-cancel, " +
@@ -4635,6 +4643,10 @@
    * assign prerequisite, no packing algorithm, no capacity checks.
    */
   async function bulkAssignSelectedRows() {
+    if (String(DCL_STATUS || "").toLowerCase() === "submitted") {
+      showValidation("warning", "Loading Plan is locked — assignments cannot be changed.");
+      return;
+    }
     const containerGuid = (Q("#bulkAssignContainerSelect")?.value || "").trim();
     if (!containerGuid) {
       showValidation("warning", "Please choose a container first.");
@@ -4778,6 +4790,10 @@
 
   /** Bulk delete all selected LP rows (with their container items) */
   async function bulkDeleteSelectedRows() {
+    if (String(DCL_STATUS || "").toLowerCase() === "submitted") {
+      showValidation("warning", "Loading Plan is locked — items cannot be deleted.");
+      return;
+    }
     const selectedCbs = QA("#itemsTableBody .lp-row-select-cb:checked");
     const rows = Array.from(selectedCbs).map(cb => cb.closest("tr.lp-data-row")).filter(Boolean);
     if (!rows.length) return;
