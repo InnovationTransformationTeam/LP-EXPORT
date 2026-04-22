@@ -2042,12 +2042,13 @@
       if (e.target.closest(".split-item")) {
         const ciId = tr.dataset.ciId;
         const serverId = tr.dataset.serverId;
-        const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
-
-        if (!ci) {
-          showValidation("warning", "No container item found for this row. Run 'Assign to Containers' first.");
-          return;
-        }
+        // A CI is OPTIONAL now — split works on the LP row. When the original
+        // row is assigned (has a CI), we keep the remaining qty on that CI so
+        // the original stays on its container. When the original is not yet
+        // assigned, we simply split into two clean LP rows and let the user
+        // assign each side via the Bulk Assign toolbar.
+        const ci = ciId ? (DCL_CONTAINER_ITEMS_STATE || []).find(c => c.id === ciId) : null;
+        const originallyAssigned = !!ci;
 
         const originalQty = asNum(tr.querySelector('.loading-qty')?.value) || 0;
 
@@ -2128,9 +2129,11 @@
             if (origPendCell) origPendCell.textContent = fmt2(Math.max(0, asNum(tr.querySelector(".order-qty")?.textContent) - remainingQty));
 
             await updateServerRowFromTr(tr, CURRENT_DCL_ID);
-            await patchContainerItem(ci.id, { cr650_quantity: remainingQty, cr650_issplititem: true });
-            ci.quantity = remainingQty;
-            ci.isSplitItem = true;
+            if (originallyAssigned) {
+              await patchContainerItem(ci.id, { cr650_quantity: remainingQty, cr650_issplititem: true });
+              ci.quantity = remainingQty;
+              ci.isSplitItem = true;
+            }
 
             // Create new LP row
             const newLpRow = tr.cloneNode(true);
@@ -2178,14 +2181,19 @@
 
             if (!newLpId) throw new Error("Failed to get LP ID for split record");
 
-            await new Promise(resolve => setTimeout(resolve, 500));
-            await createContainerItemOnServer(newLpId, splitQty, null, true);
+            // Only mirror a CI for the split half when the original had one.
+            // If the original row was unassigned, both halves stay CI-less
+            // and will get CIs when the user runs Bulk Assign.
+            if (originallyAssigned) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+              await createContainerItemOnServer(newLpId, splitQty, null, true);
 
-            await new Promise(resolve => setTimeout(resolve, 800));
-            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
-            DCL_CONTAINER_ITEMS_STATE = allContainerItems
-              .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
-              .map(mapContainerItemRowToState);
+              await new Promise(resolve => setTimeout(resolve, 800));
+              const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
+              DCL_CONTAINER_ITEMS_STATE = allContainerItems
+                .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
+                .map(mapContainerItemRowToState);
+            }
 
             fullRecalcAndRefresh();
             renderContainerCards();
@@ -2270,9 +2278,11 @@
             if (mOrigPendCell) mOrigPendCell.textContent = fmt2(Math.max(0, asNum(tr.querySelector(".order-qty")?.textContent) - firstQty));
 
             await updateServerRowFromTr(tr, CURRENT_DCL_ID);
-            await patchContainerItem(ci.id, { cr650_quantity: firstQty, cr650_issplititem: true });
-            ci.quantity = firstQty;
-            ci.isSplitItem = true;
+            if (originallyAssigned) {
+              await patchContainerItem(ci.id, { cr650_quantity: firstQty, cr650_issplititem: true });
+              ci.quantity = firstQty;
+              ci.isSplitItem = true;
+            }
 
             // STEP 2: CREATE N-1 NEW LP RECORDS
             for (let i = 1; i < distribution.length; i++) {
@@ -2328,16 +2338,22 @@
               }
               if (!newLpId) throw new Error(`Failed to get LP ID for record ${i + 1}`);
 
-              await new Promise(resolve => setTimeout(resolve, 500));
-              await createContainerItemOnServer(newLpId, qty, null, true);
+              // Only mirror a CI when the original was assigned — otherwise
+              // leave the new LP row clean and assign it later via Bulk Assign.
+              if (originallyAssigned) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+                await createContainerItemOnServer(newLpId, qty, null, true);
+              }
             }
 
             // STEP 3: REFRESH STATE & UI
-            await new Promise(resolve => setTimeout(resolve, 800));
-            const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
-            DCL_CONTAINER_ITEMS_STATE = allContainerItems
-              .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
-              .map(mapContainerItemRowToState);
+            if (originallyAssigned) {
+              await new Promise(resolve => setTimeout(resolve, 800));
+              const allContainerItems = await fetchAllContainerItems(CURRENT_DCL_ID);
+              DCL_CONTAINER_ITEMS_STATE = allContainerItems
+                .filter(item => item._cr650_dcl_master_number_value && item._cr650_dcl_master_number_value.toLowerCase() === CURRENT_DCL_ID.toLowerCase())
+                .map(mapContainerItemRowToState);
+            }
 
             fullRecalcAndRefresh();
             renderContainerCards();
@@ -2445,24 +2461,41 @@
         const newGuid = (e.target.value || "").trim() || null;
         const ci = ciId ? DCL_CONTAINER_ITEMS_STATE.find(c => c.id === ciId) : null;
 
-        if (!ci) {
-          // No container item exists yet — revert dropdown and warn
-          e.target.value = "";
-          showValidation("warning", "No container item found for this row. Run 'Assign to Containers' first.");
-          return;
-        }
-
         try {
-          if (newGuid) {
+          if (ci) {
+            // Existing CI → PATCH the container link (or clear it when user picks "--").
             await patchContainerItem(ciId, {
-              "cr650_dcl_number@odata.bind": `/cr650_dcl_containers(${newGuid})`
+              "cr650_dcl_number@odata.bind": newGuid
+                ? `/cr650_dcl_containers(${newGuid})`
+                : null
             });
+            ci.containerGuid = newGuid;
+          } else if (newGuid) {
+            // No CI yet → create one linked to the chosen container. Matches the
+            // Bulk Assign path so the per-row dropdown works from scratch.
+            const lpId = row.dataset.serverId;
+            if (!lpId) {
+              e.target.value = "";
+              showValidation("warning", "Row has not been saved yet — try again in a moment.");
+              return;
+            }
+            const qty = asNum(row.querySelector(".loading-qty")?.value) || asNum(row.querySelector(".order-qty")?.textContent);
+            const newId = await createContainerItemOnServer(lpId, qty, newGuid, false);
+            if (newId) {
+              row.dataset.ciId = newId;
+              DCL_CONTAINER_ITEMS_STATE.push({
+                id: newId,
+                lpId: lpId,
+                quantity: qty,
+                containerGuid: newGuid,
+                dclMasterGuid: CURRENT_DCL_ID || null,
+                isSplitItem: false
+              });
+            }
           } else {
-            await patchContainerItem(ciId, {
-              "cr650_dcl_number@odata.bind": null
-            });
+            // No CI and user picked "--" → nothing to do.
+            return;
           }
-          ci.containerGuid = newGuid;
 
           await refreshContainerItemsState();
           fullRecalcAndRefresh();
