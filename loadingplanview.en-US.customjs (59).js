@@ -1413,8 +1413,11 @@
     <td class="row-actions" style="white-space:nowrap;">
       <button class="split-item" type="button" title="Split across containers"
               style="display:none;background:none;border:none;color:#1a7f37;font-size:0.8rem;padding:2px 6px;cursor:pointer;text-decoration:underline;">Split</button>
-      <button class="row-remove" type="button"
-              style="background:#dc3545;color:white;border:none;padding:2px 6px;font-size:0.75rem;border-radius:3px;cursor:pointer;">Remove</button>
+      <!--
+        Per-row Remove button removed (stakeholder request) — deletion is done
+        via the checkbox + "Delete Selected" bulk toolbar, which also cleans up
+        any linked container-items.
+      -->
     </td>
   `;
 
