@@ -5492,8 +5492,12 @@
       const ciId = tr.dataset.containerItemId || tr.dataset.ciId || "";
       const ci = ciId ? ciById.get(ciId) : null;
 
-      if (ci) {
-        // Assigned — hide from Order Items, mirror into Summary.
+      // A row is only "assigned" if its CI actually points at a container.
+      // CIs without a containerGuid are tracked but not allocated yet — they
+      // belong in Order Items, not in the Summary.
+      const isAssigned = !!(ci && ci.containerGuid);
+
+      if (isAssigned) {
         tr.classList.add("lp-row--assigned-hidden");
         const container = containerByGuid.get((ci.containerGuid || "").toLowerCase());
         const containerLabel = container ? (container.id || container.type || "Container") : "Unknown";
