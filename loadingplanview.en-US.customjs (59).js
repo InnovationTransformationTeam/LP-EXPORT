@@ -1329,10 +1329,14 @@
     const tr = d.createElement("tr");
     tr.classList.add("lp-data-row");
 
-    // Store pallet data for Gross Weight calculation and assignment table sync
-    tr.dataset.palletWeight = String(item.palletsWeight || 0);
+    // Store pallet data for Gross Weight calculation and assignment table sync.
+    // Force pallet weight to 0 when the row is NOT palletized — otherwise a
+    // stale cr650_palletweight value in Dataverse would leak into gross weight.
     tr.dataset.palletized = item.palletized || "No";
     tr.dataset.numberOfPallets = String(item.numberOfPallets || 0);
+    tr.dataset.palletWeight = tr.dataset.palletized === "Yes"
+      ? String(item.palletsWeight || 0)
+      : "0";
 
     // PDF upload batch id — set here so the payload builder picks it up on POST.
     if (item.uploadBatchId) {
@@ -1487,18 +1491,23 @@
     }
     const netWeight = asNum(netWeightCell?.textContent);
 
-    // Gross Weight = Pallet Weight + Net Weight + Loading Quantity
-    // Skip if user has manually overridden the value
+    // Gross Weight
+    //   Palletized=Yes → Pallet Weight + Net Weight + Loading Quantity
+    //   Palletized=No  → Net Weight + Loading Quantity (no pallets)
+    // Skip if the user has manually overridden the value.
     if (grossWeightCell && !grossWeightCell.dataset.manualOverride) {
-      const palletWeight = asNum(tr.dataset.palletWeight);
+      const isPalletized = (tr.dataset.palletized || "No") === "Yes";
+      const palletWeight = isPalletized ? asNum(tr.dataset.palletWeight) : 0;
       const grossWeight = palletWeight + netWeight + loadingQty;
       grossWeightCell.textContent = fmt2(grossWeight);
     }
 
-    // Sync pallet weight display cell (read-only computed value)
+    // Sync pallet weight display cell (read-only computed value).
     const palletWeightCell = tr.querySelector(".pallet-weight");
     if (palletWeightCell) {
-      palletWeightCell.textContent = fmt2(asNum(tr.dataset.palletWeight));
+      const isPalletizedDisp = (tr.dataset.palletized || "No") === "Yes";
+      const pwDisp = isPalletizedDisp ? asNum(tr.dataset.palletWeight) : 0;
+      palletWeightCell.textContent = fmt2(pwDisp);
     }
   }
 
