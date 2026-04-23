@@ -255,6 +255,25 @@
     white-space: nowrap;
 }
 
+.td-order {
+    white-space: nowrap;
+    display: flex;
+    gap: 4px;
+}
+
+.td-order .btn {
+    min-width: 32px;
+    padding: 6px 8px;
+    line-height: 1;
+    font-size: 12px;
+}
+
+.td-order .btn[disabled] {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
 .action-group {
     display: inline-flex;
     align-items: center;

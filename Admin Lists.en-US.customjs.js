@@ -136,13 +136,39 @@
                 etag: r["@odata.etag"] || "",
                 cr650_documentname: r.cr650_documentname || ""
             })
+        },
+        currencies: {
+            key: "currencies",
+            title: "Currencies",
+            entitySet: "cr650_dclcurrencieses",
+            idField: "cr650_dclcurrenciesid",
+            fields: ["cr650_currencycode", "cr650_currencyname", "cr650_sortorder"],
+            select: "cr650_currencycode,cr650_currencyname,cr650_sortorder,cr650_dclcurrenciesid",
+            templateId: "#tpl-row-currencies",
+            tableId: "#table-currencies",
+            emptyId: "#empty-currencies",
+            mapRow: (r) => ({
+                id: r.cr650_dclcurrenciesid,
+                etag: r["@odata.etag"] || "",
+                cr650_currencycode: r.cr650_currencycode || "",
+                cr650_currencyname: r.cr650_currencyname || "",
+                cr650_sortorder: (r.cr650_sortorder == null) ? null : Number(r.cr650_sortorder)
+            }),
+            // Sort null sortorders to the bottom, then by code
+            sortRows: (rows) => rows.slice().sort((a, b) => {
+                const aOrd = (a.cr650_sortorder == null) ? Number.MAX_SAFE_INTEGER : a.cr650_sortorder;
+                const bOrd = (b.cr650_sortorder == null) ? Number.MAX_SAFE_INTEGER : b.cr650_sortorder;
+                if (aOrd !== bOrd) return aOrd - bOrd;
+                return (a.cr650_currencycode || "").localeCompare(b.cr650_currencycode || "");
+            })
         }
     };
 
     const cache = {
         shippinglines: [],
         hscodes: [],
-        docmasters: []
+        docmasters: [],
+        currencies: []
     };
 
     // ------------------------------
@@ -171,7 +197,7 @@
 
     function renderList(key) {
         const cfg = LISTS[key];
-        const rows = cache[key] || [];
+        let rows = cache[key] || [];
         const $tbody = $(cfg.tableId + " tbody");
         const tpl = _.template($(cfg.templateId).html());
 
@@ -181,8 +207,17 @@
             return;
         }
 
+        // Apply optional per-list sort (used by currencies)
+        if (typeof cfg.sortRows === "function") {
+            rows = cfg.sortRows(rows);
+            cache[key] = rows; // persist sorted order so move-up/down sees correct neighbors
+        }
+
         $(cfg.emptyId).hide();
-        $tbody.html(rows.map(r => tpl(r)).join(""));
+        $tbody.html(rows.map((r, idx) => tpl(Object.assign({}, r, {
+            isFirst: idx === 0,
+            isLast: idx === rows.length - 1
+        }))).join(""));
     }
 
     // ------------------------------
@@ -224,6 +259,46 @@
 
         await createRecord("docmasters", { cr650_documentname: name });
         $("#add-docmasters-name").val("");
+    }
+
+    async function addCurrency() {
+        const code = ($("#add-currencies-code").val() || "").trim().toUpperCase();
+        const name = ($("#add-currencies-name").val() || "").trim();
+
+        if (!code) {
+            alert("Please enter a currency code (e.g., USD).");
+            return;
+        }
+        if (code.length !== 3 || !/^[A-Z]{3}$/.test(code)) {
+            alert("Currency code must be exactly 3 letters (ISO 4217 format), e.g., USD, SAR.");
+            return;
+        }
+
+        // Duplicate-code check before POST (Dataverse returns 412 on alternate-key violation)
+        const existing = (cache.currencies || []).find(r => (r.cr650_currencycode || "").toUpperCase() === code);
+        if (existing) {
+            alert("A currency with code " + code + " already exists.");
+            return;
+        }
+
+        // New row goes to the bottom of the order (highest sortorder + 1)
+        const currentMax = (cache.currencies || []).reduce((m, r) => {
+            const n = (r.cr650_sortorder == null) ? 0 : r.cr650_sortorder;
+            return n > m ? n : m;
+        }, 0);
+
+        const payload = {
+            cr650_currencycode: code,
+            cr650_currencyname: name || code,
+            cr650_sortorder: currentMax + 1,
+            // cr650_name is Dataverse's required primary column — mirror the code for a sensible label
+            cr650_name: code
+        };
+
+        await createRecord("currencies", payload);
+
+        $("#add-currencies-code").val("");
+        $("#add-currencies-name").val("");
     }
 
     async function createRecord(key, data) {
@@ -322,6 +397,24 @@
             });
         }
 
+        if (key === "currencies") {
+            $tr.find(".cell-input").each(function () {
+                const $inp = $(this);
+                const field = $inp.data("field");
+                if (!field) return;
+                let val = ($inp.val() || "").trim();
+                if (field === "cr650_currencycode") val = val.toUpperCase();
+                payload[field] = val;
+            });
+            if (!payload.cr650_currencycode || !/^[A-Z]{3}$/.test(payload.cr650_currencycode)) {
+                alert("Currency code must be exactly 3 letters (ISO 4217), e.g., USD.");
+                return;
+            }
+            // Keep cr650_name mirrored to the code so lookups/references display something meaningful
+            payload.cr650_name = payload.cr650_currencycode;
+            if (!payload.cr650_currencyname) payload.cr650_currencyname = payload.cr650_currencycode;
+        }
+
         showProcessing("Saving changes...");
         try {
             const url = "/_api/" + cfg.entitySet + "(" + id + ")";
@@ -336,6 +429,83 @@
         } catch (e) {
             console.error("Update error", key, e);
             alert("Failed to update record.\n\n" + (e.message || e));
+        } finally {
+            hideProcessing();
+        }
+    }
+
+    // ------------------------------
+    // Move Up / Down (currencies only)
+    // Swaps cr650_sortorder with the neighbor row in the currently-sorted list.
+    // ------------------------------
+    async function moveCurrency($tr, direction) {
+        const cfg = LISTS.currencies;
+        const id = $tr.attr("data-id");
+        if (!id) return;
+
+        const rows = cache.currencies || [];
+        const idx = rows.findIndex(r => r.id === id);
+        if (idx < 0) return;
+
+        const neighborIdx = direction === "up" ? idx - 1 : idx + 1;
+        if (neighborIdx < 0 || neighborIdx >= rows.length) return;
+
+        const cur = rows[idx];
+        const neighbor = rows[neighborIdx];
+
+        // Pick unambiguous sortorder values. If either is null, assign sequential numbers
+        // for the whole list so moves always work predictably.
+        let curOrder = cur.cr650_sortorder;
+        let neighborOrder = neighbor.cr650_sortorder;
+
+        if (curOrder == null || neighborOrder == null || curOrder === neighborOrder) {
+            // Renumber everyone from 1..N in current visual order, then swap
+            showProcessing("Normalizing order...");
+            try {
+                for (let i = 0; i < rows.length; i++) {
+                    if (rows[i].cr650_sortorder !== i + 1) {
+                        await appAjax({
+                            url: "/_api/" + cfg.entitySet + "(" + rows[i].id + ")",
+                            method: "PATCH",
+                            headers: { "If-Match": "*" },
+                            data: { cr650_sortorder: i + 1 }
+                        });
+                        rows[i].cr650_sortorder = i + 1;
+                    }
+                }
+            } catch (e) {
+                console.error("Normalize error", e);
+                alert("Failed to normalize order.\n\n" + (e.message || e));
+                hideProcessing();
+                await loadList("currencies");
+                return;
+            }
+            curOrder = rows[idx].cr650_sortorder;
+            neighborOrder = rows[neighborIdx].cr650_sortorder;
+        } else {
+            showProcessing(direction === "up" ? "Moving up..." : "Moving down...");
+        }
+
+        try {
+            // Swap the two sortorder values
+            await appAjax({
+                url: "/_api/" + cfg.entitySet + "(" + cur.id + ")",
+                method: "PATCH",
+                headers: { "If-Match": "*" },
+                data: { cr650_sortorder: neighborOrder }
+            });
+            await appAjax({
+                url: "/_api/" + cfg.entitySet + "(" + neighbor.id + ")",
+                method: "PATCH",
+                headers: { "If-Match": "*" },
+                data: { cr650_sortorder: curOrder }
+            });
+
+            await loadList("currencies");
+        } catch (e) {
+            console.error("Reorder error", e);
+            alert("Failed to change order.\n\n" + (e.message || e));
+            await loadList("currencies"); // refresh to a consistent state
         } finally {
             hideProcessing();
         }
@@ -402,6 +572,17 @@
             const $tr = $(this).closest("tr");
             await deleteRow(key, $tr);
         });
+
+        if (key === "currencies") {
+            $table.on("click.admin", ".btn-move-up", async function () {
+                if ($(this).is(":disabled")) return;
+                await moveCurrency($(this).closest("tr"), "up");
+            });
+            $table.on("click.admin", ".btn-move-down", async function () {
+                if ($(this).is(":disabled")) return;
+                await moveCurrency($(this).closest("tr"), "down");
+            });
+        }
     }
 
     // ------------------------------
@@ -430,14 +611,17 @@
         $("#add-shippinglines-btn").on("click", addShippingLine);
         $("#add-hscodes-btn").on("click", addHSCode);
         $("#add-docmasters-btn").on("click", addDocMaster);
+        $("#add-currencies-btn").on("click", addCurrency);
 
         $("#refresh-shippinglines").on("click", () => loadList("shippinglines"));
         $("#refresh-hscodes").on("click", () => loadList("hscodes"));
         $("#refresh-docmasters").on("click", () => loadList("docmasters"));
+        $("#refresh-currencies").on("click", () => loadList("currencies"));
 
         loadList("shippinglines");
         loadList("hscodes");
         loadList("docmasters");
+        loadList("currencies");
     });
 
 })();

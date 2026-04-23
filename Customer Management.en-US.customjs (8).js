@@ -924,12 +924,57 @@
         try {
             forceHideModal(); // CRITICAL: Hide modal immediately
             initializeEventListeners();
+            // Populate Default Currency dropdown from the admin-controlled list first,
+            // so it's ready when users open the Add/Edit customer modal.
+            populateCurrencyDropdown();
             loadCustomers();
             log('Application initialized successfully');
         } catch (error) {
             console.error('Initialization error:', error);
             showToast('Failed to initialize application', 'error');
         }
+    }
+
+    /**
+     * Populate the Default Currency <select> from cr650_dclcurrencieses.
+     * Falls back to a small hardcoded list if the call fails, so the form stays usable.
+     */
+    async function populateCurrencyDropdown() {
+        const select = getElement('#currency');
+        if (!select) return;
+
+        const fallback = [
+            { code: 'USD', name: 'US Dollar' },
+            { code: 'EUR', name: 'Euro' },
+            { code: 'GBP', name: 'British Pound' },
+            { code: 'SAR', name: 'Saudi Riyal' },
+            { code: 'AED', name: 'UAE Dirham' }
+        ];
+
+        let currencies = [];
+        try {
+            const url = '/_api/cr650_dclcurrencieses?$select=cr650_currencycode,cr650_currencyname,cr650_sortorder';
+            const res = await fetch(url, { headers: { 'Accept': 'application/json', 'OData-Version': '4.0' } });
+            if (!res.ok) throw new Error('Status ' + res.status);
+            const data = await res.json();
+            currencies = (data.value || [])
+                .map(r => ({
+                    code: String(r.cr650_currencycode || '').toUpperCase(),
+                    name: String(r.cr650_currencyname || r.cr650_currencycode || ''),
+                    sort: (r.cr650_sortorder == null) ? Number.MAX_SAFE_INTEGER : Number(r.cr650_sortorder)
+                }))
+                .filter(x => x.code)
+                .sort((a, b) => a.sort - b.sort || a.code.localeCompare(b.code));
+            if (currencies.length === 0) throw new Error('empty list');
+        } catch (err) {
+            console.warn('Could not load currencies from Dataverse, using fallback:', err);
+            currencies = fallback;
+        }
+
+        const previouslySelected = select.value;
+        select.innerHTML = '<option value="">Select currency...</option>'
+            + currencies.map(c => `<option value="${c.code}">${c.code} - ${c.name}</option>`).join('');
+        if (previouslySelected) select.value = previouslySelected;
     }
 
     // ═══════════════════════════════════════════════════════════════════════

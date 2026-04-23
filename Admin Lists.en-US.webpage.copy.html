@@ -11,6 +11,7 @@
     <button data-tab="shippinglines" class="tab-btn active">Shipping Lines</button>
     <button data-tab="hscodes" class="tab-btn">HS Codes</button>
     <button data-tab="docmasters" class="tab-btn">Document Masters</button>
+    <button data-tab="currencies" class="tab-btn">Currencies</button>
   </div>
 
   <!-- =============== Shipping Lines Panel =============== -->
@@ -148,6 +149,55 @@
       <div id="empty-docmasters" class="empty-state">No document master records found.</div>
     </div>
   </section>
+
+  <!-- =============== Currencies Panel =============== -->
+  <section id="panel-currencies" class="tab-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Currencies</h2>
+        <small class="muted">Table: cr650_dclcurrencieses — controls currency dropdowns in Upload Center and Customer Management</small>
+      </div>
+      <div class="panel-actions">
+        <button id="refresh-currencies" class="btn btn-secondary">Refresh</button>
+      </div>
+    </div>
+
+    <div class="add-box">
+      <div class="add-grid">
+        <div class="field">
+          <label>Code</label>
+          <input type="text" id="add-currencies-code" placeholder="e.g., USD" maxlength="3" />
+        </div>
+        <div class="field">
+          <label>Name</label>
+          <input type="text" id="add-currencies-name" placeholder="e.g., US Dollar" />
+        </div>
+      </div>
+      <div class="add-row">
+        <button id="add-currencies-btn" class="btn btn-primary">Add Currency</button>
+      </div>
+      <div class="hint">Use the ▲ / ▼ buttons on each row to change the order shown in dropdowns.</div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="table-currencies" class="admin-table">
+        <thead>
+          <tr>
+            <th style="width: 100px;">Code</th>
+            <th>Name</th>
+            <th style="width: 120px;">Order</th>
+            <th class="th-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="row">
+            <td class="cell"></td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="empty-currencies" class="empty-state">No currencies found. Add the first one above.</div>
+    </div>
+  </section>
 </div>
 
 <!-- ===================== Underscore Templates ===================== -->
@@ -192,6 +242,27 @@
   <tr data-id="<%- id %>" data-etag="<%- etag %>">
     <td>
       <input class="cell-input" type="text" value="<%- cr650_documentname || '' %>" disabled />
+    </td>
+    <td class="td-actions">
+      <div class="action-group view-mode">
+        <button class="btn btn-ghost btn-edit">Edit</button>
+        <button class="btn btn-danger btn-delete">Delete</button>
+      </div>
+      <div class="action-group edit-mode hidden">
+        <button class="btn btn-primary btn-save">Save</button>
+        <button class="btn btn-secondary btn-cancel">Cancel</button>
+      </div>
+    </td>
+  </tr>
+</script>
+
+<script type="text/template" id="tpl-row-currencies">
+  <tr data-id="<%- id %>" data-etag="<%- etag %>" data-sortorder="<%- cr650_sortorder %>">
+    <td><input class="cell-input" data-field="cr650_currencycode" type="text" value="<%- cr650_currencycode || '' %>" maxlength="3" disabled /></td>
+    <td><input class="cell-input" data-field="cr650_currencyname" type="text" value="<%- cr650_currencyname || '' %>" disabled /></td>
+    <td class="td-order">
+      <button class="btn btn-ghost btn-move-up" title="Move up" aria-label="Move up" <%- isFirst ? 'disabled' : '' %>>&#9650;</button>
+      <button class="btn btn-ghost btn-move-down" title="Move down" aria-label="Move down" <%- isLast ? 'disabled' : '' %>>&#9660;</button>
     </td>
     <td class="td-actions">
       <div class="action-group view-mode">
