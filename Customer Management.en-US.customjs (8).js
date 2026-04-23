@@ -1302,6 +1302,29 @@
                 return;
             }
 
+            // Block duplicate customer codes before hitting the server (only on create).
+            // Without this, Dataverse rejects with HTTP 412 + cdscode 0x80060892 and the
+            // user only sees a cryptic console error.
+            if (!state.editingCustomerId) {
+                const newCode = getElement('#customerCode').value.trim().toUpperCase();
+                showLoader(true);
+                const isDuplicate = await checkDuplicateCode(newCode);
+                showLoader(false);
+                if (isDuplicate) {
+                    showToast(
+                        `Customer code ${newCode} already exists. Use a different code or edit the existing record.`,
+                        'error'
+                    );
+                    const validationDiv = getElement('#codeValidation');
+                    if (validationDiv) {
+                        validationDiv.className = 'validation-message-cm error';
+                        validationDiv.style.display = 'flex';
+                        validationDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Customer code already exists!';
+                    }
+                    return;
+                }
+            }
+
             showLoader(true);
 
             // Get country value (use custom if "Other" selected)
@@ -1450,10 +1473,14 @@
 
         } catch (error) {
             console.error('Error saving customer:', error);
-            showToast(
-                error?.responseText || error?.statusText || 'Failed to save customer',
-                'error'
-            );
+            // HTTP 412 + cdscode 0x80060892 = Dataverse duplicate / alternate-key violation.
+            // Surface a plain-English message instead of the raw server payload.
+            const isDuplicate = error?.status === 412
+                || /0x80060892|9004010D/i.test(error?.responseText || '');
+            const friendly = isDuplicate
+                ? 'A customer with this code already exists. Please use a different code or edit the existing record.'
+                : (error?.responseJSON?.error?.message || error?.statusText || 'Failed to save customer');
+            showToast(friendly, 'error');
         }
         finally {
             showLoader(false);
