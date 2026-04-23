@@ -161,6 +161,28 @@
                 if (aOrd !== bOrd) return aOrd - bOrd;
                 return (a.cr650_currencycode || "").localeCompare(b.cr650_currencycode || "");
             })
+        },
+        countries: {
+            key: "countries",
+            title: "Countries",
+            entitySet: "cr650_dclcountrieses",
+            idField: "cr650_dclcountriesid",
+            fields: ["cr650_countryname", "cr650_countrycode", "cr650_isrestricted"],
+            select: "cr650_countryname,cr650_countrycode,cr650_isrestricted,cr650_dclcountriesid",
+            templateId: "#tpl-row-countries",
+            tableId: "#table-countries",
+            emptyId: "#empty-countries",
+            mapRow: (r) => ({
+                id: r.cr650_dclcountriesid,
+                etag: r["@odata.etag"] || "",
+                cr650_countryname: r.cr650_countryname || "",
+                cr650_countrycode: r.cr650_countrycode || "",
+                cr650_isrestricted: !!r.cr650_isrestricted
+            }),
+            // Alphabetical by country name
+            sortRows: (rows) => rows.slice().sort((a, b) =>
+                (a.cr650_countryname || "").localeCompare(b.cr650_countryname || "")
+            )
         }
     };
 
@@ -168,7 +190,8 @@
         shippinglines: [],
         hscodes: [],
         docmasters: [],
-        currencies: []
+        currencies: [],
+        countries: []
     };
 
     // ------------------------------
@@ -301,6 +324,76 @@
         $("#add-currencies-name").val("");
     }
 
+    async function addCountry() {
+        const name = ($("#add-countries-name").val() || "").trim();
+        const code = ($("#add-countries-code").val() || "").trim().toUpperCase();
+        const isRestricted = $("#add-countries-restricted").is(":checked");
+
+        if (!name) {
+            alert("Please enter a country name.");
+            return;
+        }
+
+        // Client-side duplicate check (case-insensitive match on name)
+        const nameLower = name.toLowerCase();
+        const existing = (cache.countries || []).find(r => (r.cr650_countryname || "").toLowerCase() === nameLower);
+        if (existing) {
+            alert("A country with the name \"" + name + "\" already exists.");
+            return;
+        }
+
+        const payload = {
+            cr650_countryname: name,
+            cr650_countrycode: code || null,
+            cr650_isrestricted: !!isRestricted,
+            // cr650_name is Dataverse's required primary column — mirror the country name
+            cr650_name: name
+        };
+
+        await createRecord("countries", payload);
+
+        $("#add-countries-name").val("");
+        $("#add-countries-code").val("");
+        $("#add-countries-restricted").prop("checked", false);
+    }
+
+    // Flip the cr650_isrestricted flag on a single row via PATCH. No edit mode required —
+    // admin just clicks the checkbox inside the grid.
+    async function toggleCountryRestricted($tr, newValue) {
+        const cfg = LISTS.countries;
+        const id = $tr.attr("data-id");
+        if (!id) return;
+
+        const $cb = $tr.find(".restricted-checkbox");
+        const $label = $tr.find(".restricted-label");
+        const previous = !newValue;
+
+        // Optimistically update UI
+        $cb.prop("disabled", true);
+        $label.text(newValue ? "Restricted" : "Allowed");
+
+        try {
+            await appAjax({
+                url: "/_api/" + cfg.entitySet + "(" + id + ")",
+                method: "PATCH",
+                headers: { "If-Match": "*" },
+                data: { cr650_isrestricted: !!newValue }
+            });
+
+            // Update cache so subsequent re-renders keep the new state
+            const row = (cache.countries || []).find(r => r.id === id);
+            if (row) row.cr650_isrestricted = !!newValue;
+        } catch (e) {
+            console.error("Restricted toggle error", e);
+            alert("Failed to update restricted status.\n\n" + (e.message || e));
+            // Revert UI
+            $cb.prop("checked", previous);
+            $label.text(previous ? "Restricted" : "Allowed");
+        } finally {
+            $cb.prop("disabled", false);
+        }
+    }
+
     async function createRecord(key, data) {
         const cfg = LISTS[key];
         showProcessing("Adding record...");
@@ -413,6 +506,25 @@
             // Keep cr650_name mirrored to the code so lookups/references display something meaningful
             payload.cr650_name = payload.cr650_currencycode;
             if (!payload.cr650_currencyname) payload.cr650_currencyname = payload.cr650_currencycode;
+        }
+
+        if (key === "countries") {
+            $tr.find(".cell-input").each(function () {
+                const $inp = $(this);
+                const field = $inp.data("field");
+                if (!field) return;
+                let val = ($inp.val() || "").trim();
+                if (field === "cr650_countrycode") val = val.toUpperCase() || null;
+                payload[field] = val;
+            });
+            if (!payload.cr650_countryname) {
+                alert("Country name cannot be empty.");
+                return;
+            }
+            // Keep cr650_name mirrored to the country name
+            payload.cr650_name = payload.cr650_countryname;
+            // Preserve the restricted flag from the row's current checkbox state
+            payload.cr650_isrestricted = $tr.find(".restricted-checkbox").is(":checked");
         }
 
         showProcessing("Saving changes...");
@@ -583,6 +695,16 @@
                 await moveCurrency($(this).closest("tr"), "down");
             });
         }
+
+        if (key === "countries") {
+            // Inline restricted-toggle: fires an immediate PATCH when the checkbox changes,
+            // only when the row is NOT in edit mode (edit mode uses Save button instead).
+            $table.on("change.admin", ".restricted-checkbox", async function () {
+                const $tr = $(this).closest("tr");
+                if ($tr.hasClass("editing")) return;
+                await toggleCountryRestricted($tr, $(this).is(":checked"));
+            });
+        }
     }
 
     // ------------------------------
@@ -612,16 +734,19 @@
         $("#add-hscodes-btn").on("click", addHSCode);
         $("#add-docmasters-btn").on("click", addDocMaster);
         $("#add-currencies-btn").on("click", addCurrency);
+        $("#add-countries-btn").on("click", addCountry);
 
         $("#refresh-shippinglines").on("click", () => loadList("shippinglines"));
         $("#refresh-hscodes").on("click", () => loadList("hscodes"));
         $("#refresh-docmasters").on("click", () => loadList("docmasters"));
         $("#refresh-currencies").on("click", () => loadList("currencies"));
+        $("#refresh-countries").on("click", () => loadList("countries"));
 
         loadList("shippinglines");
         loadList("hscodes");
         loadList("docmasters");
         loadList("currencies");
+        loadList("countries");
     });
 
 })();

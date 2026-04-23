@@ -274,6 +274,36 @@
     pointer-events: none;
 }
 
+.td-restricted .restricted-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.td-restricted .restricted-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #dc2626;
+}
+
+.td-restricted .restricted-checkbox:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+.td-restricted .restricted-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.td-restricted .restricted-checkbox:checked ~ .restricted-label {
+    color: #dc2626;
+}
+
 .action-group {
     display: inline-flex;
     align-items: center;

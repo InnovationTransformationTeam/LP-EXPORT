@@ -85,16 +85,19 @@
     };
 
     // ═══════════════════════════════════════════════════════════════════════
-    // RESTRICTED COUNTRIES LIST
+    // RESTRICTED COUNTRIES — driven by cr650_dclcountrieses (Admin Lists > Countries).
+    // Populated at init by populateCountryDropdowns(); falls back to a hardcoded set
+    // if the Dataverse call fails, so the warning never silently disappears.
     // ═══════════════════════════════════════════════════════════════════════
-    const RESTRICTED_COUNTRIES = ['Iran', 'Syrian Arab Republic', 'Syria'];
+    const RESTRICTED_FALLBACK = ['Iran', 'Syrian Arab Republic', 'Syria'];
+    let restrictedSet = new Set(RESTRICTED_FALLBACK.map(s => s.toLowerCase()));
 
     /**
      * Check if a country value matches a restricted country (case-insensitive)
      */
     function isRestrictedCountry(country) {
         if (!country) return false;
-        return RESTRICTED_COUNTRIES.some(rc => rc.toLowerCase() === country.trim().toLowerCase());
+        return restrictedSet.has(country.trim().toLowerCase());
     }
 
     /**
@@ -924,9 +927,10 @@
         try {
             forceHideModal(); // CRITICAL: Hide modal immediately
             initializeEventListeners();
-            // Populate Default Currency dropdown from the admin-controlled list first,
-            // so it's ready when users open the Add/Edit customer modal.
+            // Populate admin-controlled dropdowns before loading customers so filters
+            // and modals are fully hydrated the moment the page becomes interactive.
             populateCurrencyDropdown();
+            populateCountryDropdowns();
             loadCustomers();
             log('Application initialized successfully');
         } catch (error) {
@@ -934,6 +938,73 @@
             showToast('Failed to initialize application', 'error');
         }
     }
+
+    /**
+     * Populate both country <select>s (top filter + form) from cr650_dclcountrieses
+     * and build the `restrictedSet` used by isRestrictedCountry().
+     *
+     * The form dropdown preserves its existing "Other (Specify)" option so users
+     * can still type a country that isn't in the admin list.
+     */
+    async function populateCountryDropdowns() {
+        const fallback = [
+            { name: 'Yemen', restricted: false },
+            { name: 'Lebanon', restricted: false },
+            { name: 'Iraq', restricted: false },
+            { name: 'Jordan', restricted: false },
+            { name: 'Turkey', restricted: false },
+            { name: 'United Arab Emirates', restricted: false },
+            { name: 'Syrian Arab Republic', restricted: true },
+            { name: 'Iran', restricted: true }
+        ];
+
+        let countries = [];
+        try {
+            const url = '/_api/cr650_dclcountrieses?$select=cr650_countryname,cr650_countrycode,cr650_isrestricted';
+            const res = await fetch(url, { headers: { 'Accept': 'application/json', 'OData-Version': '4.0' } });
+            if (!res.ok) throw new Error('Status ' + res.status);
+            const data = await res.json();
+            countries = (data.value || [])
+                .map(r => ({
+                    name: String(r.cr650_countryname || '').trim(),
+                    code: String(r.cr650_countrycode || '').trim(),
+                    restricted: !!r.cr650_isrestricted
+                }))
+                .filter(c => c.name)
+                .sort((a, b) => a.name.localeCompare(b.name));
+            if (countries.length === 0) throw new Error('empty list');
+        } catch (err) {
+            console.warn('Could not load countries from Dataverse, using fallback:', err);
+            countries = fallback;
+        }
+
+        // Rebuild restrictedSet for isRestrictedCountry()
+        restrictedSet = new Set(
+            countries.filter(c => c.restricted).map(c => c.name.toLowerCase())
+        );
+
+        // Top-of-page filter: list only countries, keep "All Countries" as the default
+        const filterSelect = getElement('#countryFilter');
+        if (filterSelect) {
+            const previous = filterSelect.value;
+            filterSelect.innerHTML = '<option value="">All Countries</option>'
+                + countries.map(c => `<option value="${escapeAttr(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+            if (previous) filterSelect.value = previous;
+        }
+
+        // Form dropdown: countries + "Other (Specify)" at the bottom. Preserve selected value.
+        const formSelect = getElement('#country');
+        if (formSelect) {
+            const previous = formSelect.value;
+            formSelect.innerHTML = '<option value="">Select country...</option>'
+                + countries.map(c => `<option value="${escapeAttr(c.name)}">${escapeHtml(c.name)}</option>`).join('')
+                + '<option value="Other" style="font-weight: 600; font-style: italic;">Other (Specify)</option>';
+            if (previous) formSelect.value = previous;
+        }
+    }
+
+    // Attribute-safe escape (reuses the existing escapeHtml defined earlier in the file)
+    function escapeAttr(s) { return escapeHtml(s); }
 
     /**
      * Populate the Default Currency <select> from cr650_dclcurrencieses.

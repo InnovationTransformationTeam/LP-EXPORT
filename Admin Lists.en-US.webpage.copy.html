@@ -12,6 +12,7 @@
     <button data-tab="hscodes" class="tab-btn">HS Codes</button>
     <button data-tab="docmasters" class="tab-btn">Document Masters</button>
     <button data-tab="currencies" class="tab-btn">Currencies</button>
+    <button data-tab="countries" class="tab-btn">Countries</button>
   </div>
 
   <!-- =============== Shipping Lines Panel =============== -->
@@ -198,6 +199,61 @@
       <div id="empty-currencies" class="empty-state">No currencies found. Add the first one above.</div>
     </div>
   </section>
+
+  <!-- =============== Countries Panel =============== -->
+  <section id="panel-countries" class="tab-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Countries</h2>
+        <small class="muted">Table: cr650_dclcountrieses — drives the Country dropdowns and restricted-country warning in Customer Management</small>
+      </div>
+      <div class="panel-actions">
+        <button id="refresh-countries" class="btn btn-secondary">Refresh</button>
+      </div>
+    </div>
+
+    <div class="add-box">
+      <div class="add-grid">
+        <div class="field">
+          <label>Country Name</label>
+          <input type="text" id="add-countries-name" placeholder="e.g., Yemen" />
+        </div>
+        <div class="field">
+          <label>Code (optional)</label>
+          <input type="text" id="add-countries-code" placeholder="e.g., YE" maxlength="3" />
+        </div>
+        <div class="field" style="align-self: end;">
+          <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="add-countries-restricted" />
+            <span>Restricted</span>
+          </label>
+        </div>
+      </div>
+      <div class="add-row">
+        <button id="add-countries-btn" class="btn btn-primary">Add Country</button>
+      </div>
+      <div class="hint">Toggle the <strong>Restricted</strong> checkbox in the table to flag / unflag a country instantly. Countries are listed alphabetically.</div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="table-countries" class="admin-table">
+        <thead>
+          <tr>
+            <th>Country Name</th>
+            <th style="width: 110px;">Code</th>
+            <th style="width: 130px;">Restricted</th>
+            <th class="th-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="row">
+            <td class="cell"></td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="empty-countries" class="empty-state">No countries found. Add the first one above.</div>
+    </div>
+  </section>
 </div>
 
 <!-- ===================== Underscore Templates ===================== -->
@@ -263,6 +319,29 @@
     <td class="td-order">
       <button class="btn btn-ghost btn-move-up" title="Move up" aria-label="Move up" <%- isFirst ? 'disabled' : '' %>>&#9650;</button>
       <button class="btn btn-ghost btn-move-down" title="Move down" aria-label="Move down" <%- isLast ? 'disabled' : '' %>>&#9660;</button>
+    </td>
+    <td class="td-actions">
+      <div class="action-group view-mode">
+        <button class="btn btn-ghost btn-edit">Edit</button>
+        <button class="btn btn-danger btn-delete">Delete</button>
+      </div>
+      <div class="action-group edit-mode hidden">
+        <button class="btn btn-primary btn-save">Save</button>
+        <button class="btn btn-secondary btn-cancel">Cancel</button>
+      </div>
+    </td>
+  </tr>
+</script>
+
+<script type="text/template" id="tpl-row-countries">
+  <tr data-id="<%- id %>" data-etag="<%- etag %>">
+    <td><input class="cell-input" data-field="cr650_countryname" type="text" value="<%- cr650_countryname || '' %>" disabled /></td>
+    <td><input class="cell-input" data-field="cr650_countrycode" type="text" value="<%- cr650_countrycode || '' %>" maxlength="3" disabled /></td>
+    <td class="td-restricted">
+      <label class="restricted-toggle" title="Click to flip restricted status">
+        <input type="checkbox" class="restricted-checkbox" <%- cr650_isrestricted ? 'checked' : '' %> />
+        <span class="restricted-label"><%- cr650_isrestricted ? 'Restricted' : 'Allowed' %></span>
+      </label>
     </td>
     <td class="td-actions">
       <div class="action-group view-mode">
