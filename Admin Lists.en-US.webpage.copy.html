@@ -1,0 +1,214 @@
+<div id="processingMsg" class="processing-msg">Processing...</div>
+
+<div id="adminListsApp" class="admin-lists-app">
+  <div class="admin-header">
+    <h1>Admin Lists Control</h1>
+    <p>Manage Shipping Lines, HS Codes, and Document Masters</p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button data-tab="shippinglines" class="tab-btn active">Shipping Lines</button>
+    <button data-tab="hscodes" class="tab-btn">HS Codes</button>
+    <button data-tab="docmasters" class="tab-btn">Document Masters</button>
+  </div>
+
+  <!-- =============== Shipping Lines Panel =============== -->
+  <section id="panel-shippinglines" class="tab-panel active">
+    <div class="panel-header">
+      <div>
+        <h2>Shipping Lines</h2>
+        <small class="muted">Table: cr650_dcl_shippinglines</small>
+      </div>
+      <div class="panel-actions">
+        <button id="refresh-shippinglines" class="btn btn-secondary">Refresh</button>
+      </div>
+    </div>
+
+    <div class="add-box">
+      <label>Shipping Line Name</label>
+      <div class="add-row">
+        <input type="text" id="add-shippinglines-name" placeholder="e.g., MSC" />
+        <button id="add-shippinglines-btn" class="btn btn-primary">Add</button>
+      </div>
+      <div class="hint">This will create a new shipping line record.</div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="table-shippinglines" class="admin-table">
+        <thead>
+          <tr>
+            <th>Shipping Line</th>
+            <th class="th-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="row">
+            <td class="cell"></td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="empty-shippinglines" class="empty-state">No shipping lines found.</div>
+    </div>
+  </section>
+
+  <!-- =============== HS Codes Panel =============== -->
+  <section id="panel-hscodes" class="tab-panel">
+    <div class="panel-header">
+      <div>
+        <h2>HS Codes</h2>
+        <small class="muted">Table: cr650_hscodes</small>
+      </div>
+      <div class="panel-actions">
+        <button id="refresh-hscodes" class="btn btn-secondary">Refresh</button>
+      </div>
+    </div>
+
+    <div class="add-box">
+      <div class="add-grid">
+        <div class="field">
+          <label>Item Number</label>
+          <input type="text" id="add-hscodes-itemnumber" placeholder="e.g., 15000880031" />
+        </div>
+        <div class="field">
+          <label>Item Description</label>
+          <input type="text" id="add-hscodes-itemdescription" placeholder="e.g., PETROMIN GREASE..." />
+        </div>
+        <div class="field">
+          <label>HS Code</label>
+          <input type="text" id="add-hscodes-hscode" placeholder="e.g., 27101998" />
+        </div>
+        <div class="field">
+          <label>Category</label>
+          <input type="text" id="add-hscodes-category" placeholder="e.g., Other lubricating oils..." />
+        </div>
+      </div>
+      <div class="add-row">
+        <button id="add-hscodes-btn" class="btn btn-primary">Add HS Code Record</button>
+      </div>
+      <div class="hint">All fields are optional unless your Dataverse rules require them.</div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="table-hscodes" class="admin-table">
+        <thead>
+          <tr>
+            <th>Item Number</th>
+            <th>Item Description</th>
+            <th>HS Code</th>
+            <th>Category</th>
+            <th class="th-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="row">
+            <td class="cell"></td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="empty-hscodes" class="empty-state">No HS code records found.</div>
+    </div>
+  </section>
+
+  <!-- =============== Document Masters Panel =============== -->
+  <section id="panel-docmasters" class="tab-panel">
+    <div class="panel-header">
+      <div>
+        <h2>Document Masters</h2>
+        <small class="muted">Table: cr650_documents_masters</small>
+      </div>
+      <div class="panel-actions">
+        <button id="refresh-docmasters" class="btn btn-secondary">Refresh</button>
+      </div>
+    </div>
+
+    <div class="add-box">
+      <label>Document Name</label>
+      <div class="add-row">
+        <input type="text" id="add-docmasters-name" placeholder="e.g., Proforma Invoice (PI)" />
+        <button id="add-docmasters-btn" class="btn btn-primary">Add</button>
+      </div>
+      <div class="hint">This list typically drives dropdowns in your DCL flow.</div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="table-docmasters" class="admin-table">
+        <thead>
+          <tr>
+            <th>Document Name</th>
+            <th class="th-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="row">
+            <td class="cell"></td>
+          </tr>
+        </tbody>
+      </table>
+      <div id="empty-docmasters" class="empty-state">No document master records found.</div>
+    </div>
+  </section>
+</div>
+
+<!-- ===================== Underscore Templates ===================== -->
+<script type="text/template" id="tpl-row-shippinglines">
+  <tr data-id="<%- id %>" data-etag="<%- etag %>">
+    <td>
+      <input class="cell-input" type="text" value="<%- shipping_line || '' %>" disabled />
+    </td>
+    <td class="td-actions">
+      <div class="action-group view-mode">
+        <button class="btn btn-ghost btn-edit">Edit</button>
+        <button class="btn btn-danger btn-delete">Delete</button>
+      </div>
+      <div class="action-group edit-mode hidden">
+        <button class="btn btn-primary btn-save">Save</button>
+        <button class="btn btn-secondary btn-cancel">Cancel</button>
+      </div>
+    </td>
+  </tr>
+</script>
+
+<script type="text/template" id="tpl-row-hscodes">
+  <tr data-id="<%- id %>" data-etag="<%- etag %>">
+    <td><input class="cell-input" data-field="cr650_itemnumber" type="text" value="<%- cr650_itemnumber || '' %>" disabled /></td>
+    <td><input class="cell-input" data-field="cr650_itemdescription" type="text" value="<%- cr650_itemdescription || '' %>" disabled /></td>
+    <td><input class="cell-input" data-field="cr650_hscode" type="text" value="<%- cr650_hscode || '' %>" disabled /></td>
+    <td><input class="cell-input" data-field="cr650_category" type="text" value="<%- cr650_category || '' %>" disabled /></td>
+    <td class="td-actions">
+      <div class="action-group view-mode">
+        <button class="btn btn-ghost btn-edit">Edit</button>
+        <button class="btn btn-danger btn-delete">Delete</button>
+      </div>
+      <div class="action-group edit-mode hidden">
+        <button class="btn btn-primary btn-save">Save</button>
+        <button class="btn btn-secondary btn-cancel">Cancel</button>
+      </div>
+    </td>
+  </tr>
+</script>
+
+<script type="text/template" id="tpl-row-docmasters">
+  <tr data-id="<%- id %>" data-etag="<%- etag %>">
+    <td>
+      <input class="cell-input" type="text" value="<%- cr650_documentname || '' %>" disabled />
+    </td>
+    <td class="td-actions">
+      <div class="action-group view-mode">
+        <button class="btn btn-ghost btn-edit">Edit</button>
+        <button class="btn btn-danger btn-delete">Delete</button>
+      </div>
+      <div class="action-group edit-mode hidden">
+        <button class="btn btn-primary btn-save">Save</button>
+        <button class="btn btn-secondary btn-cancel">Cancel</button>
+      </div>
+    </td>
+  </tr>
+</script>
+
+
+<div class="row sectionBlockLayout text-start">
+  <div class="container">
+    <div class="col-lg-12 columnBlockLayout"></div>
+  </div>
+</div>
