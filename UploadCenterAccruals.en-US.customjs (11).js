@@ -24,9 +24,7 @@
 
   const DOC_CACHE_KEY = "dcl_doc_options_v2";
   const DOC_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-  // Bumped to v3 when currency source moved from public API to Dataverse (cr650_dclcurrencieses).
-  // Bumping the key forces stale caches to be discarded on first load.
-  const CURR_CACHE_KEY = "dcl_currencies_v3";
+  const CURR_CACHE_KEY = "dcl_currencies_v2";
   const CURR_CACHE_TTL = 24 * 60 * 60 * 1000;
   let DCL_STATUS = null;
 
@@ -534,38 +532,56 @@
     } catch { }
 
     try {
-      // Admin-controlled currency list (managed in Admin Lists → Currencies tab).
-      // Falls back to a hardcoded set below if the call fails or returns nothing.
-      const url = "/_api/cr650_dclcurrencieses?$select=cr650_currencycode,cr650_currencyname,cr650_sortorder";
-      const response = await fetch(url, {
-        headers: { "Accept": "application/json", "OData-Version": "4.0" }
-      });
-      if (!response.ok) throw new Error("Dataverse currencies fetch failed: " + response.status);
-      const data = await response.json();
+      const primaryUrl = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies.json";
+      const fallbackUrl = "https://latest.currency-api.pages.dev/v1/currencies.json";
 
-      const items = (data.value || [])
-        .map(r => ({
-          code: String(r.cr650_currencycode || "").toUpperCase(),
-          name: String(r.cr650_currencyname || r.cr650_currencycode || ""),
-          sort: (r.cr650_sortorder == null) ? Number.MAX_SAFE_INTEGER : Number(r.cr650_sortorder)
+      let data = null;
+
+      try {
+        const response = await fetch(primaryUrl);
+        if (!response.ok) throw new Error("Primary currencies API failed");
+        data = await response.json();
+      } catch (primaryError) {
+        console.warn("Primary currencies API failed, trying fallback:", primaryError);
+        const fallbackResponse = await fetch(fallbackUrl);
+        if (!fallbackResponse.ok) throw new Error("Fallback currencies API also failed");
+        data = await fallbackResponse.json();
+      }
+
+      CURRENCIES = Object.entries(data || {})
+        .map(([code, name]) => ({
+          code: code.toUpperCase(),
+          name: String(name)
         }))
-        .filter(x => x.code);
+        .sort((a, b) => a.code.localeCompare(b.code));
 
-      if (items.length === 0) throw new Error("No currencies configured in Admin Lists");
+      const priorityCodes = ["USD", "SAR", "EUR", "AED", "GBP"];
+      const priority = [];
+      const others = [];
 
-      items.sort((a, b) => a.sort - b.sort || a.code.localeCompare(b.code));
-      CURRENCIES = items.map(({ code, name }) => ({ code, name }));
+      CURRENCIES.forEach(curr => {
+        if (priorityCodes.includes(curr.code)) {
+          priority.push(curr);
+        } else {
+          others.push(curr);
+        }
+      });
+
+      CURRENCIES = [
+        ...priorityCodes.map(code => priority.find(c => c.code === code)).filter(Boolean),
+        ...others
+      ];
 
       localStorage.setItem(CURR_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), items: CURRENCIES }));
 
     } catch (e) {
-      console.error("Failed to load currencies from Dataverse, using fallback:", e);
+      console.error("Failed to load currencies from API, using fallback:", e);
       CURRENCIES = [
-        { code: "USD", name: "US Dollar" },
+        { code: "USD", name: "United States Dollar" },
         { code: "SAR", name: "Saudi Riyal" },
         { code: "EUR", name: "Euro" },
         { code: "AED", name: "UAE Dirham" },
-        { code: "GBP", name: "British Pound" },
+        { code: "GBP", name: "Pound Sterling" },
         { code: "JPY", name: "Japanese Yen" },
         { code: "CHF", name: "Swiss Franc" },
         { code: "CNY", name: "Chinese Yuan" }
@@ -577,9 +593,17 @@
     if (!sel) return;
     const keep = sel.value || COMPANY_INFO.defaultCurrency;
 
-    // CURRENCIES is already in admin-defined order (see ensureCurrenciesLoaded)
-    const options = [`<option value="">Currency</option>`]
-      .concat(CURRENCIES.map(c => `<option value="${c.code}">${c.code} — ${escapeHtml(c.name)}</option>`));
+    const priorityCodes = ["USD", "SAR", "EUR", "AED", "GBP"];
+    const hasPriority = CURRENCIES.some(c => priorityCodes.includes(c.code));
+
+    let options = [`<option value="">Currency</option>`];
+
+    CURRENCIES.forEach((c, idx) => {
+      if (hasPriority && idx > 0 && priorityCodes.includes(CURRENCIES[idx - 1].code) && !priorityCodes.includes(c.code)) {
+        options.push(`<option disabled>──────────</option>`);
+      }
+      options.push(`<option value="${c.code}">${c.code} — ${escapeHtml(c.name)}</option>`);
+    });
 
     sel.innerHTML = options.join("");
     if (keep) sel.value = keep;
