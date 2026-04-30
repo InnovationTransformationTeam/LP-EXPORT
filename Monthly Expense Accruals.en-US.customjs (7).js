@@ -224,8 +224,8 @@ const COLUMN_DEFINITIONS = [
     { key: 'cooCharges', header: 'COO Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=COO/Certificate)', width: 130, type: 'currency', decimals: 2 },
     { key: 'mofaChargesOriginal', header: 'MOFA Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 160, type: 'original' },
     { key: 'mofaCharges', header: 'MOFA Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=MOFA)', width: 130, type: 'currency', decimals: 2 },
-    { key: 'docChargesOriginal', header: 'Doc Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 160, type: 'original' },
-    { key: 'docCharges', header: 'Doc Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=documentation)', width: 130, type: 'currency', decimals: 2 },
+    { key: 'docChargesOriginal', header: 'Documentation Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 200, type: 'original' },
+    { key: 'docCharges', header: 'Documentation Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=documentation)', width: 180, type: 'currency', decimals: 2 },
     { key: 'insuranceChargesOriginal', header: 'Insurance Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 180, type: 'original' },
     { key: 'insuranceCharges', header: 'Insurance Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=insurance)', width: 150, type: 'currency', decimals: 2 },
     { key: 'inspectionChargesOriginal', header: 'Inspection Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 180, type: 'original' },
@@ -235,16 +235,16 @@ const COLUMN_DEFINITIONS = [
     { key: 'otherChargesOriginal', header: 'Other Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 160, type: 'original' },
     { key: 'otherCharges', header: 'Other Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=other, charge>0)', width: 140, type: 'currency', decimals: 2 },
 
-    // Freight from Discounts & Charges table (cr650_dcl_discounts_chargeses)
-    { key: 'freightChargesOriginal', header: 'Freight Charges (Original)', source: 'cr650_dcl_discounts_chargeses', field: 'original currency + amount', width: 170, type: 'original' },
-    { key: 'freightCharges', header: 'Freight Charges (AED)', source: 'cr650_dcl_discounts_chargeses', field: 'cr650_amount (type=freight)', width: 140, type: 'currency', decimals: 2 },
+    // Actual Freight from Discounts & Charges table (cr650_dcl_discounts_chargeses)
+    // Per stakeholder: Upload Center stores the per-container (or per-vehicle) freight cost,
+    // NOT the total invoice amount. Total Freight is then derived as per-unit * Container Qty.
+    { key: 'freightChargesOriginal', header: 'Actual Freight Charges (Original)', source: 'cr650_dcl_discounts_chargeses', field: 'original currency + amount (per container)', width: 200, type: 'original' },
+    { key: 'freightCharges', header: 'Actual Freight Charges (AED)', source: 'cr650_dcl_discounts_chargeses', field: 'cr650_amount (type=freight, per container)', width: 180, type: 'currency', decimals: 2 },
 
-    // Calculated from system data: Freight Charges / Container Qty
-    { key: 'unitActualFreight', header: 'Unit Actual Freight', source: 'formula', field: 'freightCharges / containerQty', width: 150, type: 'currency', decimals: 2 },
     { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports + cr650_dcl_loading_plans + cr650_dcl_masters', field: 'cr650_qty / cr650_loadedquantity / cr650_totalorderquantity', width: 100, type: 'number', decimals: 0 },
 
     // Formula Fields (derived from system data)
-    { key: 'totalFreight', header: 'Total Freight', source: 'formula', field: 'Container Qty * Unit Actual Freight', width: 140, type: 'currency', decimals: 2 },
+    { key: 'totalFreight', header: 'Total Freight (AED)', source: 'formula', field: 'Actual Freight Charges (AED) * Container Qty', width: 160, type: 'currency', decimals: 2 },
 
     // From DCL Masters / Shipped Orders
     { key: 'supplier', header: 'Supplier', source: 'cr650_dcl_masters', field: 'cr650_party', width: 150, type: 'text' },
@@ -273,20 +273,22 @@ const REMARKS_FIELD = 'cr650_accrual_remarks';
 // ============================================================================
 // REPORT VIEW DEFINITIONS
 // ============================================================================
-// Expense Accruals Report: simplified view per stakeholder
-// Includes Other Charges & Expenses Remarks (per stakeholder req. #2)
+// Expense Accruals Report: column order matches stakeholder Excel template
+// (Expense_Accruals.xlsx). Business Unit is intentionally excluded - it still
+// drives the BU filter, but the stakeholder marked the column for removal.
 const EXPENSE_REPORT_KEYS = [
-    'businessUnit', 'exportExecutive', 'shipmentMonth', 'customerClass',
-    'customerNumber', 'customerName', 'containerType', 'containerQty',
-    'unitPIFreight',
+    'exportExecutive', 'shipmentMonth', 'customerClass',
+    'customerNumber', 'customerName',
+    'containerType',
     'cooChargesOriginal', 'cooCharges',
     'mofaChargesOriginal', 'mofaCharges',
     'docChargesOriginal', 'docCharges',
     'insuranceChargesOriginal', 'insuranceCharges',
     'inspectionChargesOriginal', 'inspectionCharges',
     'otherChargesOriginal', 'otherCharges',
+    'containerQty',
     'freightChargesOriginal', 'freightCharges',
-    'unitActualFreight', 'totalFreight',
+    'totalFreight',
     'expensesRemarks'
 ];
 
@@ -294,8 +296,12 @@ const EXPENSE_REPORT_KEYS = [
 // (none currently excluded, but summaryOnly columns are filtered out of Expense)
 function getActiveColumns() {
     if (state.activeReport === 'expense') {
-        return COLUMN_DEFINITIONS.filter(col =>
-            EXPENSE_REPORT_KEYS.includes(col.key) && !col.summaryOnly);
+        // Honor EXPENSE_REPORT_KEYS order so the rendered columns match the
+        // stakeholder template exactly (not the order of COLUMN_DEFINITIONS).
+        const colMap = new Map(COLUMN_DEFINITIONS.map(c => [c.key, c]));
+        return EXPENSE_REPORT_KEYS
+            .map(k => colMap.get(k))
+            .filter(c => c && !c.summaryOnly);
     }
     return COLUMN_DEFINITIONS;
 }
@@ -707,10 +713,12 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
     // Container info from cr650_dcl_containers (primary) or DCL master (fallback)
     const containerInfo = buildContainerInfo(containers, dcl);
     const contQty = containerInfo.qty;
-    const freightTotal = parseFloat(extraCharges.freightCharges) || 0;
 
-    // Unit Actual Freight = Total Freight Charges / Container Qty (system-derived)
-    const unitFreight = (freightTotal > 0 && contQty > 0) ? (freightTotal / contQty) : 0;
+    // Stakeholder's rule (Expense_Accruals.xlsx): the value entered in the Upload
+    // Center is the PER-CONTAINER (or per-vehicle) freight cost - NOT the total
+    // invoice amount. Total Freight is therefore derived as per-unit * Container Qty
+    // in applyFormulas() rather than being read directly from the discounts/charges row.
+    const freightPerContainer = parseFloat(extraCharges.freightCharges) || 0;
 
     // Loading plan aggregates (fallback for qty, unit price, item info)
     const lpAggregates = aggregateLoadingPlans(loadingPlans);
@@ -814,12 +822,11 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         // Editable General Remarks (Summary only) - persisted on DCL Master (cr650_accrual_remarks)
         generalRemarks: dcl?.[REMARKS_FIELD] || '',
 
-        // Freight from Discounts/Charges table (cr650_dcl_discounts_chargeses)
+        // Actual Freight from Discounts/Charges table (cr650_dcl_discounts_chargeses)
+        // Stored as a per-container value (see note above); Total Freight is derived
+        // in applyFormulas as freightCharges * containerQty.
         freightChargesOriginal: extraCharges.freightChargesOriginal || '',
-        freightCharges: freightTotal,
-
-        // Calculated from system data: freight / container qty
-        unitActualFreight: unitFreight,
+        freightCharges: freightPerContainer,
 
         // Supplier from DCL Masters (party field)
         supplier: dcl?.cr650_party || dcl?.cr650_consignee || customerInfo?.cr650_consignee || "N/A",
@@ -972,14 +979,15 @@ function extractDiscountCharges(discCharges) {
 
 function applyFormulas(record) {
     const containerQty = parseFloat(record.containerQty) || 0;
-    const unitActualFreight = parseFloat(record.unitActualFreight) || 0;
+    const freightPerContainer = parseFloat(record.freightCharges) || 0;
     const qtyLtrs = parseFloat(record.qtyLtrs) || 0;
     const qtyMT = parseFloat(record.qtyMT) || 0;
 
-    // Total Freight = Container Qty * Unit Actual Freight (stakeholder formula).
-    // Both operands are already in AED (charges are normalised at extraction),
-    // so Total Freight is in AED too. No extra multiplier needed.
-    record.totalFreight = containerQty * unitActualFreight;
+    // Total Freight (AED) = Actual Freight Charges (AED) * Container Qty.
+    // Per stakeholder template (Expense_Accruals.xlsx), Actual Freight Charges
+    // is the per-container cost entered in Upload Center, so multiplying by
+    // Container Qty gives the total. Both operands are already in AED.
+    record.totalFreight = containerQty * freightPerContainer;
 
     // Per Ltr. Cost (AED) = Total Freight / Qty ltrs.
     record.perLtrCost = qtyLtrs > 0 ? record.totalFreight / qtyLtrs : 0;
