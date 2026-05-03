@@ -1103,3 +1103,72 @@ body {
   font-style: italic;
   margin-left: 4px;
 }
+
+/* =========================
+   Freight unit-cost reminder
+   Shown under the Document Type field whenever the user picks a
+   freight-related doc type (Vendor Freight Invoice, etc.). The text
+   reminds them to enter the per-container/per-vehicle cost - not the
+   total invoice amount - so the Monthly Expense Accruals page can
+   compute Total Freight = unit cost x Container Qty correctly.
+   ========================= */
+.ea-freight-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 10px 0 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: linear-gradient(0deg, rgba(59, 130, 246, .04), rgba(59, 130, 246, .04)),
+              var(--white);
+  border: 1px solid rgba(59, 130, 246, .25);
+  border-left: 4px solid var(--info-blue);
+  box-shadow: var(--shadow-sm);
+  color: var(--dark-gray);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  animation: ea-freight-notice-in 180ms ease-out;
+}
+
+.ea-freight-notice__icon {
+  flex-shrink: 0;
+  color: var(--info-blue);
+  font-size: 1.05rem;
+  line-height: 1.4;
+  margin-top: 1px;
+}
+
+.ea-freight-notice__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ea-freight-notice__title {
+  font-weight: 600;
+  color: #1e3a8a;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.ea-freight-notice__text {
+  color: var(--dark-gray);
+}
+
+.ea-freight-notice__text strong {
+  color: #1e3a8a;
+  font-weight: 600;
+}
+
+@keyframes ea-freight-notice-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Reduced motion: skip the slide-in but keep the notice */
+@media (prefers-reduced-motion: reduce) {
+  .ea-freight-notice {
+    animation: none;
+  }
+}

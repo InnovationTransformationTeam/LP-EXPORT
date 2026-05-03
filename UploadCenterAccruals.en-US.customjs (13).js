@@ -294,6 +294,40 @@
     return base === "system invoice" || base === "system invoices";
   }
 
+  // Stakeholder rule: when the user picks a freight-related document type,
+  // surface a reminder to enter the per-container (or per-vehicle) cost
+  // rather than the total invoice amount. Matches any admin-defined doc name
+  // containing "freight" so "Vendor Freight Invoice", "Actual Freight
+  // Charges", "Freight Invoice", etc. all trigger the reminder.
+  function isFreightDocType(label) {
+    return /freight/i.test(label || "");
+  }
+
+  function toggleFreightUnitNotice(row, selectedLabel) {
+    if (!row) return;
+    const docTypeField = row.querySelector('select[name="docType"]')?.closest('.field')
+      || row.querySelector('input[name="docType"]')?.closest('.field');
+    if (!docTypeField) return;
+
+    const existing = row.querySelector('.ea-freight-notice');
+
+    if (isFreightDocType(selectedLabel)) {
+      if (existing) return;
+      const notice = document.createElement('div');
+      notice.className = 'ea-freight-notice';
+      notice.setAttribute('role', 'note');
+      notice.innerHTML =
+        '<i class="fas fa-info-circle ea-freight-notice__icon" aria-hidden="true"></i>' +
+        '<div class="ea-freight-notice__body">' +
+          '<div class="ea-freight-notice__title">Reminder</div>' +
+          '<div class="ea-freight-notice__text">Please enter the <strong>unit freight cost per container or per vehicle</strong>. Do not enter the total invoice charges.</div>' +
+        '</div>';
+      docTypeField.insertAdjacentElement('afterend', notice);
+    } else if (existing) {
+      existing.remove();
+    }
+  }
+
 
 
   // Prefer readonly URL for existing rows
@@ -1186,6 +1220,11 @@
           vals.forEach(v => addSystemInvoiceTag(v));
         }
       }
+
+      // Surface the per-container freight reminder on existing rows whose
+      // doc type already contains "freight" - the user can still edit the
+      // Charge value, so the reminder remains relevant.
+      toggleFreightUnitNotice(row, currentValue);
     }
 
     // currencies
@@ -1276,6 +1315,7 @@
         notifyCostChanged(row);
         refreshUniqueTypeLocks();
         updateSystemInvoiceVisibilityByLabel(selectedLabel);
+        toggleFreightUnitNotice(row, selectedLabel);
 
         if (!isExisting) {
           const customFolderField = row.querySelector(".field--customfolder");
@@ -1303,6 +1343,7 @@
 
       const initialLabel = typeSel.options[typeSel.selectedIndex]?.textContent?.trim() || "";
       updateSystemInvoiceVisibilityByLabel(initialLabel);
+      toggleFreightUnitNotice(row, initialLabel);
     }
 
 
