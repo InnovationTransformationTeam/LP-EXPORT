@@ -194,7 +194,7 @@ const COLUMN_DEFINITIONS = [
     { key: 'status', header: 'Status', source: 'cr650_dcl_masters', field: 'cr650_status', width: 100, type: 'text' },
     { key: 'businessUnit', header: 'Business Unit', source: 'cr650_dcl_masters + cr650_dcl_ar_reports', field: 'cr650_businessunit', width: 150, type: 'text' },
     { key: 'salesperson', header: 'Salesperson', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_salesperson / cr650_salesrepresentativename', width: 150, type: 'text' },
-    { key: 'exportExecutive', header: 'Export Executive', source: 'cr650_dcl_masters', field: 'cr650_submitter_name / cr650_salesrepresentativename', width: 150, type: 'text' },
+    { key: 'exportExecutive', header: 'Export Executive', source: 'cr650_dcl_masters', field: 'cr650_submitter_name (the user who opened the DCL)', width: 150, type: 'text' },
 
     // From AR Reports (cr650_dcl_ar_reports) with DCL Masters fallback
     { key: 'customerPO', header: 'Customer PO Number', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customerponumber / cr650_po_customer_number', width: 150, type: 'text' },
@@ -215,36 +215,39 @@ const COLUMN_DEFINITIONS = [
     { key: 'containerType', header: 'Container Type', source: 'cr650_dcl_containers + cr650_dcl_masters', field: 'cr650_container_type / cr650_container_size_dimension', width: 180, type: 'text' },
     { key: 'containerQty', header: 'Container Qty.', source: 'cr650_dcl_containers + cr650_dcl_masters', field: 'count(containers) or sum(totals)', width: 120, type: 'number', decimals: 0 },
 
-    // Pricing from AR Reports
-    { key: 'unitPIFreight', header: 'Unit PI Freight', source: 'cr650_dcl_ar_reports + cr650_dcl_loading_plans', field: 'cr650_price / cr650_unitprice', width: 130, type: 'currency', decimals: 2 },
-
     // Charges from Documents table (cr650_dcl_documents)
-    // Each charge has an Original column (what user entered) + AED column (converted)
-    { key: 'cooChargesOriginal', header: 'COO Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 150, type: 'original' },
-    { key: 'cooCharges', header: 'COO Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=COO/Certificate)', width: 130, type: 'currency', decimals: 2 },
-    { key: 'mofaChargesOriginal', header: 'MOFA Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 160, type: 'original' },
-    { key: 'mofaCharges', header: 'MOFA Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=MOFA)', width: 130, type: 'currency', decimals: 2 },
-    { key: 'docChargesOriginal', header: 'Documentation Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 200, type: 'original' },
-    { key: 'docCharges', header: 'Documentation Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=documentation)', width: 180, type: 'currency', decimals: 2 },
-    { key: 'insuranceChargesOriginal', header: 'Insurance Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 180, type: 'original' },
-    { key: 'insuranceCharges', header: 'Insurance Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=insurance)', width: 150, type: 'currency', decimals: 2 },
-    { key: 'inspectionChargesOriginal', header: 'Inspection Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 180, type: 'original' },
-    { key: 'inspectionCharges', header: 'Inspection Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=inspection)', width: 150, type: 'currency', decimals: 2 },
+    // Each charge has an "Actual Charges" column (what the user entered, in
+    // the original currency) + a "Converted Charges" column (in AED). The
+    // Actual column is hidden dynamically when every row for that charge type
+    // shares the same currency - see getActiveColumns().
+    // pairKey links the Actual column to its sibling Converted column key.
+    { key: 'cooChargesOriginal', header: 'COO Actual Charges', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 160, type: 'original', pairKey: 'cooCharges' },
+    { key: 'cooCharges', header: 'COO Converted Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=COO/Certificate)', width: 160, type: 'currency', decimals: 2 },
+    { key: 'mofaChargesOriginal', header: 'MOFA Actual Charges', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 170, type: 'original', pairKey: 'mofaCharges' },
+    { key: 'mofaCharges', header: 'MOFA Converted Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=MOFA)', width: 170, type: 'currency', decimals: 2 },
+    { key: 'docChargesOriginal', header: 'Documentation Actual Charges', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 200, type: 'original', pairKey: 'docCharges' },
+    { key: 'docCharges', header: 'Documentation Converted Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=documentation)', width: 200, type: 'currency', decimals: 2 },
+    { key: 'insuranceChargesOriginal', header: 'Insurance Actual Charges', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 180, type: 'original', pairKey: 'insuranceCharges' },
+    { key: 'insuranceCharges', header: 'Insurance Converted Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=insurance)', width: 180, type: 'currency', decimals: 2 },
+    { key: 'inspectionChargesOriginal', header: 'Inspection Actual Charges', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 180, type: 'original', pairKey: 'inspectionCharges' },
+    { key: 'inspectionCharges', header: 'Inspection Converted Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=inspection)', width: 180, type: 'currency', decimals: 2 },
 
     // Other Charges (sum of charges from "Other Documents" with a charge amount)
-    { key: 'otherChargesOriginal', header: 'Other Charges (Original)', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 160, type: 'original' },
-    { key: 'otherCharges', header: 'Other Charges (AED)', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=other, charge>0)', width: 140, type: 'currency', decimals: 2 },
+    { key: 'otherChargesOriginal', header: 'Other Actual Charges', source: 'cr650_dcl_documents', field: 'original currency + amount', width: 170, type: 'original', pairKey: 'otherCharges' },
+    { key: 'otherCharges', header: 'Other Converted Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type=other, charge>0)', width: 170, type: 'currency', decimals: 2 },
 
-    // Actual Freight from Discounts & Charges table (cr650_dcl_discounts_chargeses)
-    // Per stakeholder: Upload Center stores the per-container (or per-vehicle) freight cost,
-    // NOT the total invoice amount. Total Freight is then derived as per-unit * Container Qty.
-    { key: 'freightChargesOriginal', header: 'Actual Freight Charges (Original)', source: 'cr650_dcl_discounts_chargeses', field: 'original currency + amount (per container)', width: 200, type: 'original' },
-    { key: 'freightCharges', header: 'Actual Freight Charges (AED)', source: 'cr650_dcl_discounts_chargeses', field: 'cr650_amount (type=freight, per container)', width: 180, type: 'currency', decimals: 2 },
+    // Actual Freight Charges - sourced from Upload Center documents
+    // (cr650_dcl_documents) where doc_type contains "freight" / "vendor freight".
+    // Falls back to cr650_dcl_discounts_chargeses for legacy data only.
+    // Per stakeholder: this is the per-container (or per-vehicle) freight cost,
+    // NOT the total invoice. Total Freight is derived as per-unit * Container Qty.
+    { key: 'freightChargesOriginal', header: 'Vendor Freight Actual Charges', source: 'cr650_dcl_documents', field: 'original currency + amount (per container)', width: 220, type: 'original', pairKey: 'freightCharges' },
+    { key: 'freightCharges', header: 'Vendor Freight Converted Charges', source: 'cr650_dcl_documents', field: 'cr650_chargeamount (doc_type contains freight, per container)', width: 220, type: 'currency', decimals: 2 },
 
     { key: 'qty', header: 'Qty.', source: 'cr650_dcl_ar_reports + cr650_dcl_loading_plans + cr650_dcl_masters', field: 'cr650_qty / cr650_loadedquantity / cr650_totalorderquantity', width: 100, type: 'number', decimals: 0 },
 
     // Formula Fields (derived from system data)
-    { key: 'totalFreight', header: 'Total Freight (AED)', source: 'formula', field: 'Actual Freight Charges (AED) * Container Qty', width: 160, type: 'currency', decimals: 2 },
+    { key: 'totalFreight', header: 'Total Freight (AED)', source: 'formula', field: 'Vendor Freight Converted Charges * Container Qty', width: 160, type: 'currency', decimals: 2 },
 
     // From DCL Masters / Shipped Orders
     { key: 'supplier', header: 'Supplier', source: 'cr650_dcl_masters', field: 'cr650_party', width: 150, type: 'text' },
@@ -295,15 +298,43 @@ const EXPENSE_REPORT_KEYS = [
 // Summary Accruals Report: all columns EXCEPT ones flagged as non-summary
 // (none currently excluded, but summaryOnly columns are filtered out of Expense)
 function getActiveColumns() {
+    let cols;
     if (state.activeReport === 'expense') {
         // Honor EXPENSE_REPORT_KEYS order so the rendered columns match the
         // stakeholder template exactly (not the order of COLUMN_DEFINITIONS).
         const colMap = new Map(COLUMN_DEFINITIONS.map(c => [c.key, c]));
-        return EXPENSE_REPORT_KEYS
+        cols = EXPENSE_REPORT_KEYS
             .map(k => colMap.get(k))
             .filter(c => c && !c.summaryOnly);
+    } else {
+        cols = COLUMN_DEFINITIONS;
     }
-    return COLUMN_DEFINITIONS;
+
+    // Dynamic Actual + Converted collapse (per stakeholder request):
+    // For each charge type, if EVERY row in the filtered data uses the SAME
+    // currency for that charge, the "Actual Charges" column is hidden - the
+    // Converted column alone is enough. Show both only when at least one row
+    // uses a different currency. Pair is identified by col.pairKey on the
+    // Actual ('original' type) column pointing at its Converted sibling.
+    // Source data = filteredData if filters are applied, else allData.
+    const dataPool = (state.filteredData && state.filteredData.length)
+        ? state.filteredData
+        : (state.allData || []);
+
+    return cols.filter(col => {
+        if (col.type !== 'original' || !col.pairKey) return true;
+
+        const currencies = new Set();
+        dataPool.forEach(r => {
+            const list = r._chargeCurrencies?.[col.pairKey];
+            if (!list) return;
+            list.forEach(c => { if (c) currencies.add(c); });
+        });
+
+        // 0 currencies (no charges of this type) OR 1 currency (uniform) -> collapse: hide Actual
+        // 2+ currencies -> show both Actual + Converted
+        return currencies.size >= 2;
+    });
 }
 
 function switchReport(reportType) {
@@ -696,8 +727,22 @@ function mergeDataOptimized() {
 
         const customerPO = ar.cr650_customerponumber;
         const shipped = shippedByPO.get(customerPO)?.[0];
-        const emptyCharges = { cooCharges: 0, mofaCharges: 0, documentationCharges: 0, insuranceCharges: 0, inspectionCharges: 0, otherCharges: 0, expensesRemarks: '', cooChargesOriginal: '', mofaChargesOriginal: '', docChargesOriginal: '', insuranceChargesOriginal: '', inspectionChargesOriginal: '', otherChargesOriginal: '' };
-        const emptyExtra = { freightCharges: 0, flexiBagsCharges: 0, otherCharges: 0, freightChargesOriginal: '' };
+        const emptyCharges = {
+            cooCharges: 0, mofaCharges: 0, documentationCharges: 0, insuranceCharges: 0,
+            inspectionCharges: 0, otherCharges: 0, freightCharges: 0, expensesRemarks: '',
+            cooChargesOriginal: '', mofaChargesOriginal: '', docChargesOriginal: '',
+            insuranceChargesOriginal: '', inspectionChargesOriginal: '',
+            otherChargesOriginal: '', freightChargesOriginal: '',
+            _currencyByCharge: {
+                cooCharges: new Set(), mofaCharges: new Set(), docCharges: new Set(),
+                insuranceCharges: new Set(), inspectionCharges: new Set(),
+                otherCharges: new Set(), freightCharges: new Set()
+            }
+        };
+        const emptyExtra = {
+            freightCharges: 0, flexiBagsCharges: 0, otherCharges: 0,
+            freightChargesOriginal: '', _freightCurrencies: new Set()
+        };
         const custInfo = ar.cr650_customernumber ? customerByCode.get(ar.cr650_customernumber) : null;
 
         const record = buildMergedRecord(null, ar, shipped, emptyCharges, emptyExtra, custInfo, [], [], []);
@@ -714,11 +759,24 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
     const containerInfo = buildContainerInfo(containers, dcl);
     const contQty = containerInfo.qty;
 
-    // Stakeholder's rule (Expense_Accruals.xlsx): the value entered in the Upload
-    // Center is the PER-CONTAINER (or per-vehicle) freight cost - NOT the total
-    // invoice amount. Total Freight is therefore derived as per-unit * Container Qty
-    // in applyFormulas() rather than being read directly from the discounts/charges row.
-    const freightPerContainer = parseFloat(extraCharges.freightCharges) || 0;
+    // Vendor Freight Charges - canonical source is the Upload Center document
+    // (cr650_dcl_documents) where doc_type contains "freight" / "vendor freight".
+    // The legacy cr650_dcl_discounts_chargeses path is used only when no
+    // freight document was found, so old DCLs don't go to zero. Per stakeholder:
+    // the value is the PER-CONTAINER freight cost, NOT the total invoice.
+    const docFreight = parseFloat(docCharges.freightCharges) || 0;
+    const docFreightOriginal = docCharges.freightChargesOriginal || '';
+    const docFreightCurrencies = docCharges._currencyByCharge?.freightCharges
+        || new Set();
+
+    const fallbackFreight = parseFloat(extraCharges.freightCharges) || 0;
+    const fallbackFreightOriginal = extraCharges.freightChargesOriginal || '';
+    const fallbackFreightCurrencies = extraCharges._freightCurrencies || new Set();
+
+    const useDocFreight = docFreight > 0;
+    const freightPerContainer = useDocFreight ? docFreight : fallbackFreight;
+    const freightOriginalDisplay = useDocFreight ? docFreightOriginal : fallbackFreightOriginal;
+    const freightCurrencies = useDocFreight ? docFreightCurrencies : fallbackFreightCurrencies;
 
     // Loading plan aggregates (fallback for qty, unit price, item info)
     const lpAggregates = aggregateLoadingPlans(loadingPlans);
@@ -742,7 +800,10 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         ciNumber: ciNumber,
         businessUnit: ar?.cr650_businessunit || dcl?.cr650_businessunit || "N/A",
         salesperson: ar?.cr650_salesperson || dcl?.cr650_salesrepresentativename || "N/A",
-        exportExecutive: dcl?.cr650_submitter_name || dcl?.cr650_salesrepresentativename || customerInfo?.cr650_salesrepresentativename || "N/A",
+        // Export Executive: the user who created the account and opened the DCL.
+        // Per stakeholder: this is strictly the DCL submitter - NOT the sales
+        // representative. No fallback to salesrepresentativename / customer rep.
+        exportExecutive: dcl?.cr650_submitter_name || "N/A",
 
         // Customer PO: AR report first, then DCL master fields
         customerPO: ar?.cr650_customerponumber || dcl?.cr650_pinumber || dcl?.cr650_po_customer_number || "N/A",
@@ -768,14 +829,6 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         qtyMT: parseFloat(ar?.cr650_qtymt) || lpAggregates.totalNetWeightKg / 1000 || 0,
         qty: parseFloat(ar?.cr650_qty) || lpAggregates.totalLoadedQty || parseFloat(dcl?.cr650_totalorderquantity) || 0,
 
-        // Pricing from AR Reports (converted to AED using the AR record's own
-        // transaction currency + conversion rate so the export is unified).
-        unitPIFreight: toAED(
-            parseFloat(ar?.cr650_price) || lpAggregates.avgUnitPrice || 0,
-            ar?.cr650_transactioncurrency || dcl?.cr650_currencycode || 'USD',
-            parseFloat(ar?.cr650_conversionrate) || null
-        ),
-
         // Oracle PO from AR Reports, then loading plan order number
         oraclePO: ar?.cr650_salesordernumber || lpAggregates.orderNumber || "N/A",
 
@@ -787,13 +840,13 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         containerType: containerInfo.type,
         containerQty: contQty,
 
-        // Shipment month: prefer the user-entered value on cr650_dcl_masters.cr650_shipmentmonth
-        // (set in Upload Center). When that field is empty, fall back to deriving the month from
-        // cr650_dcl_shipped_orderses.cr650_shipment_date. Both branches normalize to uppercase
-        // ("JAN".."DEC") so the report's month filter (which compares against getMonthName output)
-        // stays in sync regardless of how the value got into Dataverse.
-        shipmentMonth: (dcl?.cr650_shipmentmonth ? String(dcl.cr650_shipmentmonth).trim().toUpperCase() : "")
-            || (shipped?.cr650_shipment_date ? extractMonth(shipped.cr650_shipment_date) : "N/A"),
+        // Shipment Month: strictly the value set in Upload Center on
+        // cr650_dcl_masters.cr650_shipmentmonth. Per stakeholder: do NOT fall
+        // back to the shipment date - if it wasn't set in Upload Center, it
+        // shows N/A so the gap is visible (and the row can be filtered out).
+        shipmentMonth: dcl?.cr650_shipmentmonth
+            ? String(dcl.cr650_shipmentmonth).trim().toUpperCase()
+            : "N/A",
         _shipmentDate: shipped?.cr650_shipment_date || null,
 
         // Shipping line: DCL master has cr650_shippingline, shipped orders as fallback
@@ -822,10 +875,9 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         // Editable General Remarks (Summary only) - persisted on DCL Master (cr650_accrual_remarks)
         generalRemarks: dcl?.[REMARKS_FIELD] || '',
 
-        // Actual Freight from Discounts/Charges table (cr650_dcl_discounts_chargeses)
-        // Stored as a per-container value (see note above); Total Freight is derived
-        // in applyFormulas as freightCharges * containerQty.
-        freightChargesOriginal: extraCharges.freightChargesOriginal || '',
+        // Vendor Freight: per-container, sourced from Upload Center docs
+        // (or legacy discounts/charges fallback - see useDocFreight above).
+        freightChargesOriginal: freightOriginalDisplay,
         freightCharges: freightPerContainer,
 
         // Supplier from DCL Masters (party field)
@@ -851,7 +903,19 @@ function buildMergedRecord(dcl, ar, shipped, docCharges, extraCharges, customerI
         _currency: 'AED',
         _conversionRate: 1,
         // Preserve the original native currency for audit/debug purposes.
-        _nativeCurrency: currency
+        _nativeCurrency: currency,
+        // Per-charge-type currency lists - drives the dynamic Actual+Converted
+        // column collapse in getActiveColumns(). Stored as arrays (not Sets)
+        // because the cache serialises records via JSON.stringify.
+        _chargeCurrencies: {
+            cooCharges: Array.from(docCharges._currencyByCharge?.cooCharges || []),
+            mofaCharges: Array.from(docCharges._currencyByCharge?.mofaCharges || []),
+            docCharges: Array.from(docCharges._currencyByCharge?.docCharges || []),
+            insuranceCharges: Array.from(docCharges._currencyByCharge?.insuranceCharges || []),
+            inspectionCharges: Array.from(docCharges._currencyByCharge?.inspectionCharges || []),
+            otherCharges: Array.from(docCharges._currencyByCharge?.otherCharges || []),
+            freightCharges: Array.from(freightCurrencies)
+        }
     };
 }
 
@@ -871,6 +935,9 @@ function formatOriginalAmounts(entries) {
 function extractDocCharges(docs) {
   // All amounts are normalised to AED at extraction so mixed-currency
   // charges (e.g. one COO in USD + one COO in SAR) can be summed correctly.
+  // Vendor Freight is now sourced from cr650_dcl_documents too (per stakeholder
+  // unification on "Vendor Freight Invoice" doc names) - the discounts/charges
+  // table is only consulted as a legacy fallback.
   const charges = {
     cooCharges: 0,
     mofaCharges: 0,
@@ -878,6 +945,7 @@ function extractDocCharges(docs) {
     insuranceCharges: 0,
     inspectionCharges: 0,
     otherCharges: 0,
+    freightCharges: 0,
     expensesRemarks: ''
   };
 
@@ -888,7 +956,8 @@ function extractDocCharges(docs) {
     documentationCharges: [],
     insuranceCharges: [],
     inspectionCharges: [],
-    otherCharges: []
+    otherCharges: [],
+    freightCharges: []
   };
 
   const otherRemarkParts = [];
@@ -919,6 +988,11 @@ function extractDocCharges(docs) {
     } else if (type.includes("inspection")) {
       charges.inspectionCharges += amount;
       originals.inspectionCharges.push(entry);
+    } else if (type.includes("freight")) {
+      // Vendor Freight Invoice / any doc whose name contains "freight".
+      // Per stakeholder: this amount is per-container (not total invoice).
+      charges.freightCharges += amount;
+      originals.freightCharges.push(entry);
     } else if (type.includes("system invoice") || type.includes("sys invoice")) {
       // System invoices are not an accrual line
     } else {
@@ -939,16 +1013,33 @@ function extractDocCharges(docs) {
   charges.insuranceChargesOriginal = formatOriginalAmounts(originals.insuranceCharges);
   charges.inspectionChargesOriginal = formatOriginalAmounts(originals.inspectionCharges);
   charges.otherChargesOriginal = formatOriginalAmounts(originals.otherCharges);
+  charges.freightChargesOriginal = formatOriginalAmounts(originals.freightCharges);
+
+  // Per-row currency sets used by the dynamic-column-collapse logic in
+  // getActiveColumns(). One Set per converted-charge key so the render layer
+  // can decide whether to show the Actual + Converted pair or collapse it.
+  charges._currencyByCharge = {
+    cooCharges: new Set(originals.cooCharges.map(e => (e.currency || '').toUpperCase()).filter(Boolean)),
+    mofaCharges: new Set(originals.mofaCharges.map(e => (e.currency || '').toUpperCase()).filter(Boolean)),
+    docCharges: new Set(originals.documentationCharges.map(e => (e.currency || '').toUpperCase()).filter(Boolean)),
+    insuranceCharges: new Set(originals.insuranceCharges.map(e => (e.currency || '').toUpperCase()).filter(Boolean)),
+    inspectionCharges: new Set(originals.inspectionCharges.map(e => (e.currency || '').toUpperCase()).filter(Boolean)),
+    otherCharges: new Set(originals.otherCharges.map(e => (e.currency || '').toUpperCase()).filter(Boolean)),
+    freightCharges: new Set(originals.freightCharges.map(e => (e.currency || '').toUpperCase()).filter(Boolean))
+  };
 
   return charges;
 }
 
 function extractDiscountCharges(discCharges) {
-  // Amounts normalised to AED at extraction.
+  // Amounts normalised to AED at extraction. Kept as a LEGACY fallback only:
+  // the canonical freight source is now the Upload Center document
+  // (cr650_dcl_documents). See buildMergedRecord for the merge logic.
   const result = {
     freightCharges: 0,
     flexiBagsCharges: 0,
-    otherCharges: 0
+    otherCharges: 0,
+    _freightCurrencies: new Set()
   };
 
   const freightOriginals = [];
@@ -964,6 +1055,7 @@ function extractDiscountCharges(discCharges) {
     if (type.includes("freight")) {
       result.freightCharges += amount;
       freightOriginals.push({ amount: rawAmount, currency: currency });
+      if (currency) result._freightCurrencies.add(currency.toUpperCase());
     } else if (type.includes("flexi")) {
       result.flexiBagsCharges += amount;
     } else if (type.includes("insurance") || type.includes("documentation") || type.includes("other")) {
@@ -1329,6 +1421,10 @@ function applyFilters() {
     });
     
     state.currentPage = 1;
+    // Filter changes can flip a charge-type from uniform-currency to mixed,
+    // which adds/removes the matching "Actual Charges" column. Re-render the
+    // header row first so it stays in sync with the body cells.
+    initializeTableHeaders();
     calculatePagination();
     renderTable();
     updateStats();
