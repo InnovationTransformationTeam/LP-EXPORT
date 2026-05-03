@@ -1113,6 +1113,10 @@ body {
    compute Total Freight = unit cost x Container Qty correctly.
    ========================= */
 .ea-freight-notice {
+  /* The parent .row-grid is a 12-column CSS grid; span every column so the
+     reminder lays out on its own row right under the Document Type field
+     (instead of being squeezed into the next 1-column cell). */
+  grid-column: 1 / -1;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -1125,8 +1129,8 @@ body {
   border-left: 4px solid var(--info-blue);
   box-shadow: var(--shadow-sm);
   color: var(--dark-gray);
-  font-size: 0.875rem;
-  line-height: 1.45;
+  font-size: 0.9rem;
+  line-height: 1.5;
   animation: ea-freight-notice-in 180ms ease-out;
 }
 
