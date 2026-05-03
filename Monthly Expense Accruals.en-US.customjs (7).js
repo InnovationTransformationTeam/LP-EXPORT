@@ -198,7 +198,7 @@ const COLUMN_DEFINITIONS = [
 
     // From AR Reports (cr650_dcl_ar_reports) with DCL Masters fallback
     { key: 'customerPO', header: 'Customer PO Number', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customerponumber / cr650_po_customer_number', width: 150, type: 'text' },
-    { key: 'shipmentMonth', header: 'Shipment Month', source: 'cr650_dcl_masters (cr650_shipmentmonth) → fallback to cr650_dcl_shipped_orderses (cr650_shipment_date)', field: 'cr650_shipmentmonth || extractMonth(cr650_shipment_date)', width: 120, type: 'month', transform: 'toMonth' },
+    { key: 'shipmentMonth', header: 'Shipment Month', source: 'cr650_dcl_masters', field: 'cr650_shipmentmonth (set in Upload Center)', width: 120, type: 'month', transform: 'toMonth' },
     { key: 'itemBrand', header: 'Item Brand', source: 'cr650_dcl_ar_reports', field: 'cr650_itemtype', width: 120, type: 'text' },
     { key: 'customerClass', header: 'Customer Class of Business', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customerclassofbusiness / cr650_cob', width: 180, type: 'text' },
     { key: 'customerNumber', header: 'Customer Number', source: 'cr650_dcl_ar_reports + cr650_dcl_masters', field: 'cr650_customernumber', width: 140, type: 'text' },
