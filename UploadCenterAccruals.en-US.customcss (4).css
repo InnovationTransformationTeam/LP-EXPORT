@@ -1104,6 +1104,13 @@ body {
   margin-left: 4px;
 }
 
+/* Document Type search input - sits between the label and the <select>
+   on new rows. Small gap below so the dropdown reads as a distinct field
+   even though they share the .field wrapper. */
+.doc-type-search {
+  margin-bottom: 6px;
+}
+
 /* =========================
    Freight unit-cost reminder
    Shown under the Document Type field whenever the user picks a

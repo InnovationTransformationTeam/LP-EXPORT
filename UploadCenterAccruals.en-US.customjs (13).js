@@ -1008,6 +1008,10 @@
         ` : `
           <div class="field">
             <label for="docType_${idx}">Document Type</label>
+            <input id="docTypeSearch_${idx}" type="search" class="ctrl doc-type-search"
+                   placeholder="🔍 Search document type..."
+                   aria-label="Search document type"
+                   autocomplete="off">
             <select id="docType_${idx}" name="docType" class="ctrl" required>
   ${buildDocTypeOptions(docLabel)}
 </select>
@@ -1079,12 +1083,55 @@
     const saveBtn = row.querySelector(".row-save");
     const typeSel = row.querySelector(`select#docType_${idx}`);
     const typeText = row.querySelector(`input#docType_${idx}`);
+    const typeSearch = row.querySelector(`#docTypeSearch_${idx}`);
     const chargeInput = row.querySelector(`#charge_${idx}`);
     const curSel = row.querySelector(`#currency_${idx}`);
     const remarksEl = row.querySelector(`#remarks_${idx}`);
     const urlInput = row.querySelector(`#docUrl_${idx}`);
     const fileInput = row.querySelector(`#upload_${idx}`);
     const urlOpen = row.querySelector(".url-open");
+
+    // Wire the search input - filters the docType <select> options as the
+    // user types. The empty placeholder always stays visible, and the
+    // currently-selected option is preserved even if it doesn't match the
+    // query (so the user doesn't lose their selection). Hidden on existing
+    // rows because the dropdown is replaced with a read-only text input.
+    if (typeSearch && typeSel) {
+      typeSearch.addEventListener("input", () => {
+        const q = typeSearch.value.trim().toLowerCase();
+        const selectedVal = typeSel.value;
+        let firstVisible = null;
+        Array.from(typeSel.options).forEach(opt => {
+          if (!opt.value) {
+            opt.hidden = false;
+            return;
+          }
+          const match = !q || opt.textContent.toLowerCase().includes(q);
+          opt.hidden = !match;
+          opt.style.display = match ? "" : "none";
+          if (match && !firstVisible) firstVisible = opt;
+        });
+        // If the current selection got filtered out, jump to the first
+        // visible match so the dropdown reflects what the user is searching
+        // for. dispatch 'change' so freight notice / system-invoice / cost
+        // breakdown / unique-type locks all stay in sync.
+        if (q && selectedVal) {
+          const cur = Array.from(typeSel.options).find(o => o.value === selectedVal);
+          if (cur && cur.hidden && firstVisible) {
+            typeSel.value = firstVisible.value;
+            typeSel.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        }
+      });
+      // Pressing Enter inside the search field jumps focus to the select so
+      // the user can navigate filtered options with the arrow keys.
+      typeSearch.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          typeSel.focus();
+        }
+      });
+    }
 
     // NEW: System Invoice combo elements
     const sysInvField = row.querySelector(".field--system-invoice");
