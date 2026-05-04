@@ -1143,19 +1143,35 @@ body {
   flex-shrink: 0;
 }
 
-.ea-combobox__input {
+/* Specificity bump: the upstream rule `.field input[type="text"]` (s=0,2,1)
+   adds its own 2px border, white fill, padding and 10px radius, which
+   produced a "box inside a box" look. Match its specificity and override
+   those properties so the input renders flat inside the combobox shell. */
+.ea-combobox__field input.ea-combobox__input,
+.field .ea-combobox input.ea-combobox__input {
   flex: 1;
   min-width: 0;
+  width: auto;
   border: 0;
   background: transparent;
-  padding: 8px 10px;
+  padding: 9px 10px;
+  border-radius: 0;
+  box-shadow: none;
   font-size: 0.95rem;
   color: var(--dark-gray);
   outline: none;
   font-family: inherit;
+  transition: none;
 }
 
-.ea-combobox__input::placeholder {
+.ea-combobox__field input.ea-combobox__input:focus,
+.field .ea-combobox input.ea-combobox__input:focus {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.ea-combobox__field input.ea-combobox__input::placeholder {
   color: var(--neutral-gray);
   font-style: normal;
 }
