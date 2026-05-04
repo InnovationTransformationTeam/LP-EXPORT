@@ -1007,15 +1007,27 @@
           </div>
         ` : `
           <div class="field">
-            <label for="docType_${idx}">Document Type</label>
-            <input id="docTypeSearch_${idx}" type="search" class="ctrl doc-type-search"
-                   placeholder="🔍 Search document type..."
-                   aria-label="Search document type"
-                   autocomplete="off">
-            <select id="docType_${idx}" name="docType" class="ctrl" required>
+            <label for="docTypeSearch_${idx}">Document Type</label>
+            <div class="ea-combobox" data-combo-idx="${idx}">
+              <div class="ea-combobox__field">
+                <i class="fas fa-search ea-combobox__icon" aria-hidden="true"></i>
+                <input id="docTypeSearch_${idx}" type="text"
+                       class="ea-combobox__input"
+                       placeholder="Search or select a document type..."
+                       autocomplete="off"
+                       role="combobox"
+                       aria-autocomplete="list"
+                       aria-expanded="false"
+                       aria-controls="docTypeListbox_${idx}">
+                <button type="button" class="ea-combobox__toggle" aria-label="Toggle list" tabindex="-1">
+                  <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                </button>
+              </div>
+              <ul id="docTypeListbox_${idx}" class="ea-combobox__list" role="listbox" hidden></ul>
+              <select id="docType_${idx}" name="docType" class="ea-combobox__hidden-select" required aria-hidden="true" tabindex="-1">
   ${buildDocTypeOptions(docLabel)}
 </select>
-
+            </div>
           </div>
         `}
 
@@ -1091,45 +1103,175 @@
     const fileInput = row.querySelector(`#upload_${idx}`);
     const urlOpen = row.querySelector(".url-open");
 
-    // Wire the search input - filters the docType <select> options as the
-    // user types. The empty placeholder always stays visible, and the
-    // currently-selected option is preserved even if it doesn't match the
-    // query (so the user doesn't lose their selection). Hidden on existing
-    // rows because the dropdown is replaced with a read-only text input.
-    if (typeSearch && typeSel) {
-      typeSearch.addEventListener("input", () => {
-        const q = typeSearch.value.trim().toLowerCase();
-        const selectedVal = typeSel.value;
-        let firstVisible = null;
-        Array.from(typeSel.options).forEach(opt => {
-          if (!opt.value) {
-            opt.hidden = false;
-            return;
+    // Searchable combobox for the Document Type dropdown.
+    // Filtering native <option> elements is unreliable across browsers
+    // (Chrome ignores display:none on options), so the visible UI is a
+    // custom listbox. The original <select> stays in the DOM as a hidden
+    // value carrier so every other piece of code that reads from
+    // `select[name="docType"]` keeps working unchanged. Selecting an item
+    // syncs the hidden select and fires `change` so handleTypeChange,
+    // unique-type locks, freight reminder, etc. all run as before.
+    const combo = row.querySelector(`.ea-combobox[data-combo-idx="${idx}"]`);
+    if (combo && typeSel && typeSearch) {
+      const listbox = combo.querySelector('.ea-combobox__list');
+      const toggleBtn = combo.querySelector('.ea-combobox__toggle');
+      let activeIdx = -1;
+      let lastQuery = "";
+
+      function comboGetOptions() {
+        return Array.from(typeSel.options).filter(o => o.value);
+      }
+
+      function comboRender(query) {
+        const q = (query || "").trim().toLowerCase();
+        lastQuery = q;
+        const opts = comboGetOptions();
+        const filtered = opts.filter(o => !q || o.textContent.toLowerCase().includes(q));
+
+        listbox.innerHTML = "";
+
+        if (filtered.length === 0) {
+          const li = d.createElement("li");
+          li.className = "ea-combobox__empty";
+          li.textContent = q
+            ? `No document types match "${query}"`
+            : "No document types available";
+          listbox.appendChild(li);
+          activeIdx = -1;
+          return;
+        }
+
+        filtered.forEach(opt => {
+          const li = d.createElement("li");
+          li.className = "ea-combobox__item";
+          li.setAttribute("role", "option");
+          li.dataset.value = opt.value;
+          li.dataset.label = opt.textContent;
+          li.textContent = opt.textContent;
+          if (opt.value === typeSel.value) {
+            li.classList.add("is-selected");
+            li.setAttribute("aria-selected", "true");
           }
-          const match = !q || opt.textContent.toLowerCase().includes(q);
-          opt.hidden = !match;
-          opt.style.display = match ? "" : "none";
-          if (match && !firstVisible) firstVisible = opt;
+          if (opt.disabled) {
+            li.classList.add("is-disabled");
+            li.setAttribute("aria-disabled", "true");
+            if (opt.title) li.title = opt.title;
+          }
+          // mousedown (not click) so it fires before the input loses focus
+          // and the click-outside handler closes the panel.
+          li.addEventListener("mousedown", (ev) => {
+            ev.preventDefault();
+            if (li.classList.contains("is-disabled")) return;
+            comboSelect(li.dataset.value, li.dataset.label);
+          });
+          listbox.appendChild(li);
         });
-        // If the current selection got filtered out, jump to the first
-        // visible match so the dropdown reflects what the user is searching
-        // for. dispatch 'change' so freight notice / system-invoice / cost
-        // breakdown / unique-type locks all stay in sync.
-        if (q && selectedVal) {
-          const cur = Array.from(typeSel.options).find(o => o.value === selectedVal);
-          if (cur && cur.hidden && firstVisible) {
-            typeSel.value = firstVisible.value;
-            typeSel.dispatchEvent(new Event("change", { bubbles: true }));
+
+        activeIdx = filtered.findIndex(o => o.value === typeSel.value);
+        comboSyncActive();
+      }
+
+      function comboSyncActive() {
+        const items = listbox.querySelectorAll(".ea-combobox__item");
+        items.forEach((it, i) => it.classList.toggle("is-active", i === activeIdx));
+        const activeItem = items[activeIdx];
+        if (activeItem) activeItem.scrollIntoView({ block: "nearest" });
+      }
+
+      function comboOpen() {
+        if (!listbox.hidden) return;
+        comboRender(typeSearch.value);
+        listbox.hidden = false;
+        typeSearch.setAttribute("aria-expanded", "true");
+      }
+
+      function comboClose() {
+        if (listbox.hidden) return;
+        listbox.hidden = true;
+        typeSearch.setAttribute("aria-expanded", "false");
+        activeIdx = -1;
+      }
+
+      function comboSelect(value, label) {
+        typeSel.value = value;
+        typeSearch.value = label;
+        // Fire native change so handleTypeChange, unique-type locks,
+        // freight reminder, system-invoice toggle, and cost breakdown all run.
+        typeSel.dispatchEvent(new Event("change", { bubbles: true }));
+        comboClose();
+      }
+
+      // Keep the input text in sync if anything programmatically sets typeSel.
+      function comboReflectFromSelect() {
+        if (!typeSel.value) {
+          typeSearch.value = "";
+          return;
+        }
+        const cur = Array.from(typeSel.options).find(o => o.value === typeSel.value);
+        if (cur) typeSearch.value = cur.textContent;
+      }
+      comboReflectFromSelect();
+
+      typeSearch.addEventListener("input", () => {
+        comboOpen();
+        comboRender(typeSearch.value);
+      });
+
+      typeSearch.addEventListener("focus", () => {
+        comboOpen();
+      });
+
+      typeSearch.addEventListener("keydown", (e) => {
+        const items = listbox.querySelectorAll(".ea-combobox__item:not(.is-disabled)");
+        const allItems = listbox.querySelectorAll(".ea-combobox__item");
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          if (listbox.hidden) comboOpen();
+          activeIdx = Math.min(allItems.length - 1, activeIdx + 1);
+          // skip disabled
+          while (allItems[activeIdx]?.classList.contains("is-disabled") && activeIdx < allItems.length - 1) {
+            activeIdx++;
           }
+          comboSyncActive();
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          activeIdx = Math.max(0, activeIdx - 1);
+          while (allItems[activeIdx]?.classList.contains("is-disabled") && activeIdx > 0) {
+            activeIdx--;
+          }
+          comboSyncActive();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          const item = allItems[activeIdx];
+          if (item && !item.classList.contains("is-disabled")) {
+            comboSelect(item.dataset.value, item.dataset.label);
+          }
+        } else if (e.key === "Escape") {
+          comboClose();
+        } else if (e.key === "Tab") {
+          comboClose();
         }
       });
-      // Pressing Enter inside the search field jumps focus to the select so
-      // the user can navigate filtered options with the arrow keys.
-      typeSearch.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          typeSel.focus();
+
+      toggleBtn.addEventListener("click", () => {
+        if (listbox.hidden) {
+          typeSearch.focus();
+          comboOpen();
+        } else {
+          comboClose();
         }
+      });
+
+      // Click outside the combobox closes the panel.
+      d.addEventListener("mousedown", (e) => {
+        if (!combo.contains(e.target)) comboClose();
+      });
+
+      // Re-render if unique-type locks change underneath us so disabled
+      // states stay accurate.
+      typeSel.addEventListener("change", () => {
+        if (!listbox.hidden) comboRender(typeSearch.value);
+        comboReflectFromSelect();
       });
     }
 
